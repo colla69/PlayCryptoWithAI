@@ -476,22 +476,47 @@ async function runSmokeTest(holdSeconds = 10) {
     }
 
     logger.info(`🔬 SMOKE TEST — ✅ BUY OK  ${symbol}  qty=${buyResult.qty ?? '?'}  price=$${price}`);
-    dashboardState.pushTrade({ ...buyResult, note: '🔬 smoke-test' });
+    const buyTrade = { ...buyResult, note: '🔬 smoke-test' };
+    dashboardState.pushTrade(buyTrade);
+    // Push the open position to the dashboard immediately so the positions panel
+    // shows the live trade during the hold period.
+    dashboardState.updatePrice(symbol, price);
+    const statusAfterBuy = await trader.getStatus();
+    dashboardState.updateStatus(statusAfterBuy, riskManager.getDailyStats());
+    pushEvent('trade', buyTrade);
+    pushEvent('cycle', dashboardState.getSummary());
 
-    // ── 4. Wait 10 seconds ───────────────────────────────────────────────────
-    await new Promise(r => setTimeout(r, holdSeconds * 1000));
+    // ── 4. Hold — refresh price every 3 s so the dashboard PnL updates live ──
+    const PRICE_REFRESH_MS = 3000;
+    let elapsed = 0;
+    let livePrice = price;
+    while (elapsed < holdSeconds * 1000) {
+      const step = Math.min(PRICE_REFRESH_MS, holdSeconds * 1000 - elapsed);
+      await new Promise(r => setTimeout(r, step));
+      elapsed += step;
+      try {
+        const latest = paperMode
+          ? Number((await fetchOHLCV(symbol, '1m', 2)).at(-1)?.close ?? livePrice)
+          : Number((await fetchTicker(symbol))?.last ?? (await fetchTicker(symbol))?.close ?? livePrice);
+        if (latest > 0) {
+          livePrice = latest;
+          dashboardState.updatePrice(symbol, livePrice);
+          pushEvent('prices', { [symbol]: livePrice });
+        }
+      } catch { /* ignore transient price fetch errors */ }
+    }
 
     // ── 5. SELL via same main trader ─────────────────────────────────────────
-    let sellPrice = price;
+    let sellPrice = livePrice;
     try {
       if (paperMode) {
         const c = await fetchOHLCV(symbol, '1m', 2);
-        sellPrice = Number(c.at(-1)?.close ?? price);
+        sellPrice = Number(c.at(-1)?.close ?? livePrice);
       } else {
         const t = await fetchTicker(symbol);
-        sellPrice = Number(t?.last ?? t?.close ?? price);
+        sellPrice = Number(t?.last ?? t?.close ?? livePrice);
       }
-    } catch { /* use entry price if fetch fails */ }
+    } catch { /* use last known price if fetch fails */ }
 
     const sellResult = await trader.execute(symbol, 'SELL', sellPrice, smokeRisk);
 
@@ -503,7 +528,13 @@ async function runSmokeTest(holdSeconds = 10) {
     const pnl = typeof sellResult.pnl === 'number' ? sellResult.pnl.toFixed(4) : 'n/a';
     logger.info(`🔬 SMOKE TEST — ✅ SELL OK  ${symbol}  price=$${sellPrice}  pnl=$${pnl}`);
     logger.info(`🔬 SMOKE TEST — ✅ PASSED — buy/sell pipeline is working correctly`);
-    dashboardState.pushTrade({ ...sellResult, note: '🔬 smoke-test' });
+    const sellTrade = { ...sellResult, note: '🔬 smoke-test' };
+    dashboardState.pushTrade(sellTrade);
+    // Clear the position from the dashboard after the SELL.
+    const statusAfterSell = await trader.getStatus();
+    dashboardState.updateStatus(statusAfterSell, riskManager.getDailyStats());
+    pushEvent('trade', sellTrade);
+    pushEvent('cycle', dashboardState.getSummary());
 
   } catch (err) {
     logger.error(`🔬 SMOKE TEST — ❌ FAILED: ${err.message}`);
