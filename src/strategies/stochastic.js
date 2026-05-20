@@ -6,9 +6,10 @@ export class StochasticStrategy {
   }
 
   analyze(candles) {
-    const highs = candles.map((c) => c.high);
-    const lows = candles.map((c) => c.low);
-    const closes = candles.map((c) => c.close);
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    const highs = closed.map((c) => c.high);
+    const lows = closed.map((c) => c.low);
+    const closes = closed.map((c) => c.close);
     const required = this.config.period + this.config.signalPeriod;
 
     if (closes.length < required) {

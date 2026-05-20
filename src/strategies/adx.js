@@ -17,11 +17,12 @@ export class ADXStrategy {
   }
 
   analyze(candles) {
-    const highs = candles.map((c) => c.high);
-    const lows = candles.map((c) => c.low);
-    const closes = candles.map((c) => c.close);
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    const highs = closed.map((c) => c.high);
+    const lows = closed.map((c) => c.low);
+    const closes = closed.map((c) => c.close);
 
-    if (candles.length < this.config.period * 2) {
+    if (closed.length < this.config.period * 2) {
       return { name: 'ADX', signal: 'HOLD', value: NaN, reason: `Not enough candles for ADX-${this.config.period}` };
     }
 
