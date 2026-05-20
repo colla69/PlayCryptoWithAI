@@ -621,7 +621,7 @@ async function runInitialSignals() {
 
 
 if (config.dashboard?.enabled) {
-  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest });
+  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV });
 }
 
 logStartup();

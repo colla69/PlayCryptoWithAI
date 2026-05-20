@@ -68,7 +68,7 @@ export function pushEvent(eventName, data) {
   }
 }
 
-export function startDashboardServer(port = 3001, { runSmokeTest } = {}) {
+export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles } = {}) {
   if (serverInstance) {
     return serverInstance;
   }
@@ -135,7 +135,8 @@ export function startDashboardServer(port = 3001, { runSmokeTest } = {}) {
       }
 
       const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 300, 60), 1000);
-      const candles = await fetchOHLCV(symbol, timeframe, parsedLimit);
+      const candleFetcher = fetchCandles ?? fetchOHLCV;
+      const candles = await candleFetcher(symbol, timeframe, parsedLimit);
       if (candles.length < 60) {
         return res.status(400).json({ error: 'Not enough candles returned' });
       }
