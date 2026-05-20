@@ -633,6 +633,8 @@ dashboardState.setActiveFilters({
   trailingStop: { enabled: (config.risk?.trailingStopPct ?? 0) > 0, pct: config.risk?.trailingStopPct ?? 0 },
 });
 await initializeHistoricalData();
+// Seed daily P&L from persisted history so the loss limit survives restarts
+riskManager.seedFromHistory(dashboardState.getSummary().trades);
 buildCorrelationMatrix();         // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
 await runSmokeTest();

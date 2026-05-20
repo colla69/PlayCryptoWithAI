@@ -24,6 +24,34 @@ export class RiskManager {
     this.midnightCheckId.unref?.();
   }
 
+  /**
+   * Seed today's P&L from persisted trade history so the daily loss limit
+   * survives bot restarts. Call this once after dashboardState is loaded.
+   * Only counts SELL trades that closed today (UTC date match).
+   *
+   * @param {Array<{side: string, pnl: number, timestamp: string}>} trades
+   */
+  seedFromHistory(trades = []) {
+    const todayKey = getDayKey();
+    const todayPnL = trades
+      .filter((t) => {
+        if (t.side !== 'SELL') return false;
+        const ts = t.timestamp ? getDayKey(new Date(t.timestamp)) : null;
+        return ts === todayKey;
+      })
+      .reduce((sum, t) => sum + Number(t.pnl ?? 0), 0);
+
+    if (todayPnL !== 0) {
+      this.dailyPnL = Number(todayPnL.toFixed(2));
+      this.tradesCount = trades.filter((t) => {
+        if (t.side !== 'SELL') return false;
+        const ts = t.timestamp ? getDayKey(new Date(t.timestamp)) : null;
+        return ts === todayKey;
+      }).length;
+      this.blocked = this.#dailyLossLimitExceeded();
+    }
+  }
+
   canTrade(symbol, decision, confidence, currentStatus = {}, minConfidenceOverride) {
     this.#checkDayRollover();
 
