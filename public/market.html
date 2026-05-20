@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>playAIStocks Market Charts</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --panel-muted: #21262d;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --green: #238636;
+      --green-bright: #3fb950;
+      --red: #da3633;
+      --red-bright: #f85149;
+      --blue: #1f6feb;
+      --gray: #6e7681;
+      --orange: #d29922;
+      --purple: #a371f7;
+      --shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    button, canvas { font: inherit; }
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(10px);
+      background: rgba(13, 17, 23, 0.92);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .title-block { min-width: 0; }
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .title-row h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+    }
+    .subtle {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 60vw;
+    }
+    .status-chip, .badge, .tab, .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+    }
+    .badge {
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .mode-paper { background: rgba(35, 134, 54, 0.18); color: #7ee787; border-color: rgba(35, 134, 54, 0.45); }
+    .mode-testnet { background: rgba(187, 128, 9, 0.18); color: #f2cc60; border-color: rgba(187, 128, 9, 0.45); }
+    .mode-live { background: rgba(31, 111, 235, 0.18); color: #79c0ff; border-color: rgba(31, 111, 235, 0.45); }
+    .status-chip {
+      gap: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .conn-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--gray);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.08);
+    }
+    .conn-dot.online { background: var(--green-bright); box-shadow: 0 0 12px rgba(63, 185, 80, 0.55); }
+    .conn-dot.offline { background: var(--red-bright); box-shadow: 0 0 12px rgba(248, 81, 73, 0.45); }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+    }
+    .controls {
+      padding: 16px 18px;
+      margin-bottom: 16px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tab, .btn {
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: 0.2s ease;
+    }
+    .tab:hover, .btn:hover { border-color: #8b949e; }
+    .tab.active {
+      background: var(--blue);
+      border-color: rgba(88, 166, 255, 0.4);
+      color: #fff;
+    }
+    .tab.subtle-tab.active {
+      background: rgba(31, 111, 235, 0.18);
+      color: #79c0ff;
+    }
+    .btn {
+      background: var(--panel-muted);
+      color: var(--text);
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2.2fr) minmax(320px, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .chart-panel { min-width: 0; }
+    .side-panel { min-width: 0; }
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(180deg, rgba(22,27,34,0.98), rgba(13,17,23,0.98));
+    }
+    .main-wrap { height: 560px; }
+    .subcharts {
+      display: grid;
+      gap: 0;
+      border-top: 1px solid var(--border);
+    }
+    .subchart {
+      position: relative;
+      padding: 12px 16px 16px;
+      border-top: 1px solid rgba(48, 54, 61, 0.5);
+      background: rgba(13, 17, 23, 0.24);
+    }
+    .subchart:first-child { border-top: 0; }
+    .subchart-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      border-radius: 12px;
+      background: rgba(13, 17, 23, 0.6);
+    }
+    #priceCanvas { height: 528px; }
+    #rsiCanvas, #macdCanvas, #stochCanvas { height: 148px; }
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      min-width: 190px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(13, 17, 23, 0.96);
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      line-height: 1.45;
+      z-index: 5;
+    }
+    .hidden { display: none !important; }
+    .tooltip strong { display: block; margin-bottom: 4px; }
+    .indicator-list {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+    .metric-card {
+      background: var(--panel-muted);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    .metric-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .metric-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .metric-value {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .metric-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .pill.buy { background: rgba(35, 134, 54, 0.18); color: #7ee787; border-color: rgba(35, 134, 54, 0.35); }
+    .pill.sell { background: rgba(218, 54, 51, 0.18); color: #ffa198; border-color: rgba(218, 54, 51, 0.35); }
+    .pill.hold { background: rgba(110, 118, 129, 0.18); color: #c9d1d9; border-color: rgba(110, 118, 129, 0.35); }
+    .bar {
+      height: 8px;
+      background: rgba(110,118,129,0.18);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      transition: width 0.25s ease;
+    }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .mini-stat {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(13, 17, 23, 0.45);
+      border: 1px solid rgba(48, 54, 61, 0.65);
+    }
+    .mini-label {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .mini-value {
+      font-size: 14px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+    .empty-state {
+      padding: 20px;
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      color: var(--muted);
+      text-align: center;
+      background: rgba(13, 17, 23, 0.35);
+    }
+    .error-banner {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(218, 54, 51, 0.14);
+      border: 1px solid rgba(218, 54, 51, 0.35);
+      color: #ffa198;
+      font-size: 13px;
+    }
+    @media (max-width: 1180px) {
+      .layout { grid-template-columns: 1fr; }
+      .subtle { max-width: 100%; }
+    }
+    @media (max-width: 820px) {
+      .header-inner, .container { padding: 16px; }
+      .title-row h1 { font-size: 24px; }
+      .main-wrap { height: 480px; }
+      #priceCanvas { height: 448px; }
+      .mini-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-left">
+        <a class="back-link" href="/">← Dashboard</a>
+        <div class="title-block">
+          <div class="title-row">
+            <h1>📈 Market Charts</h1>
+            <span id="modeBadge" class="badge mode-paper">PAPER</span>
+          </div>
+          <div id="statusText" class="subtle">Loading market state…</div>
+        </div>
+      </div>
+      <div class="status-chip">
+        <span id="connDot" class="conn-dot"></span>
+        <span id="connText">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="panel controls">
+      <div class="toolbar">
+        <div id="symbolTabs" class="tabs"></div>
+        <div class="toolbar-right">
+          <div id="timeframeTabs" class="tabs"></div>
+          <button id="refreshBtn" class="btn" type="button">Refresh</button>
+        </div>
+      </div>
+      <div class="status-row">
+        <span id="chartMeta">Waiting for candles…</span>
+        <span id="chartSource">Source timeframe: 15m</span>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section class="panel chart-panel">
+        <div class="panel-header">
+          <span id="chartTitle">Market</span>
+          <span id="chartUpdated" style="color:var(--muted);font-size:12px;">—</span>
+        </div>
+        <div class="canvas-wrap main-wrap" id="priceWrap">
+          <canvas id="priceCanvas"></canvas>
+          <div id="tooltip" class="tooltip hidden"></div>
+        </div>
+        <div class="subcharts">
+          <div class="subchart">
+            <div class="subchart-label">RSI</div>
+            <canvas id="rsiCanvas"></canvas>
+          </div>
+          <div class="subchart">
+            <div class="subchart-label">MACD</div>
+            <canvas id="macdCanvas"></canvas>
+          </div>
+          <div class="subchart">
+            <div class="subchart-label">Stochastic</div>
+            <canvas id="stochCanvas"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel side-panel">
+        <div class="panel-header">
+          <span>Live Indicators</span>
+          <span id="indicatorUpdated" style="color:var(--muted);font-size:12px;">Waiting for SSE…</span>
+        </div>
+        <div id="indicatorPanel" class="indicator-list">
+          <div class="empty-state">Waiting for strategy updates…</div>
+        </div>
+      </aside>
+    </div>
+
+    <div id="errorBanner" class="error-banner hidden"></div>
+  </main>
+
+  <script>
+    const DEFAULT_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT'];
+    const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+    const state = {
+      symbols: [],
+      summary: null,
+      activeSymbol: 'BTC/USDT',
+      selectedTimeframe: '15m',
+      baseTimeframe: '15m',
+      rawCandles: [],
+      candles: [],
+      timeframeNote: '',
+      overlays: {
+        ema12: [],
+        ema26: [],
+        bb: [],
+        rsi: [],
+        macd: [],
+        stochastic: [],
+      },
+      lastUpdatedAt: null,
+      lastIndicatorAt: null,
+      loadingCandles: false,
+      source: null,
+      hoverIndex: null,
+      hoverPoint: null,
+      refreshToken: 0,
+      renderQueued: false,
+      mainLayout: null,
+      latestAutoRefreshAt: 0,
+    };
+
+    const els = {
+      modeBadge: document.getElementById('modeBadge'),
+      statusText: document.getElementById('statusText'),
+      connDot: document.getElementById('connDot'),
+      connText: document.getElementById('connText'),
+      symbolTabs: document.getElementById('symbolTabs'),
+      timeframeTabs: document.getElementById('timeframeTabs'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      chartMeta: document.getElementById('chartMeta'),
+      chartSource: document.getElementById('chartSource'),
+      chartTitle: document.getElementById('chartTitle'),
+      chartUpdated: document.getElementById('chartUpdated'),
+      indicatorUpdated: document.getElementById('indicatorUpdated'),
+      indicatorPanel: document.getElementById('indicatorPanel'),
+      priceWrap: document.getElementById('priceWrap'),
+      priceCanvas: document.getElementById('priceCanvas'),
+      rsiCanvas: document.getElementById('rsiCanvas'),
+      macdCanvas: document.getElementById('macdCanvas'),
+      stochCanvas: document.getElementById('stochCanvas'),
+      tooltip: document.getElementById('tooltip'),
+      errorBanner: document.getElementById('errorBanner'),
+    };
+
+    init();
+
+    async function init() {
+      bindEvents();
+      renderSymbolTabs();
+      renderTimeframeTabs();
+      scheduleRender();
+      await loadInitialState();
+      connectSSE();
+      window.addEventListener('resize', scheduleRender);
+    }
+
+    function bindEvents() {
+      els.refreshBtn.addEventListener('click', () => loadCandles(state.activeSymbol));
+      els.priceCanvas.addEventListener('mousemove', onMainMouseMove);
+      els.priceCanvas.addEventListener('mouseleave', () => {
+        state.hoverIndex = null;
+        state.hoverPoint = null;
+        hideTooltip();
+        scheduleRender();
+      });
+    }
+
+    async function loadInitialState() {
+      try {
+        const [summary, symbols] = await Promise.all([
+          fetchJSON('/api/status').catch(() => ({})),
+          fetchJSON('/api/symbols').catch(() => DEFAULT_SYMBOLS),
+        ]);
+
+        applySummary(summary || {});
+        state.symbols = Array.isArray(symbols) && symbols.length ? symbols : DEFAULT_SYMBOLS;
+        if (!state.symbols.includes(state.activeSymbol)) {
+          state.activeSymbol = state.symbols[0] || 'BTC/USDT';
+        }
+        renderSymbolTabs();
+        renderTimeframeTabs();
+        await loadCandles(state.activeSymbol);
+      } catch (error) {
+        showError(error.message || 'Failed to initialize market page');
+      }
+    }
+
+    async function fetchJSON(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`Request failed: ${res.status}`);
+      }
+      return res.json();
+    }
+
+    function applySummary(summary) {
+      state.summary = summary || {};
+      state.lastIndicatorAt = summary?.lastUpdatedAt || state.lastIndicatorAt;
+      updateMode(summary?.mode || 'PAPER');
+      updateStatusText(summary);
+      renderIndicatorPanel();
+    }
+
+    function updateMode(mode) {
+      const safeMode = String(mode || 'PAPER').toUpperCase();
+      els.modeBadge.textContent = safeMode;
+      els.modeBadge.className = 'badge ' + (safeMode === 'LIVE'
+        ? 'mode-live'
+        : safeMode === 'TESTNET'
+          ? 'mode-testnet'
+          : 'mode-paper');
+    }
+
+    function updateStatusText(summary) {
+      const symbolCount = state.symbols.length || Object.keys(summary?.prices || {}).length || DEFAULT_SYMBOLS.length;
+      const updated = summary?.lastUpdatedAt ? relativeTime(summary.lastUpdatedAt) : 'waiting for first cycle';
+      const cycles = Number(summary?.cycleCount || 0);
+      const parts = [
+        `${symbolCount || DEFAULT_SYMBOLS.length} symbols`,
+        `${cycles} cycles`,
+        `Updated ${updated}`,
+      ];
+      els.statusText.textContent = parts.join(' · ');
+      els.indicatorUpdated.textContent = summary?.lastUpdatedAt ? `Updated ${relativeTime(summary.lastUpdatedAt)}` : 'Waiting for SSE…';
+    }
+
+    function renderSymbolTabs() {
+      const symbols = state.symbols.length ? state.symbols : DEFAULT_SYMBOLS;
+      els.symbolTabs.innerHTML = symbols.map((symbol) => {
+        const active = symbol === state.activeSymbol ? ' active' : '';
+        return `<button type="button" class="tab${active}" data-symbol="${escapeHtml(symbol)}">${escapeHtml(symbol)}</button>`;
+      }).join('');
+      Array.from(els.symbolTabs.querySelectorAll('[data-symbol]')).forEach((button) => {
+        button.addEventListener('click', () => {
+          const nextSymbol = button.getAttribute('data-symbol');
+          if (!nextSymbol || nextSymbol === state.activeSymbol) return;
+          state.activeSymbol = nextSymbol;
+          state.hoverIndex = null;
+          hideTooltip();
+          renderSymbolTabs();
+          loadCandles(nextSymbol);
+          renderIndicatorPanel();
+        });
+      });
+    }
+
+    function renderTimeframeTabs() {
+      els.timeframeTabs.innerHTML = TIMEFRAMES.map((timeframe) => {
+        const active = timeframe === state.selectedTimeframe ? ' active' : '';
+        return `<button type="button" class="tab subtle-tab${active}" data-timeframe="${timeframe}">${timeframe}</button>`;
+      }).join('');
+      Array.from(els.timeframeTabs.querySelectorAll('[data-timeframe]')).forEach((button) => {
+        button.addEventListener('click', () => {
+          const next = button.getAttribute('data-timeframe');
+          if (!next || next === state.selectedTimeframe) return;
+          state.selectedTimeframe = next;
+          state.hoverIndex = null;
+          hideTooltip();
+          renderTimeframeTabs();
+          rebuildDerivedData();
+        });
+      });
+    }
+
+    async function loadCandles(symbol, options = {}) {
+      if (!symbol) return;
+      const { silent = false } = options;
+      const token = ++state.refreshToken;
+      state.loadingCandles = true;
+      if (!silent) {
+        els.chartMeta.textContent = `Loading ${symbol} candles…`;
+      }
+      clearError();
+
+      try {
+        const payload = await fetchJSON(`/api/candles?symbol=${encodeURIComponent(symbol)}`);
+        if (token !== state.refreshToken) return;
+        state.rawCandles = sanitizeCandles(payload?.candles || []);
+        state.lastUpdatedAt = Date.now();
+        rebuildDerivedData();
+      } catch (error) {
+        if (token !== state.refreshToken) return;
+        state.rawCandles = [];
+        rebuildDerivedData();
+        showError(error.message || `Failed to load candles for ${symbol}`);
+      } finally {
+        if (token === state.refreshToken) {
+          state.loadingCandles = false;
+        }
+      }
+    }
+
+    function sanitizeCandles(candles) {
+      return (Array.isArray(candles) ? candles : [])
+        .map((candle) => ({
+          timestamp: Number(candle.timestamp),
+          open: Number(candle.open),
+          high: Number(candle.high),
+          low: Number(candle.low),
+          close: Number(candle.close),
+          volume: Number(candle.volume),
+        }))
+        .filter((candle) => Number.isFinite(candle.timestamp) && Number.isFinite(candle.open) && Number.isFinite(candle.high) && Number.isFinite(candle.low) && Number.isFinite(candle.close) && Number.isFinite(candle.volume))
+        .sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    function rebuildDerivedData() {
+      const transformed = transformCandlesForTimeframe(state.rawCandles, state.baseTimeframe, state.selectedTimeframe);
+      state.candles = transformed.candles;
+      state.timeframeNote = transformed.note;
+      const closes = state.candles.map((c) => c.close);
+      const highs = state.candles.map((c) => c.high);
+      const lows = state.candles.map((c) => c.low);
+      state.overlays = {
+        ema12: calcEMA(closes, 12),
+        ema26: calcEMA(closes, 26),
+        bb: calcBollingerBands(closes, 20, 2),
+        rsi: calcRSI(closes, 14),
+        macd: calcMACD(closes, 12, 26, 9),
+        stochastic: calcStochastic(highs, lows, closes, 14, 3),
+      };
+      updateMeta();
+      renderIndicatorPanel();
+      scheduleRender();
+    }
+
+    function updateMeta() {
+      const count = state.candles.length;
+      els.chartTitle.textContent = `${state.activeSymbol} · ${state.selectedTimeframe}`;
+      els.chartMeta.textContent = count
+        ? `${count} candles · ${state.selectedTimeframe}${state.timeframeNote ? ` · ${state.timeframeNote}` : ''}`
+        : `No candles available for ${state.activeSymbol}`;
+      els.chartSource.textContent = `Source timeframe: ${state.baseTimeframe}`;
+      const lastCandle = state.candles.at(-1);
+      els.chartUpdated.textContent = lastCandle
+        ? `Last candle ${formatDateTime(lastCandle.timestamp, state.selectedTimeframe)}`
+        : 'Waiting for candle data';
+    }
+
+    function transformCandlesForTimeframe(candles, baseTimeframe, targetTimeframe) {
+      if (!candles.length) return { candles: [], note: '' };
+      const baseMinutes = timeframeToMinutes(baseTimeframe);
+      const targetMinutes = timeframeToMinutes(targetTimeframe);
+      if (!baseMinutes || !targetMinutes || targetMinutes === baseMinutes) {
+        return { candles: candles.slice(), note: '' };
+      }
+      if (targetMinutes < baseMinutes) {
+        return {
+          candles: candles.slice(),
+          note: `${targetTimeframe} unavailable from stored ${baseTimeframe} feed`,
+        };
+      }
+      if (targetMinutes % baseMinutes !== 0) {
+        return {
+          candles: candles.slice(),
+          note: `Using ${baseTimeframe} source candles`,
+        };
+      }
+      return {
+        candles: aggregateCandles(candles, targetMinutes),
+        note: `Aggregated from ${baseTimeframe}`,
+      };
+    }
+
+    function aggregateCandles(candles, targetMinutes) {
+      const bucketMs = targetMinutes * 60 * 1000;
+      const bucketMap = new Map();
+      candles.forEach((candle) => {
+        const bucket = Math.floor(candle.timestamp / bucketMs) * bucketMs;
+        const existing = bucketMap.get(bucket);
+        if (!existing) {
+          bucketMap.set(bucket, { ...candle, timestamp: bucket });
+          return;
+        }
+        existing.high = Math.max(existing.high, candle.high);
+        existing.low = Math.min(existing.low, candle.low);
+        existing.close = candle.close;
+        existing.volume += candle.volume;
+      });
+      return Array.from(bucketMap.values()).sort((a, b) => a.timestamp - b.timestamp).slice(-200);
+    }
+
+    function connectSSE() {
+      const source = new EventSource('/api/events');
+      state.source = source;
+      source.addEventListener('open', () => setConnection(true));
+      source.addEventListener('cycle', (event) => {
+        setConnection(true);
+        try {
+          const summary = JSON.parse(event.data);
+          applySummary(summary);
+          if (!state.symbols.length) {
+            state.symbols = DEFAULT_SYMBOLS;
+            renderSymbolTabs();
+          }
+          const now = Date.now();
+          if (state.activeSymbol && now - state.latestAutoRefreshAt > 1500) {
+            state.latestAutoRefreshAt = now;
+            void loadCandles(state.activeSymbol, { silent: true });
+          }
+        } catch (error) {
+          showError(error.message || 'Failed to parse SSE cycle event');
+        }
+      });
+      source.addEventListener('error', () => setConnection(false));
+    }
+
+    function setConnection(connected) {
+      els.connDot.classList.toggle('online', connected);
+      els.connDot.classList.toggle('offline', !connected);
+      els.connText.textContent = connected ? 'Live SSE connected' : 'Reconnecting…';
+    }
+
+    function renderIndicatorPanel() {
+      const results = state.summary?.latestStrategyResults?.[state.activeSymbol] || [];
+      const latestDecision = (state.summary?.signalFeed || []).find((entry) => entry.symbol === state.activeSymbol);
+      const currentPrice = Number(state.summary?.prices?.[state.activeSymbol]);
+
+      if (!results.length) {
+        els.indicatorPanel.innerHTML = '<div class="empty-state">Waiting for strategy output for this symbol…</div>';
+        return;
+      }
+
+      const map = Object.fromEntries(results.map((entry) => [entry.name, entry]));
+      const rsi = map.RSI || {};
+      const ema = map.EMA || {};
+      const macd = map.MACD || {};
+      const bb = map.BollingerBands || {};
+      const stoch = map.Stochastic || {};
+      const decision = latestDecision?.decision || 'HOLD';
+      const decisionClass = decision === 'BUY' ? 'buy' : decision === 'SELL' ? 'sell' : 'hold';
+      const confidencePct = Math.max(0, Math.min(100, Math.round(Number(latestDecision?.confidence || 0) * 100)));
+      const rsiValue = Number(rsi.value);
+      const fastEMA = Number(ema.fastEMA);
+      const slowEMA = Number(ema.slowEMA);
+      const macdHist = Number(macd.histogram);
+      const bbUpper = Number(bb.upper);
+      const bbLower = Number(bb.lower);
+      const bbPrice = Number(bb.bbPrice);
+      const bbPct = Number.isFinite(bbUpper) && Number.isFinite(bbLower) && Number.isFinite(bbPrice) && bbUpper !== bbLower
+        ? Math.max(0, Math.min(100, ((bbPrice - bbLower) / (bbUpper - bbLower)) * 100))
+        : 0;
+      const stochK = Number(stoch.k);
+      const stochD = Number(stoch.d);
+      const arrow = Number.isFinite(fastEMA) && Number.isFinite(slowEMA)
+        ? fastEMA > slowEMA ? '↑ Bullish crossover' : fastEMA < slowEMA ? '↓ Bearish crossover' : '→ Flat'
+        : '—';
+
+      els.indicatorPanel.innerHTML = `
+        <div class="metric-card">
+          <div class="metric-head">
+            <div>
+              <div class="metric-title">${escapeHtml(state.activeSymbol)}</div>
+              <div class="metric-sub">Current signal posture</div>
+            </div>
+            <span class="pill ${decisionClass}">${decision}</span>
+          </div>
+          <div class="metric-value">${formatPrice(currentPrice)}</div>
+          <div class="metric-sub">Confidence ${confidencePct}%</div>
+          <div class="bar"><div class="bar-fill" style="width:${confidencePct}%;background:${signalColor(decision)}"></div></div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-head">
+            <span class="metric-title">RSI</span>
+            <span class="metric-value" style="font-size:18px;color:${rsiColor(rsiValue)}">${formatNumber(rsiValue, 1)}</span>
+          </div>
+          <div class="metric-sub">Oversold below 30 · Overbought above 70</div>
+          <div class="bar"><div class="bar-fill" style="width:${clamp(rsiValue, 0, 100)}%;background:${rsiColor(rsiValue)}"></div></div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-head">
+            <span class="metric-title">EMA Fast / Slow</span>
+            <span class="metric-value" style="font-size:16px;color:${Number.isFinite(fastEMA) && Number.isFinite(slowEMA) ? fastEMA >= slowEMA ? 'var(--green-bright)' : 'var(--red-bright)' : 'var(--muted)'}">${escapeHtml(arrow)}</span>
+          </div>
+          <div class="mini-grid">
+            <div class="mini-stat"><div class="mini-label">EMA 12</div><div class="mini-value">${formatPrice(fastEMA)}</div></div>
+            <div class="mini-stat"><div class="mini-label">EMA 26</div><div class="mini-value">${formatPrice(slowEMA)}</div></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-head">
+            <span class="metric-title">MACD</span>
+            <span class="metric-value" style="font-size:18px;color:${Number.isFinite(macdHist) ? macdHist >= 0 ? 'var(--green-bright)' : 'var(--red-bright)' : 'var(--muted)'}">${formatSigned(macdHist, 4)}</span>
+          </div>
+          <div class="mini-grid">
+            <div class="mini-stat"><div class="mini-label">MACD</div><div class="mini-value">${formatSigned(Number(macd.macd), 4)}</div></div>
+            <div class="mini-stat"><div class="mini-label">Signal</div><div class="mini-value">${formatSigned(Number(macd.signalLine), 4)}</div></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-head">
+            <span class="metric-title">Bollinger Bands</span>
+            <span class="metric-value" style="font-size:18px;color:var(--purple)">${formatNumber(bbPct, 0)}%</span>
+          </div>
+          <div class="metric-sub">Position inside lower/upper band</div>
+          <div class="bar"><div class="bar-fill" style="width:${clamp(bbPct, 0, 100)}%;background:var(--purple)"></div></div>
+          <div class="mini-grid">
+            <div class="mini-stat"><div class="mini-label">Upper</div><div class="mini-value">${formatPrice(bbUpper)}</div></div>
+            <div class="mini-stat"><div class="mini-label">Middle</div><div class="mini-value">${formatPrice(Number(bb.middle))}</div></div>
+            <div class="mini-stat"><div class="mini-label">Lower</div><div class="mini-value">${formatPrice(bbLower)}</div></div>
+            <div class="mini-stat"><div class="mini-label">Price</div><div class="mini-value">${formatPrice(bbPrice)}</div></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-head">
+            <span class="metric-title">Stochastic</span>
+            <span class="metric-value" style="font-size:18px;color:${stochColor(stochK)}">K ${formatNumber(stochK, 1)}</span>
+          </div>
+          <div class="bar"><div class="bar-fill" style="width:${clamp(stochK, 0, 100)}%;background:${stochColor(stochK)}"></div></div>
+          <div class="mini-grid">
+            <div class="mini-stat"><div class="mini-label">%K</div><div class="mini-value">${formatNumber(stochK, 2)}</div></div>
+            <div class="mini-stat"><div class="mini-label">%D</div><div class="mini-value">${formatNumber(stochD, 2)}</div></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function scheduleRender() {
+      if (state.renderQueued) return;
+      state.renderQueued = true;
+      requestAnimationFrame(() => {
+        state.renderQueued = false;
+        drawAllCharts();
+      });
+    }
+
+    function drawAllCharts() {
+      drawPriceChart();
+      drawRSIChart();
+      drawMACDChart();
+      drawStochChart();
+    }
+
+    function drawPriceChart() {
+      const { ctx, width, height } = prepareCanvas(els.priceCanvas);
+      clearCanvas(ctx, width, height);
+      drawChartBackground(ctx, width, height);
+
+      const candles = state.candles;
+      if (!candles.length) {
+        drawEmptyCanvas(ctx, width, height, 'No candle data');
+        return;
+      }
+
+      const left = 14;
+      const top = 12;
+      const right = width - 72;
+      const bottom = height - 28;
+      const volumeHeight = (bottom - top) * 0.2;
+      const priceBottom = bottom - volumeHeight - 8;
+      const priceHeight = priceBottom - top;
+      const plotWidth = Math.max(1, right - left);
+      const step = plotWidth / candles.length;
+      const candleWidth = Math.max(3, step * 0.62);
+      const ema12 = state.overlays.ema12;
+      const ema26 = state.overlays.ema26;
+      const bb = state.overlays.bb;
+      const highValues = [];
+      const lowValues = [];
+      candles.forEach((candle, index) => {
+        highValues.push(candle.high);
+        lowValues.push(candle.low);
+        const band = bb[index];
+        if (band && Number.isFinite(band.upper) && Number.isFinite(band.lower)) {
+          highValues.push(band.upper);
+          lowValues.push(band.lower);
+        }
+      });
+      const minPrice = Math.min(...lowValues);
+      const maxPrice = Math.max(...highValues);
+      const paddedRange = Math.max((maxPrice - minPrice) * 0.08, maxPrice * 0.002 || 1);
+      const priceMin = minPrice - paddedRange;
+      const priceMax = maxPrice + paddedRange;
+      const volumeMax = Math.max(...candles.map((c) => c.volume), 1);
+
+      const priceToY = (value) => priceBottom - ((value - priceMin) / (priceMax - priceMin || 1)) * priceHeight;
+      const xForIndex = (index) => left + step * index + step / 2;
+
+      state.mainLayout = { left, right, top, bottom, step, candleWidth, xForIndex, priceToY, candles };
+
+      drawGrid(ctx, left, right, top, priceBottom, 5);
+      drawYAxisLabels(ctx, priceMin, priceMax, right + 8, top, priceBottom);
+      drawXAxisLabels(ctx, candles, left, right, bottom, xForIndex);
+      drawVolumeBars(ctx, candles, left, bottom, priceBottom + 8, step, candleWidth, volumeMax, volumeHeight);
+      drawLineSeries(ctx, candles, ema12, xForIndex, priceToY, '#1f6feb', 2);
+      drawLineSeries(ctx, candles, ema26, xForIndex, priceToY, '#d29922', 2);
+      drawBandSeries(ctx, candles, bb, xForIndex, priceToY);
+
+      candles.forEach((candle, index) => {
+        const x = xForIndex(index);
+        const wickColor = candle.close >= candle.open ? '#3fb950' : '#f85149';
+        ctx.strokeStyle = wickColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, priceToY(candle.high));
+        ctx.lineTo(x, priceToY(candle.low));
+        ctx.stroke();
+
+        const openY = priceToY(candle.open);
+        const closeY = priceToY(candle.close);
+        const bodyTop = Math.min(openY, closeY);
+        const bodyHeight = Math.max(1.5, Math.abs(closeY - openY));
+        ctx.fillStyle = wickColor;
+        ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+      });
+
+      drawLegend(ctx, [
+        ['EMA 12', '#1f6feb'],
+        ['EMA 26', '#d29922'],
+        ['Bollinger', '#a371f7'],
+      ]);
+      drawMainHover(ctx, priceBottom, bottom, candles);
+    }
+
+    function drawRSIChart() {
+      const { ctx, width, height } = prepareCanvas(els.rsiCanvas);
+      clearCanvas(ctx, width, height);
+      drawChartBackground(ctx, width, height);
+      const values = state.overlays.rsi;
+      if (!state.candles.length) {
+        drawEmptyCanvas(ctx, width, height, 'No RSI data');
+        return;
+      }
+      const layout = { left: 10, right: width - 58, top: 10, bottom: height - 20 };
+      drawGrid(ctx, layout.left, layout.right, layout.top, layout.bottom, 4);
+      drawAxisRangeLabels(ctx, [0, 30, 70, 100], layout, 0, 100);
+      drawThresholdLine(ctx, layout, 70, 0, 100, '#f85149');
+      drawThresholdLine(ctx, layout, 30, 0, 100, '#3fb950');
+      drawGenericLine(ctx, values, layout, 0, 100, '#58a6ff');
+      highlightLastValue(ctx, values, layout, 0, 100, '#58a6ff', 'RSI');
+      drawHoverValue(ctx, values, layout, 0, 100);
+    }
+
+    function drawMACDChart() {
+      const { ctx, width, height } = prepareCanvas(els.macdCanvas);
+      clearCanvas(ctx, width, height);
+      drawChartBackground(ctx, width, height);
+      const series = state.overlays.macd;
+      if (!state.candles.length) {
+        drawEmptyCanvas(ctx, width, height, 'No MACD data');
+        return;
+      }
+      const layout = { left: 10, right: width - 58, top: 10, bottom: height - 20 };
+      const values = series.flatMap((entry) => entry ? [entry.macd, entry.signal, entry.histogram] : []).filter(Number.isFinite);
+      const min = Math.min(...values, 0);
+      const max = Math.max(...values, 0);
+      const pad = Math.max((max - min) * 0.12, 0.0001);
+      const rangeMin = min - pad;
+      const rangeMax = max + pad;
+      drawGrid(ctx, layout.left, layout.right, layout.top, layout.bottom, 4);
+      drawAxisRangeLabels(ctx, [rangeMin, 0, rangeMax], layout, rangeMin, rangeMax);
+      drawThresholdLine(ctx, layout, 0, rangeMin, rangeMax, 'rgba(201,209,217,0.35)', false);
+      drawMacdHistogram(ctx, series, layout, rangeMin, rangeMax);
+      drawGenericLine(ctx, series.map((entry) => entry?.macd ?? null), layout, rangeMin, rangeMax, '#58a6ff');
+      drawGenericLine(ctx, series.map((entry) => entry?.signal ?? null), layout, rangeMin, rangeMax, '#d29922');
+      drawHoverMacd(ctx, series, layout, rangeMin, rangeMax);
+    }
+
+    function drawStochChart() {
+      const { ctx, width, height } = prepareCanvas(els.stochCanvas);
+      clearCanvas(ctx, width, height);
+      drawChartBackground(ctx, width, height);
+      const series = state.overlays.stochastic;
+      if (!state.candles.length) {
+        drawEmptyCanvas(ctx, width, height, 'No stochastic data');
+        return;
+      }
+      const layout = { left: 10, right: width - 58, top: 10, bottom: height - 20 };
+      drawGrid(ctx, layout.left, layout.right, layout.top, layout.bottom, 4);
+      drawAxisRangeLabels(ctx, [0, 20, 80, 100], layout, 0, 100);
+      drawThresholdLine(ctx, layout, 80, 0, 100, '#f85149');
+      drawThresholdLine(ctx, layout, 20, 0, 100, '#3fb950');
+      drawGenericLine(ctx, series.map((entry) => entry?.k ?? null), layout, 0, 100, '#58a6ff');
+      drawGenericLine(ctx, series.map((entry) => entry?.d ?? null), layout, 0, 100, '#d29922');
+      drawHoverStoch(ctx, series, layout);
+    }
+
+    function prepareCanvas(canvas) {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(1, Math.round(rect.width * dpr));
+      const height = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
+      return { ctx, width: rect.width, height: rect.height };
+    }
+
+    function clearCanvas(ctx, width, height) {
+      ctx.clearRect(0, 0, width, height);
+    }
+
+    function drawChartBackground(ctx, width, height) {
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, 'rgba(13,17,23,0.95)');
+      gradient.addColorStop(1, 'rgba(22,27,34,0.9)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function drawEmptyCanvas(ctx, width, height, label) {
+      ctx.fillStyle = 'rgba(139,148,158,0.9)';
+      ctx.font = '13px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, width / 2, height / 2);
+    }
+
+    function drawGrid(ctx, left, right, top, bottom, lines) {
+      ctx.strokeStyle = 'rgba(48, 54, 61, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (let i = 0; i <= lines; i += 1) {
+        const y = top + ((bottom - top) / lines) * i;
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    function drawYAxisLabels(ctx, min, max, x, top, bottom) {
+      ctx.fillStyle = 'rgba(139, 148, 158, 0.95)';
+      ctx.font = '12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.textAlign = 'left';
+      for (let i = 0; i <= 5; i += 1) {
+        const y = top + ((bottom - top) / 5) * i;
+        const value = max - ((max - min) / 5) * i;
+        ctx.fillText(formatPrice(value), x, y + 4);
+      }
+    }
+
+    function drawXAxisLabels(ctx, candles, left, right, bottom, xForIndex) {
+      ctx.fillStyle = 'rgba(139, 148, 158, 0.95)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      const labelCount = Math.min(6, candles.length);
+      for (let i = 0; i < labelCount; i += 1) {
+        const index = Math.min(candles.length - 1, Math.round((candles.length - 1) * (i / Math.max(1, labelCount - 1))));
+        const candle = candles[index];
+        const x = clamp(xForIndex(index), left + 10, right - 10);
+        ctx.fillText(formatAxisTime(candle.timestamp, state.selectedTimeframe), x, bottom - 6);
+      }
+    }
+
+    function drawVolumeBars(ctx, candles, left, bottom, top, step, candleWidth, volumeMax, volumeHeight) {
+      candles.forEach((candle, index) => {
+        const x = left + step * index + step / 2;
+        const barHeight = (candle.volume / (volumeMax || 1)) * volumeHeight;
+        ctx.fillStyle = candle.close >= candle.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)';
+        ctx.fillRect(x - candleWidth / 2, bottom - barHeight, candleWidth, Math.max(1, barHeight));
+      });
+      ctx.strokeStyle = 'rgba(48, 54, 61, 0.9)';
+      ctx.beginPath();
+      ctx.moveTo(left, top - 4);
+      ctx.lineTo(left + step * candles.length, top - 4);
+      ctx.stroke();
+    }
+
+    function drawLineSeries(ctx, candles, values, xForIndex, yForValue, color, width) {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      let started = false;
+      values.forEach((value, index) => {
+        if (!Number.isFinite(value)) return;
+        const x = xForIndex(index);
+        const y = yForValue(value);
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+    }
+
+    function drawBandSeries(ctx, candles, bands, xForIndex, yForValue) {
+      ['upper', 'middle', 'lower'].forEach((key) => {
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(163, 113, 247, 0.9)';
+        ctx.lineWidth = key === 'middle' ? 1.5 : 1;
+        ctx.setLineDash([6, 4]);
+        let started = false;
+        bands.forEach((band, index) => {
+          const value = band?.[key];
+          if (!Number.isFinite(value)) return;
+          const x = xForIndex(index);
+          const y = yForValue(value);
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    }
+
+    function drawLegend(ctx, items) {
+      ctx.font = '12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.textAlign = 'left';
+      let x = 18;
+      items.forEach(([label, color]) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, 14, 10, 10);
+        ctx.fillStyle = 'rgba(201, 209, 217, 0.95)';
+        ctx.fillText(label, x + 16, 23);
+        x += ctx.measureText(label).width + 36;
+      });
+    }
+
+    function drawMainHover(ctx, priceBottom, bottom, candles) {
+      if (!Number.isInteger(state.hoverIndex) || !state.mainLayout) return;
+      const candle = candles[state.hoverIndex];
+      if (!candle) return;
+      const x = state.mainLayout.xForIndex(state.hoverIndex);
+      const y = state.mainLayout.priceToY(candle.close);
+      ctx.strokeStyle = 'rgba(201, 209, 217, 0.4)';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, state.mainLayout.top);
+      ctx.lineTo(x, bottom);
+      ctx.moveTo(state.mainLayout.left, y);
+      ctx.lineTo(state.mainLayout.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#79c0ff';
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawAxisRangeLabels(ctx, values, layout, min, max) {
+      ctx.fillStyle = 'rgba(139, 148, 158, 0.95)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.textAlign = 'left';
+      values.forEach((value) => {
+        const y = valueToY(value, layout, min, max);
+        ctx.fillText(formatCompact(value), layout.right + 6, y + 4);
+      });
+    }
+
+    function drawThresholdLine(ctx, layout, value, min, max, color, dashed = true) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.setLineDash(dashed ? [6, 4] : []);
+      const y = valueToY(value, layout, min, max);
+      ctx.beginPath();
+      ctx.moveTo(layout.left, y);
+      ctx.lineTo(layout.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawGenericLine(ctx, values, layout, min, max, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let started = false;
+      values.forEach((value, index) => {
+        if (!Number.isFinite(value)) return;
+        const x = layout.left + ((layout.right - layout.left) / Math.max(1, values.length - 1)) * index;
+        const y = valueToY(value, layout, min, max);
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+    }
+
+    function drawMacdHistogram(ctx, series, layout, min, max) {
+      const width = (layout.right - layout.left) / Math.max(1, series.length);
+      series.forEach((entry, index) => {
+        const value = entry?.histogram;
+        if (!Number.isFinite(value)) return;
+        const x = layout.left + width * index + width * 0.15;
+        const y = valueToY(value, layout, min, max);
+        const zeroY = valueToY(0, layout, min, max);
+        ctx.fillStyle = value >= 0 ? 'rgba(63,185,80,0.7)' : 'rgba(248,81,73,0.7)';
+        ctx.fillRect(x, Math.min(y, zeroY), Math.max(1, width * 0.7), Math.max(1, Math.abs(zeroY - y)));
+      });
+    }
+
+    function highlightLastValue(ctx, values, layout, min, max, color, label) {
+      const index = findLastFiniteIndex(values);
+      if (index < 0) return;
+      const value = values[index];
+      const x = layout.left + ((layout.right - layout.left) / Math.max(1, values.length - 1)) * index;
+      const y = valueToY(value, layout, min, max);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(201, 209, 217, 0.95)';
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${label} ${formatNumber(value, 1)}`, layout.right - 2, layout.top + 12);
+    }
+
+    function drawHoverValue(ctx, values, layout, min, max) {
+      if (!Number.isInteger(state.hoverIndex)) return;
+      const value = values[state.hoverIndex];
+      if (!Number.isFinite(value)) return;
+      const x = layout.left + ((layout.right - layout.left) / Math.max(1, values.length - 1)) * state.hoverIndex;
+      const y = valueToY(value, layout, min, max);
+      ctx.fillStyle = '#79c0ff';
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawHoverMacd(ctx, series, layout, min, max) {
+      if (!Number.isInteger(state.hoverIndex)) return;
+      const entry = series[state.hoverIndex];
+      if (!entry) return;
+      [['macd', '#58a6ff'], ['signal', '#d29922']].forEach(([key, color]) => {
+        const value = entry[key];
+        if (!Number.isFinite(value)) return;
+        const x = layout.left + ((layout.right - layout.left) / Math.max(1, series.length - 1)) * state.hoverIndex;
+        const y = valueToY(value, layout, min, max);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawHoverStoch(ctx, series, layout) {
+      if (!Number.isInteger(state.hoverIndex)) return;
+      const entry = series[state.hoverIndex];
+      if (!entry) return;
+      [['k', '#58a6ff'], ['d', '#d29922']].forEach(([key, color]) => {
+        const value = entry[key];
+        if (!Number.isFinite(value)) return;
+        const x = layout.left + ((layout.right - layout.left) / Math.max(1, series.length - 1)) * state.hoverIndex;
+        const y = valueToY(value, layout, 0, 100);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function valueToY(value, layout, min, max) {
+      return layout.bottom - ((value - min) / (max - min || 1)) * (layout.bottom - layout.top);
+    }
+
+    function onMainMouseMove(event) {
+      if (!state.mainLayout || !state.candles.length) return;
+      const rect = els.priceCanvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const relative = clamp(x - state.mainLayout.left, 0, state.mainLayout.right - state.mainLayout.left);
+      const index = clamp(Math.floor(relative / state.mainLayout.step), 0, state.candles.length - 1);
+      state.hoverIndex = index;
+      state.hoverPoint = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      showTooltip(index, event.clientX - rect.left, event.clientY - rect.top);
+      scheduleRender();
+    }
+
+    function showTooltip(index, x, y) {
+      const candle = state.candles[index];
+      if (!candle) return hideTooltip();
+      const macd = state.overlays.macd[index] || {};
+      const stoch = state.overlays.stochastic[index] || {};
+      const rsi = state.overlays.rsi[index];
+      els.tooltip.innerHTML = `
+        <strong>${formatDateTime(candle.timestamp, state.selectedTimeframe)}</strong>
+        O ${formatPrice(candle.open)} · H ${formatPrice(candle.high)}<br>
+        L ${formatPrice(candle.low)} · C ${formatPrice(candle.close)}<br>
+        V ${formatCompact(candle.volume)} · RSI ${formatNumber(rsi, 1)}<br>
+        MACD ${formatSigned(macd.macd, 3)} · Hist ${formatSigned(macd.histogram, 3)}<br>
+        Stoch ${formatNumber(stoch.k, 1)} / ${formatNumber(stoch.d, 1)}
+      `;
+      els.tooltip.classList.remove('hidden');
+      const pad = 16;
+      const maxLeft = els.priceWrap.clientWidth - els.tooltip.offsetWidth - 8;
+      const maxTop = els.priceWrap.clientHeight - els.tooltip.offsetHeight - 8;
+      els.tooltip.style.left = `${clamp(x + pad, 8, maxLeft)}px`;
+      els.tooltip.style.top = `${clamp(y + pad, 8, maxTop)}px`;
+    }
+
+    function hideTooltip() {
+      els.tooltip.classList.add('hidden');
+    }
+
+    function calcSMA(values, period) {
+      const result = new Array(values.length).fill(null);
+      if (period <= 0) return result;
+      let sum = 0;
+      for (let i = 0; i < values.length; i += 1) {
+        const value = Number(values[i]);
+        if (!Number.isFinite(value)) continue;
+        sum += value;
+        if (i >= period) {
+          sum -= Number(values[i - period]) || 0;
+        }
+        if (i >= period - 1) {
+          result[i] = sum / period;
+        }
+      }
+      return result;
+    }
+
+    function calcEMA(values, period) {
+      const result = new Array(values.length).fill(null);
+      if (period <= 0 || values.length < period) return result;
+      const multiplier = 2 / (period + 1);
+      let seed = 0;
+      for (let i = 0; i < period; i += 1) {
+        seed += Number(values[i]) || 0;
+      }
+      let ema = seed / period;
+      result[period - 1] = ema;
+      for (let i = period; i < values.length; i += 1) {
+        const value = Number(values[i]);
+        if (!Number.isFinite(value)) continue;
+        ema = ((value - ema) * multiplier) + ema;
+        result[i] = ema;
+      }
+      return result;
+    }
+
+    function calcBollingerBands(closes, period = 20, stdDevMult = 2) {
+      const middle = calcSMA(closes, period);
+      return closes.map((_, index) => {
+        if (index < period - 1 || !Number.isFinite(middle[index])) return null;
+        const window = closes.slice(index - period + 1, index + 1).map(Number);
+        const avg = middle[index];
+        const variance = window.reduce((sum, value) => sum + ((value - avg) ** 2), 0) / period;
+        const deviation = Math.sqrt(variance) * stdDevMult;
+        return {
+          upper: avg + deviation,
+          middle: avg,
+          lower: avg - deviation,
+        };
+      });
+    }
+
+    function calcRSI(closes, period = 14) {
+      const result = new Array(closes.length).fill(null);
+      if (closes.length <= period) return result;
+      let gains = 0;
+      let losses = 0;
+      for (let i = 1; i <= period; i += 1) {
+        const diff = Number(closes[i]) - Number(closes[i - 1]);
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      let avgGain = gains / period;
+      let avgLoss = losses / period;
+      result[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + (avgGain / avgLoss)));
+      for (let i = period + 1; i < closes.length; i += 1) {
+        const diff = Number(closes[i]) - Number(closes[i - 1]);
+        const gain = diff > 0 ? diff : 0;
+        const loss = diff < 0 ? -diff : 0;
+        avgGain = ((avgGain * (period - 1)) + gain) / period;
+        avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+        result[i] = avgLoss === 0 ? 100 : 100 - (100 / (1 + (avgGain / avgLoss)));
+      }
+      return result;
+    }
+
+    function calcMACD(closes, fast = 12, slow = 26, signal = 9) {
+      const fastEMA = calcEMA(closes, fast);
+      const slowEMA = calcEMA(closes, slow);
+      const macd = closes.map((_, index) => Number.isFinite(fastEMA[index]) && Number.isFinite(slowEMA[index]) ? fastEMA[index] - slowEMA[index] : null);
+      const compact = macd.filter(Number.isFinite);
+      const signalCompact = calcEMA(compact, signal);
+      const result = new Array(closes.length).fill(null);
+      let compactIndex = 0;
+      for (let i = 0; i < macd.length; i += 1) {
+        if (!Number.isFinite(macd[i])) continue;
+        const signalValue = signalCompact[compactIndex];
+        result[i] = {
+          macd: macd[i],
+          signal: Number.isFinite(signalValue) ? signalValue : null,
+          signalLine: Number.isFinite(signalValue) ? signalValue : null,
+          histogram: Number.isFinite(signalValue) ? macd[i] - signalValue : null,
+        };
+        compactIndex += 1;
+      }
+      return result;
+    }
+
+    function calcStochastic(highs, lows, closes, period = 14, signalPeriod = 3) {
+      const kValues = new Array(closes.length).fill(null);
+      const dValues = new Array(closes.length).fill(null);
+      for (let i = period - 1; i < closes.length; i += 1) {
+        const high = Math.max(...highs.slice(i - period + 1, i + 1).map(Number));
+        const low = Math.min(...lows.slice(i - period + 1, i + 1).map(Number));
+        const close = Number(closes[i]);
+        kValues[i] = high === low ? 50 : ((close - low) / (high - low)) * 100;
+      }
+      for (let i = period + signalPeriod - 2; i < closes.length; i += 1) {
+        const window = kValues.slice(i - signalPeriod + 1, i + 1).filter(Number.isFinite);
+        if (window.length === signalPeriod) {
+          dValues[i] = window.reduce((sum, value) => sum + value, 0) / signalPeriod;
+        }
+      }
+      return closes.map((_, index) => ({
+        k: Number.isFinite(kValues[index]) ? kValues[index] : null,
+        d: Number.isFinite(dValues[index]) ? dValues[index] : null,
+      }));
+    }
+
+    function timeframeToMinutes(timeframe) {
+      const match = String(timeframe || '').match(/^(\d+)([mhd])$/i);
+      if (!match) return 0;
+      const amount = Number(match[1]);
+      const unit = match[2].toLowerCase();
+      if (unit === 'm') return amount;
+      if (unit === 'h') return amount * 60;
+      if (unit === 'd') return amount * 1440;
+      return 0;
+    }
+
+    function findLastFiniteIndex(values) {
+      for (let i = values.length - 1; i >= 0; i -= 1) {
+        if (Number.isFinite(values[i])) return i;
+      }
+      return -1;
+    }
+
+    function formatPrice(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      if (Math.abs(number) >= 10000) return number.toLocaleString('en-US', { maximumFractionDigits: 0 });
+      if (Math.abs(number) >= 100) return number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      if (Math.abs(number) >= 1) return number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+      if (Math.abs(number) >= 0.01) return number.toFixed(4);
+      return number.toFixed(6);
+    }
+
+    function formatCompact(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      return Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(number);
+    }
+
+    function formatNumber(value, digits = 2) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(digits) : '—';
+    }
+
+    function formatSigned(value, digits = 2) {
+      const number = Number(value);
+      return Number.isFinite(number) ? `${number >= 0 ? '+' : ''}${number.toFixed(digits)}` : '—';
+    }
+
+    function formatAxisTime(timestamp, timeframe) {
+      const date = new Date(timestamp);
+      if (timeframe.endsWith('d')) {
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function formatDateTime(timestamp, timeframe) {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: timeframe.endsWith('d') ? undefined : '2-digit',
+        minute: timeframe.endsWith('d') ? undefined : '2-digit',
+      });
+    }
+
+    function relativeTime(value) {
+      const timestamp = new Date(value).getTime();
+      if (!Number.isFinite(timestamp)) return 'just now';
+      const diff = Math.max(0, Date.now() - timestamp);
+      const seconds = Math.round(diff / 1000);
+      if (seconds < 60) return `${seconds}s ago`;
+      const minutes = Math.round(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.round(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      return `${Math.round(hours / 24)}d ago`;
+    }
+
+    function showError(message) {
+      els.errorBanner.textContent = message;
+      els.errorBanner.classList.remove('hidden');
+    }
+
+    function clearError() {
+      els.errorBanner.classList.add('hidden');
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function signalColor(signal) {
+      return signal === 'BUY' ? 'var(--green-bright)' : signal === 'SELL' ? 'var(--red-bright)' : 'var(--gray)';
+    }
+
+    function rsiColor(value) {
+      return !Number.isFinite(value) ? 'var(--muted)' : value < 30 ? 'var(--green-bright)' : value > 70 ? 'var(--red-bright)' : '#79c0ff';
+    }
+
+    function stochColor(value) {
+      return !Number.isFinite(value) ? 'var(--muted)' : value < 20 ? 'var(--green-bright)' : value > 80 ? 'var(--red-bright)' : '#79c0ff';
+    }
+  </script>
+</body>
+</html>

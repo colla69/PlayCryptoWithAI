@@ -1,0 +1,20 @@
+node_modules/
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Runtime / generated data
+logs/
+data/candles/
+data/dashboard_persist.json
+
+# Large backtest / scan artifacts (reproducible, not source)
+data/*.json
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.iml

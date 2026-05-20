@@ -1,0 +1,24 @@
+{
+  "name": "playAIStocks",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js",
+    "paper": "PAPER_MODE=true node src/main.js",
+    "backtest": "node src/backtest.js",
+    "test": "node --test src/tests/*.test.js",
+    "test:connection": "node src/scripts/testConnection.js",
+    "start:testnet": "BINANCE_TESTNET=true PAPER_MODE=false node src/main.js",
+    "download-history": "node src/scripts/downloadHistory.js",
+    "optimize": "node src/scripts/optimizeStrategies.js"
+  },
+  "dependencies": {
+    "ccxt": "latest",
+    "dotenv": "latest",
+    "express": "^5.2.1",
+    "node-telegram-bot-api": "^0.67.0",
+    "technicalindicators": "latest",
+    "winston": "latest"
+  }
+}
