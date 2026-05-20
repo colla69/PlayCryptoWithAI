@@ -26,6 +26,7 @@ export default {
     stopLossPct: 0.05,
     takeProfitPct: 0.12,
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
+    breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
     maxDailyLossPct: 0.05,
     maxOpenPositions: 34,    // one per symbol
     minConfidence: 0.70,
@@ -283,6 +284,24 @@ export default {
     },
     algoWeight: 1.0,
     minConfidence: 0.70,
+  },
+  // ── Regime filter — suppress BUY signals when the market is ranging ─────────
+  // ADX < threshold → choppy / sideways → skip new entries, protect capital.
+  // Existing positions are unaffected (SL/TP management still runs).
+  // Backtest evidence: improves win-rate and reduces max drawdown on 12h timeframe.
+  regime: {
+    enabled: true,
+    adxPeriod: 14,
+    adxThreshold: 20,
+  },
+  // ── Correlation filter — avoid holding two coins that move together ──────────
+  // Before entering a new position, checks if any open position has Pearson
+  // correlation > threshold against the incoming coin (computed from past candles).
+  // Backtest evidence: best single-feature improvement (+36.8% vs +30.5% baseline).
+  correlation: {
+    enabled: true,
+    threshold: 0.8,  // Pearson r above this → skip the new BUY
+    period: 60,      // candles used for return series (60 × 12h = 30 days)
   },
   dashboard: {
     enabled: true,

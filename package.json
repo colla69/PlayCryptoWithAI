@@ -7,11 +7,13 @@
     "start": "node src/main.js",
     "paper": "PAPER_MODE=true node src/main.js",
     "backtest": "node src/backtest.js",
+    "backtest:portfolio": "PAPER_MODE=true node src/scripts/portfolioBacktest.mjs",
     "test": "node --test src/tests/*.test.js",
     "test:connection": "node src/scripts/testConnection.js",
     "start:testnet": "BINANCE_TESTNET=true PAPER_MODE=false node src/main.js",
     "download-history": "node src/scripts/downloadHistory.js",
-    "optimize": "node src/scripts/optimizeStrategies.js"
+    "optimize": "node src/scripts/optimizeStrategies.js",
+    "compare": "PAPER_MODE=true node src/scripts/strategyComparison.mjs"
   },
   "dependencies": {
     "ccxt": "latest",

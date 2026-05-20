@@ -55,6 +55,15 @@ export class LiveTrader {
 
       await this.#updateTrailingStop(symbol, currentPrice);
 
+      // Break-even: once price rises enough above entry, lock stop at entry price
+      const bePct = Number(this.config.breakEvenTriggerPct ?? 0);
+      if (bePct > 0 && position.stopLoss < position.entryPrice) {
+        if (currentPrice >= position.entryPrice * (1 + bePct)) {
+          position.stopLoss = position.entryPrice;
+          logger.info(`[LIVE] ${symbol}: break-even stop locked at ${position.entryPrice}`);
+        }
+      }
+
       if (currentPrice <= position.stopLoss) {
         const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
           ? 'trailing_stop'

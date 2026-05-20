@@ -18,6 +18,7 @@ import {
   getRegistryMeta,
 } from './strategies/index.js';
 import logger from './utils/logger.js';
+import { isMarketTrending } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 
 const signalConfig = config.signals;
@@ -129,6 +130,60 @@ const trader = paperMode
   : new LiveTrader(config.risk);
 const riskManager = new RiskManager(config.risk);
 
+// ── Correlation filter state ───────────────────────────────────────────────────
+// Rebuilt after candle init and after each cycle so it always reflects recent data.
+let correlationMatrix = {};
+
+function pearsonCorrelation(x, y) {
+  const n = Math.min(x.length, y.length);
+  if (n < 5) return 0;
+  const xs = x.slice(-n);
+  const ys = y.slice(-n);
+  const meanX = xs.reduce((s, v) => s + v, 0) / n;
+  const meanY = ys.reduce((s, v) => s + v, 0) / n;
+  let num = 0, denomX = 0, denomY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - meanX, dy = ys[i] - meanY;
+    num += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+  const denom = Math.sqrt(denomX * denomY);
+  return denom > 0 ? num / denom : 0;
+}
+
+function buildCorrelationMatrix() {
+  if (!config.correlation?.enabled) return;
+  const period = config.correlation?.period ?? 60;
+  const symbols = config.symbols;
+  const returnsBySym = {};
+
+  for (const sym of symbols) {
+    const candles = dashboardState.getCandles(sym);
+    if (candles.length < period + 1) continue;
+    const recent = candles.slice(-(period + 1));
+    const rets = [];
+    for (let i = 1; i < recent.length; i++) {
+      const prev = Number(recent[i - 1].close);
+      const curr = Number(recent[i].close);
+      if (prev > 0) rets.push(Math.log(curr / prev));
+    }
+    returnsBySym[sym] = rets;
+  }
+
+  const matrix = {};
+  for (const sym1 of symbols) {
+    matrix[sym1] = {};
+    for (const sym2 of symbols) {
+      if (sym1 === sym2) { matrix[sym1][sym2] = 1; continue; }
+      const r1 = returnsBySym[sym1];
+      const r2 = returnsBySym[sym2];
+      matrix[sym1][sym2] = r1 && r2 ? pearsonCorrelation(r1, r2) : 0;
+    }
+  }
+  correlationMatrix = matrix;
+}
+
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
 dashboardState.setStrategyRegistry(getRegistryMeta());
@@ -193,7 +248,39 @@ async function runCycle(symbol) {
     const currentPrice = Number(candles.at(-1).close);
     const currentStatus = await trader.getStatus();
     const symRisk = getRiskForSymbol(symbol);
-    const tradeCheck = riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
+
+    // ── Regime filter: block NEW buys in ranging markets ─────────────────────
+    // ADX computed from the same past candles the aggregator just used — no lookahead.
+    // Existing positions are unaffected; SL/TP management always runs.
+    const regimeCfg = config.regime;
+    let blockReason = null;
+    if (
+      result.decision === 'BUY' &&
+      regimeCfg?.enabled &&
+      !isMarketTrending(candles, regimeCfg.adxPeriod, regimeCfg.adxThreshold)
+    ) {
+      blockReason = `Ranging market (ADX < ${regimeCfg.adxThreshold})`;
+      logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+    }
+
+    // ── Correlation filter: block BUY if already holding a correlated coin ───
+    // Uses past log-returns only — no lookahead.
+    if (!blockReason && result.decision === 'BUY' && config.correlation?.enabled) {
+      const threshold = config.correlation.threshold ?? 0.8;
+      const correlated = currentStatus.positions.find((p) => {
+        const r = correlationMatrix[symbol]?.[p.symbol] ?? 0;
+        return r > threshold;
+      });
+      if (correlated) {
+        const r = (correlationMatrix[symbol]?.[correlated.symbol] ?? 0).toFixed(2);
+        blockReason = `Correlated with open ${correlated.symbol.replace('/USDT', '')} (r=${r})`;
+        logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+      }
+    }
+
+    const tradeCheck = blockReason
+      ? { allowed: false, reason: blockReason }
+      : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
     let tradeResult = null;
 
     if (!tradeCheck.allowed) {
@@ -223,14 +310,14 @@ async function runCycle(symbol) {
 
     dashboardState.updatePrice(symbol, currentPrice);
     // Include block reason in the signal so the dashboard can show why a BUY/SELL didn't execute
-    const blockReason = !tradeCheck.allowed && result.decision !== 'HOLD' ? tradeCheck.reason : null;
+    const signalBlockReason = !tradeCheck.allowed && result.decision !== 'HOLD' ? tradeCheck.reason : null;
     dashboardState.pushSignal({
       symbol,
       decision: result.decision,
       confidence: result.confidence,
       timestamp: Date.now(),
       reasons: buildSignalReasons(result.signals, result.decision),
-      blockReason,
+      blockReason: signalBlockReason,
       strategies: getStrategyNamesForSymbol(symbol),
       triggerHints: getStrategyTriggerHints(symbol),
     });
@@ -263,6 +350,8 @@ async function runAllSymbols() {
   cycleInProgress = true;
 
   try {
+    // Refresh correlation matrix each cycle — new candles may have arrived
+    buildCorrelationMatrix();
     await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
   } finally {
     cycleInProgress = false;
@@ -290,6 +379,14 @@ function logStartup() {
   );
   logger.info(
     `Signals: webhook=${signalConfig.webhook?.enabled ? `on:${webhookPort}` : 'off'} telegram=${signalConfig.telegram?.enabled ? 'on' : 'off'} algoWeight=${signalConfig.algoWeight} minConfidence=${signalConfig.minConfidence}`,
+  );
+  const rc = config.regime;
+  logger.info(
+    `Regime filter: ${rc?.enabled ? `ON — ADX(${rc.adxPeriod}) < ${rc.adxThreshold} blocks BUY signals` : 'OFF'}`,
+  );
+  const cc = config.correlation;
+  logger.info(
+    `Correlation filter: ${cc?.enabled ? `ON — r > ${cc.threshold} (${cc.period ?? 60} candle window) blocks BUY signals` : 'OFF'}`,
   );
 
   if (config.dashboard?.enabled) {
@@ -508,6 +605,7 @@ if (config.dashboard?.enabled) {
 
 logStartup();
 await initializeHistoricalData();
+buildCorrelationMatrix();         // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
 await runSmokeTest();
 await runAllSymbols();

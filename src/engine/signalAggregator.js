@@ -64,6 +64,10 @@ export class SignalAggregator {
     return this.config;
   }
 
+  destroy() {
+    signalBus.off('signal', this.handleExternalSignal);
+  }
+
   pruneExternalSignals(symbol) {
     const cutoff = Date.now() - EXTERNAL_SIGNAL_TTL_MS;
 

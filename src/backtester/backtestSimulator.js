@@ -21,7 +21,7 @@ export class BacktestSimulator {
     this.currentTimestamp = Number(timestamp ?? Date.now());
   }
 
-  execute(symbol, decision, price) {
+  execute(symbol, decision, price, opts = {}) {
     const normalizedSymbol = String(symbol);
     const currentPrice = roundPrice(Number(price));
     const riskResult = this.#checkRisk(normalizedSymbol, currentPrice);
@@ -34,7 +34,7 @@ export class BacktestSimulator {
     let tradeResult = null;
 
     if (decision === 'BUY') {
-      tradeResult = this.#openPosition(normalizedSymbol, currentPrice);
+      tradeResult = this.#openPosition(normalizedSymbol, currentPrice, opts.positionPct, opts);
     } else if (decision === 'SELL') {
       tradeResult = this.#closePosition(normalizedSymbol, currentPrice, 'strategy_sell');
     }
@@ -98,6 +98,15 @@ export class BacktestSimulator {
 
     this.checkAndUpdateTrailingStop(symbol, currentPrice);
 
+    const breakEvenTriggerPct = Number(this.config.breakEvenTriggerPct ?? 0);
+    if (
+      breakEvenTriggerPct > 0
+      && position.stopLoss < position.entryPrice
+      && currentPrice >= position.entryPrice * (1 + breakEvenTriggerPct)
+    ) {
+      position.stopLoss = roundPrice(position.entryPrice);
+    }
+
     if (currentPrice <= position.stopLoss) {
       const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
         ? 'trailing_stop'
@@ -112,12 +121,13 @@ export class BacktestSimulator {
     return null;
   }
 
-  #openPosition(symbol, price) {
+  #openPosition(symbol, price, positionPct, opts = {}) {
     if (this.positions.has(symbol)) {
       return null;
     }
 
-    const allocation = roundMoney(this.balance * Number(this.config.maxPositionPct ?? 0));
+    const pct = positionPct != null ? Number(positionPct) : Number(this.config.maxPositionPct ?? 0);
+    const allocation = roundMoney(this.balance * pct);
 
     if (allocation <= 0) {
       return null;
@@ -132,7 +142,13 @@ export class BacktestSimulator {
     }
 
     const feeAmount = roundMoney(qty * price * this.feePct);
-    const initialStopLoss = roundPrice(fillPrice * (1 - Number(this.config.stopLossPct ?? 0)));
+    const stopLossPrice = Number(opts.stopLossPrice);
+    const takeProfitPrice = Number(opts.takeProfitPrice);
+    const initialStopLoss = roundPrice(
+      Number.isFinite(stopLossPrice) && stopLossPrice > 0
+        ? stopLossPrice
+        : fillPrice * (1 - Number(this.config.stopLossPct ?? 0)),
+    );
     const trailingStopPct = Number(this.config.trailingStopPct);
     const position = {
       qty,
@@ -143,7 +159,11 @@ export class BacktestSimulator {
       costBasis: cost,
       initialStopLoss,
       stopLoss: initialStopLoss,
-      takeProfit: roundPrice(fillPrice * (1 + Number(this.config.takeProfitPct ?? 0))),
+      takeProfit: roundPrice(
+        Number.isFinite(takeProfitPrice) && takeProfitPrice > 0
+          ? takeProfitPrice
+          : fillPrice * (1 + Number(this.config.takeProfitPct ?? 0)),
+      ),
       trailingStopPct: Number.isFinite(trailingStopPct) && trailingStopPct > 0 ? trailingStopPct : undefined,
       highWaterMark: fillPrice,
       entryTime: this.currentTimestamp,

@@ -27,3 +27,25 @@ export function calculateADX(highs, lows, closes, period = 14) {
 export function calculateCCI(highs, lows, closes, period = 20) {
   return CCI.calculate({ high: highs, low: lows, close: closes, period });
 }
+
+/**
+ * Returns true when the market is trending (ADX >= threshold).
+ * Uses the last 50 candles — enough for ADX(14) to stabilise.
+ * Returns true by default if there is insufficient candle history.
+ *
+ * @param {Array}  candles    Full candle array (uses only the tail)
+ * @param {number} period     ADX period (default: 14)
+ * @param {number} threshold  ADX floor for "trending" (default: 20)
+ */
+export function isMarketTrending(candles, period = 14, threshold = 20) {
+  if (!Array.isArray(candles) || candles.length < period * 2 + 5) return true;
+
+  const slice  = candles.slice(-50);
+  const highs  = slice.map((c) => Number(c.high));
+  const lows   = slice.map((c) => Number(c.low));
+  const closes = slice.map((c) => Number(c.close));
+
+  const values = calculateADX(highs, lows, closes, period);
+  const last   = values.at(-1)?.adx;
+  return Number.isFinite(last) ? last >= threshold : true;
+}

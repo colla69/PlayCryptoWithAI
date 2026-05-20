@@ -61,6 +61,16 @@ export class PaperTrader {
 
     this.#updateTrailingStop(symbol, currentPrice);
 
+    // Break-even: once price rises enough above entry, lock stop at entry price
+    // so the trade can no longer result in a loss.
+    const bePct = Number(this.config.breakEvenTriggerPct ?? 0);
+    if (bePct > 0 && position.stopLoss < position.entryPrice) {
+      if (currentPrice >= position.entryPrice * (1 + bePct)) {
+        position.stopLoss = position.entryPrice;
+        logger.info(`[PAPER] ${symbol}: break-even stop locked at ${position.entryPrice}`);
+      }
+    }
+
     if (currentPrice <= position.stopLoss) {
       const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
         ? 'trailing_stop'
