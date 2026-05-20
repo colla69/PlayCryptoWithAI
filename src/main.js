@@ -7,119 +7,25 @@ import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
-import {
-  ADXStrategy,
-  BollingerBandsStrategy,
-  CCIStrategy,
-  EMAStrategy,
-  MACDStrategy,
-  RSIStrategy,
-  StochasticStrategy,
-  getRegistryMeta,
-} from './strategies/index.js';
+import { getRegistryMeta } from './strategies/index.js';
 import logger from './utils/logger.js';
 import { isMarketTrending } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
+import {
+  buildStrategiesForSymbol,
+  getStrategyNamesForSymbol,
+  getStrategyTriggerHints,
+  getRiskForSymbol,
+  getSignalConfigForSymbol,
+  buildSignalReasons,
+} from './utils/strategyBuilder.js';
+import { buildCorrelationMatrix } from './utils/correlation.js';
 
 const signalConfig = config.signals;
-const STRATEGY_REASON_PREFIX = {
-  RSI: 'rsi',
-  EMA: 'ema',
-  MACD: 'macd',
-  BollingerBands: 'bb',
-  Stochastic: 'stoch',
-  ADX: 'adx',
-  CCI: 'cci',
-};
-
-function buildSignalReasons(signals = [], decision = 'HOLD') {
-  if (decision === 'HOLD') {
-    return [];
-  }
-
-  return [...new Set(
-    signals
-      .filter((signal) => signal?.signal === decision)
-      .map((signal) => {
-        const prefix = STRATEGY_REASON_PREFIX[signal?.name] ?? null;
-        return prefix ? `${prefix}_${decision.toLowerCase()}` : signal?.reason ?? null;
-      })
-      .filter(Boolean),
-  )];
-}
-
-/** Returns the strategy names active for a symbol, e.g. ['MACD', 'Stoch', 'RSI'] */
-function getStrategyNamesForSymbol(symbol) {
-  const symCfg = config.perSymbol?.[symbol];
-  return symCfg?.strategies ?? config.strategies ?? [];
-}
-
-/** One-line plain-English trigger explanation per strategy name */
-const STRATEGY_TRIGGER_HINTS = {
-  RSI:   'RSI < 30 → BUY (oversold) · RSI > 70 → SELL (overbought)',
-  BB:    'Price touches lower Bollinger Band → BUY · upper band → SELL',
-  MACD:  'MACD line crosses above signal line → BUY · below → SELL',
-  Stoch: 'Stochastic K crosses above D below 20 → BUY · above 80 → SELL',
-  EMA:   'Fast EMA crosses above slow EMA → BUY · below → SELL',
-  ADX:   'ADX > 25 confirms trend; direction from price vs EMA',
-  CCI:   'CCI crosses above −100 from oversold → BUY · below +100 from overbought → SELL',
-};
-
-/** Returns an array of trigger hint strings for a symbol's strategy combo */
-function getStrategyTriggerHints(symbol) {
-  return getStrategyNamesForSymbol(symbol)
-    .map((name) => STRATEGY_TRIGGER_HINTS[name] ?? name)
-    .filter(Boolean);
-}
-
-function getStrategyConfigForSymbol(symbol, key, defaults) {
-  return {
-    ...defaults,
-    ...(config.perSymbol?.[symbol]?.[key] ?? {}),
-  };
-}
-
-const STRATEGY_BUILDERS = {
-  RSI:   (symbol) => new RSIStrategy(getStrategyConfigForSymbol(symbol, 'rsi', config.rsi)),
-  EMA:   (symbol) => new EMAStrategy(getStrategyConfigForSymbol(symbol, 'ema', config.ema)),
-  MACD:  (symbol) => new MACDStrategy(getStrategyConfigForSymbol(symbol, 'macd', config.macd)),
-  BB:    (symbol) => new BollingerBandsStrategy(getStrategyConfigForSymbol(symbol, 'bollinger', config.bollinger)),
-  Stoch: (symbol) => new StochasticStrategy(getStrategyConfigForSymbol(symbol, 'stochastic', config.stochastic)),
-  ADX:   (symbol) => new ADXStrategy(getStrategyConfigForSymbol(symbol, 'adx', config.adx)),
-  CCI:   (symbol) => new CCIStrategy(getStrategyConfigForSymbol(symbol, 'cci', config.cci)),
-};
-
-function buildStrategiesForSymbol(symbol) {
-  const symCfg = config.perSymbol?.[symbol];
-  const names = symCfg?.strategies ?? config.strategies ?? Object.keys(STRATEGY_BUILDERS);
-  return names.map((name) => {
-    const build = STRATEGY_BUILDERS[name];
-    if (!build) throw new Error(`Unknown strategy: ${name}`);
-    return build(symbol);
-  });
-}
-
-function getRiskForSymbol(symbol) {
-  const symCfg = config.perSymbol?.[symbol];
-  if (!symCfg) return config.risk;
-  return {
-    ...config.risk,
-    ...(symCfg.stopLossPct      !== undefined && { stopLossPct:      symCfg.stopLossPct }),
-    ...(symCfg.takeProfitPct    !== undefined && { takeProfitPct:    symCfg.takeProfitPct }),
-    ...(symCfg.trailingStopPct  !== undefined && { trailingStopPct:  symCfg.trailingStopPct }),
-    ...(symCfg.minConfidence    !== undefined && { minConfidence:    symCfg.minConfidence }),
-  };
-}
-
-function getSignalConfigForSymbol(symbol) {
-  const symConf = config.perSymbol?.[symbol]?.minConfidence;
-  if (symConf === undefined) return signalConfig;
-  return { ...signalConfig, minConfidence: symConf };
-}
 
 // Build per-symbol aggregators (each coin gets its own strategy set)
 const symbolAggregators = Object.fromEntries(
-  config.symbols.map((sym) => [sym, new SignalAggregator(buildStrategiesForSymbol(sym), getSignalConfigForSymbol(sym))])
+  config.symbols.map((sym) => [sym, new SignalAggregator(buildStrategiesForSymbol(sym), getSignalConfigForSymbol(sym, signalConfig))])
 );
 
 // Default aggregator (for dashboard display — uses default strategy set)
@@ -133,56 +39,6 @@ const riskManager = new RiskManager(config.risk);
 // ── Correlation filter state ───────────────────────────────────────────────────
 // Rebuilt after candle init and after each cycle so it always reflects recent data.
 let correlationMatrix = {};
-
-function pearsonCorrelation(x, y) {
-  const n = Math.min(x.length, y.length);
-  if (n < 5) return 0;
-  const xs = x.slice(-n);
-  const ys = y.slice(-n);
-  const meanX = xs.reduce((s, v) => s + v, 0) / n;
-  const meanY = ys.reduce((s, v) => s + v, 0) / n;
-  let num = 0, denomX = 0, denomY = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - meanX, dy = ys[i] - meanY;
-    num += dx * dy;
-    denomX += dx * dx;
-    denomY += dy * dy;
-  }
-  const denom = Math.sqrt(denomX * denomY);
-  return denom > 0 ? num / denom : 0;
-}
-
-function buildCorrelationMatrix() {
-  if (!config.correlation?.enabled) return;
-  const period = config.correlation?.period ?? 60;
-  const symbols = config.symbols;
-  const returnsBySym = {};
-
-  for (const sym of symbols) {
-    const candles = dashboardState.getCandles(sym);
-    if (candles.length < period + 1) continue;
-    const recent = candles.slice(-(period + 1));
-    const rets = [];
-    for (let i = 1; i < recent.length; i++) {
-      const prev = Number(recent[i - 1].close);
-      const curr = Number(recent[i].close);
-      if (prev > 0) rets.push(Math.log(curr / prev));
-    }
-    returnsBySym[sym] = rets;
-  }
-
-  const matrix = {};
-  for (const sym1 of symbols) {
-    matrix[sym1] = {};
-    for (const sym2 of symbols) {
-      if (sym1 === sym2) { matrix[sym1][sym2] = 1; continue; }
-      const r1 = returnsBySym[sym1];
-      const r2 = returnsBySym[sym2];
-      matrix[sym1][sym2] = r1 && r2 ? pearsonCorrelation(r1, r2) : 0;
-    }
-  }
-  correlationMatrix = matrix;
-}
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -243,7 +99,7 @@ async function runCycle(symbol) {
     const candles = dashboardState.getCandles(symbol);
 
     const aggregator = symbolAggregators[symbol];
-    const symSignalConfig = getSignalConfigForSymbol(symbol);
+    const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
     const result = aggregator.aggregate(candles, symbol, symSignalConfig);
     const currentPrice = Number(candles.at(-1).close);
     const currentStatus = await trader.getStatus();
@@ -354,7 +210,7 @@ async function runAllSymbols() {
 
   try {
     // Refresh correlation matrix each cycle — new candles may have arrived
-    buildCorrelationMatrix();
+    correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation);
     await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
   } finally {
     cycleInProgress = false;
@@ -592,7 +448,7 @@ async function runInitialSignals() {
       if (candles.length < 30) continue;
 
       const aggregator      = symbolAggregators[symbol];
-      const symSignalConfig = getSignalConfigForSymbol(symbol);
+      const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
       const result          = aggregator.aggregate(candles, symbol, symSignalConfig);
       const currentPrice    = Number(candles.at(-1).close);
 
@@ -635,7 +491,7 @@ dashboardState.setActiveFilters({
 await initializeHistoricalData();
 // Seed daily P&L from persisted history so the loss limit survives restarts
 riskManager.seedFromHistory(dashboardState.getSummary().trades);
-buildCorrelationMatrix();         // ← built once from full history, then refreshed each cycle
+correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation); // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
 await runSmokeTest();
 await runAllSymbols();  // immediate run on startup (SL/TP check + fresh signals)
