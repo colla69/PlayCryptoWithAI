@@ -8,8 +8,8 @@ import { calculateADX } from '../utils/indicators.js';
  * - SELL when ADX > threshold AND -DI > +DI (strong downtrend)
  * - HOLD when ADX < threshold (choppy/ranging market — avoid trading)
  *
- * The key insight: ADX acts as a QUALITY FILTER that blocks signals
- * during ranging markets, which is the main cause of stop-loss churn.
+ * Confidence scales with both ADX magnitude (trend strength) and the
+ * gap between +DI and -DI (directional conviction).
  */
 export class ADXStrategy {
   constructor(config = {}) {
@@ -18,17 +18,18 @@ export class ADXStrategy {
 
   analyze(candles) {
     const closed = candles.slice(0, -1);   // exclude forming candle
-    const highs = closed.map((c) => c.high);
-    const lows = closed.map((c) => c.low);
+    const highs  = closed.map((c) => c.high);
+    const lows   = closed.map((c) => c.low);
     const closes = closed.map((c) => c.close);
 
     if (closed.length < this.config.period * 2) {
-      return { name: 'ADX', signal: 'HOLD', value: NaN, reason: `Not enough candles for ADX-${this.config.period}` };
+      return { name: 'ADX', signal: 'HOLD', value: NaN, confidence: 0,
+        reason: `Not enough candles for ADX-${this.config.period}` };
     }
 
     const values = calculateADX(highs, lows, closes, this.config.period);
     if (!values.length) {
-      return { name: 'ADX', signal: 'HOLD', value: NaN, reason: 'ADX: insufficient data' };
+      return { name: 'ADX', signal: 'HOLD', value: NaN, confidence: 0, reason: 'ADX: insufficient data' };
     }
 
     const { adx, pdi, mdi } = values.at(-1);
@@ -38,33 +39,31 @@ export class ADXStrategy {
 
     if (adxVal < this.config.threshold) {
       return {
-        name: 'ADX',
-        signal: 'HOLD',
-        adx: adxVal,
-        pdi: pdiVal,
-        mdi: mdiVal,
-        reason: `ADX ${adxVal.toFixed(1)} < ${this.config.threshold} — ranging market, skip`,
+        name: 'ADX', signal: 'HOLD',
+        adx: adxVal, pdi: pdiVal, mdi: mdiVal, confidence: 0.1,
+        reason: `ADX ${adxVal.toFixed(1)} < ${this.config.threshold} — ranging, skip`,
       };
     }
 
+    // Trend strength component: scales 0→1 from threshold to 60
+    const trendStrength = Math.min((adxVal - this.config.threshold) / (60 - this.config.threshold), 1);
+    // Directional conviction: scales 0→1 from 0 to 20 DI gap
+    const diGap = Math.abs(pdiVal - mdiVal);
+    const directionStrength = Math.min(diGap / 20, 1);
+    const confidence = Number((0.45 + trendStrength * 0.35 + directionStrength * 0.2).toFixed(2));
+
     if (pdiVal > mdiVal) {
       return {
-        name: 'ADX',
-        signal: 'BUY',
-        adx: adxVal,
-        pdi: pdiVal,
-        mdi: mdiVal,
-        reason: `ADX ${adxVal.toFixed(1)} strong uptrend (+DI ${pdiVal.toFixed(1)} > -DI ${mdiVal.toFixed(1)})`,
+        name: 'ADX', signal: 'BUY',
+        adx: adxVal, pdi: pdiVal, mdi: mdiVal, confidence,
+        reason: `ADX ${adxVal.toFixed(1)} uptrend (+DI ${pdiVal.toFixed(1)} > -DI ${mdiVal.toFixed(1)})`,
       };
     }
 
     return {
-      name: 'ADX',
-      signal: 'SELL',
-      adx: adxVal,
-      pdi: pdiVal,
-      mdi: mdiVal,
-      reason: `ADX ${adxVal.toFixed(1)} strong downtrend (-DI ${mdiVal.toFixed(1)} > +DI ${pdiVal.toFixed(1)})`,
+      name: 'ADX', signal: 'SELL',
+      adx: adxVal, pdi: pdiVal, mdi: mdiVal, confidence,
+      reason: `ADX ${adxVal.toFixed(1)} downtrend (-DI ${mdiVal.toFixed(1)} > +DI ${pdiVal.toFixed(1)})`,
     };
   }
 }

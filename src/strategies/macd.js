@@ -6,44 +6,61 @@ export class MACDStrategy {
   }
 
   analyze(candles) {
-    const closed = candles.slice(0, -1);   // exclude forming candle
-    const closes = closed.map((c) => c.close);
+    const closed  = candles.slice(0, -1);   // exclude forming candle
+    const closes  = closed.map((c) => c.close);
     const required = this.config.slow + this.config.signal;
 
     if (closes.length < required) {
-      return { name: 'MACD', signal: 'HOLD', reason: `Not enough candles for MACD(${this.config.fast},${this.config.slow},${this.config.signal})` };
+      return { name: 'MACD', signal: 'HOLD', confidence: 0,
+        reason: `Not enough candles for MACD(${this.config.fast},${this.config.slow},${this.config.signal})` };
     }
 
     const values = calculateMACD(closes, this.config.fast, this.config.slow, this.config.signal);
     if (values.length < 2) {
-      return { name: 'MACD', signal: 'HOLD', reason: 'MACD: insufficient data' };
+      return { name: 'MACD', signal: 'HOLD', confidence: 0, reason: 'MACD: insufficient data' };
     }
 
     const prev = values.at(-2);
     const curr = values.at(-1);
-    const macdLine = Number(curr.MACD ?? 0);
-    const signalLine = Number(curr.signal ?? 0);
-    const histogram = Number(curr.histogram ?? 0);
+    const prevMACD    = Number(prev.MACD     ?? 0);
+    const prevSignal  = Number(prev.signal   ?? 0);
+    const macdLine    = Number(curr.MACD     ?? 0);
+    const signalLine  = Number(curr.signal   ?? 0);
+    const histogram   = Number(curr.histogram ?? 0);
+    const prevHist    = Number(prev.histogram ?? 0);
 
-    // Cross above signal line → BUY
-    const crossedAbove = Number(prev.MACD ?? 0) <= Number(prev.signal ?? 0) && macdLine > signalLine;
-    // Cross below signal line → SELL
-    const crossedBelow = Number(prev.MACD ?? 0) >= Number(prev.signal ?? 0) && macdLine < signalLine;
+    const crossedAbove = prevMACD <= prevSignal && macdLine > signalLine;
+    const crossedBelow = prevMACD >= prevSignal && macdLine < signalLine;
+
+    // Histogram growing in the direction of the signal = momentum confirming the cross
+    const histGrowing = Math.abs(histogram) > Math.abs(prevHist);
+    // Zero-line position: crossovers in MACD's own positive/negative territory are stronger
+    const aboveZero = macdLine > 0 && signalLine > 0;
+    const belowZero = macdLine < 0 && signalLine < 0;
 
     if (crossedAbove) {
-      return { name: 'MACD', signal: 'BUY', macd: macdLine, signalLine, histogram, reason: `MACD crossed above signal (hist: ${histogram.toFixed(4)})` };
+      const confidence = Number(Math.min(
+        0.55 + (histGrowing ? 0.15 : 0) + (aboveZero ? 0.15 : 0), 1,
+      ).toFixed(2));
+      return {
+        name: 'MACD', signal: 'BUY', macd: macdLine, signalLine, histogram, confidence,
+        reason: `MACD crossed above signal${aboveZero ? ' (above zero)' : ''}${histGrowing ? ' ↑' : ''} hist:${histogram.toFixed(4)}`,
+      };
     }
+
     if (crossedBelow) {
-      return { name: 'MACD', signal: 'SELL', macd: macdLine, signalLine, histogram, reason: `MACD crossed below signal (hist: ${histogram.toFixed(4)})` };
+      const confidence = Number(Math.min(
+        0.55 + (histGrowing ? 0.15 : 0) + (belowZero ? 0.15 : 0), 1,
+      ).toFixed(2));
+      return {
+        name: 'MACD', signal: 'SELL', macd: macdLine, signalLine, histogram, confidence,
+        reason: `MACD crossed below signal${belowZero ? ' (below zero)' : ''}${histGrowing ? ' ↓' : ''} hist:${histogram.toFixed(4)}`,
+      };
     }
 
     return {
-      name: 'MACD',
-      signal: 'HOLD',
-      macd: macdLine,
-      signalLine,
-      histogram,
-      reason: `MACD ${macdLine.toFixed(4)} vs signal ${signalLine.toFixed(4)} (hist: ${histogram.toFixed(4)})`,
+      name: 'MACD', signal: 'HOLD', macd: macdLine, signalLine, histogram, confidence: 0.2,
+      reason: `MACD ${macdLine.toFixed(4)} vs signal ${signalLine.toFixed(4)} hist:${histogram.toFixed(4)}`,
     };
   }
 }
