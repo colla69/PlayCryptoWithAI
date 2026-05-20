@@ -26,10 +26,12 @@ class DashboardState {
     this.priceChangeMap = new Map();
     this.candleMap = new Map();
 
-    // Restore trades + signals that survived the last shutdown
+    // Restore trades + signals that survived the last shutdown.
     const saved = loadPersistedState();
-    if (saved?.trades?.length)      this.trades      = saved.trades.slice(0, MAX_TRADES);
-    if (saved?.signalFeed?.length)  this.signalFeed  = saved.signalFeed.slice(0, MAX_SIGNALS);
+    if (saved?.trades?.length)
+      this.trades = saved.trades.slice(0, MAX_TRADES);
+    if (saved?.signalFeed?.length)
+      this.signalFeed = saved.signalFeed.slice(0, MAX_SIGNALS);
     this.cycleCount = 0;
     this.errors = [];
     this.latestStatus = null;
@@ -42,6 +44,12 @@ class DashboardState {
       pollIntervalMs: null,
       symbols: [],
     };
+    // Active filter configuration (set at startup from config)
+    this.activeFilters = {};
+    // Running tally of blocked BUY signals this session
+    this.blockedStats = { regime: 0, correlation: 0, risk: 0, daily: 0, total: 0 };
+    // Timestamp (ms) of the next scheduled cycle — set by main.js after alignment
+    this.nextRunAt = null;
   }
 
   #touch() {
@@ -206,6 +214,30 @@ class DashboardState {
     };
   }
 
+  setActiveFilters(filters = {}) {
+    this.activeFilters = { ...filters };
+  }
+
+  setNextRunAt(ts) {
+    this.nextRunAt = ts ?? null;
+    this.#touch();
+  }
+
+  pushBlockedSignal(reason = '') {
+    this.blockedStats.total++;
+    const lower = String(reason).toLowerCase();
+    if (lower.includes('ranging') || lower.includes('adx')) {
+      this.blockedStats.regime++;
+    } else if (lower.includes('correl')) {
+      this.blockedStats.correlation++;
+    } else if (lower.includes('daily') || lower.includes('loss limit')) {
+      this.blockedStats.daily++;
+    } else {
+      this.blockedStats.risk++;
+    }
+    this.#touch();
+  }
+
   getSummary() {
     const latestStatus = this.latestStatus
       ? {
@@ -226,9 +258,13 @@ class DashboardState {
       : null;
 
     const trades = this.trades.map((trade) => ({ ...trade }));
-    const wins = trades.filter((trade) => Number(trade.pnl ?? 0) > 0).length;
-    const losses = trades.filter((trade) => Number(trade.pnl ?? 0) < 0).length;
+    const sells  = trades.filter((t) => t.side === 'SELL');
+    const wins   = sells.filter((t) => Number(t.pnl ?? 0) > 0).length;
+    const losses = sells.filter((t) => Number(t.pnl ?? 0) < 0).length;
     const closedTrades = wins + losses;
+    // Compute totalPnL from trade history (survives restarts) rather than trader state
+    const historyPnL = sells.reduce((sum, t) => sum + Number(t.pnl ?? 0), 0);
+    const totalPnL   = historyPnL !== 0 ? historyPnL : roundMoney(latestStatus?.totalPnL ?? 0);
 
     return {
       startTime: this.startTime.toISOString(),
@@ -244,7 +280,7 @@ class DashboardState {
       latestDailyStats: this.latestDailyStats ? { ...this.latestDailyStats } : null,
       metrics: {
         balance: roundMoney(latestStatus?.balance),
-        totalPnL: roundMoney(latestStatus?.totalPnL),
+        totalPnL,
         dailyPnL: roundMoney(this.latestDailyStats?.dailyPnL),
         winRate: closedTrades > 0 ? Number(((wins / closedTrades) * 100).toFixed(2)) : 0,
         wins,
@@ -269,6 +305,9 @@ class DashboardState {
         pollIntervalMs: this.runtimeConfig.pollIntervalMs,
         symbols: [...this.runtimeConfig.symbols],
       },
+      activeFilters: { ...this.activeFilters },
+      blockedStats: { ...this.blockedStats },
+      nextRunAt: this.nextRunAt,
     };
   }
 }

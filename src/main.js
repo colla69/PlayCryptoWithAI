@@ -278,6 +278,9 @@ async function runCycle(symbol) {
       }
     }
 
+    // Track filter-level blocks for the dashboard counter
+    if (blockReason) dashboardState.pushBlockedSignal(blockReason);
+
     const tradeCheck = blockReason
       ? { allowed: false, reason: blockReason }
       : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
@@ -356,6 +359,22 @@ async function runAllSymbols() {
   } finally {
     cycleInProgress = false;
   }
+}
+
+/**
+ * Returns the timestamp (ms) of the next candle-close boundary for the given timeframe.
+ * Binance aligns all candle closes to UTC epoch multiples of the period, so e.g. 12h
+ * candles always close at 00:00 and 12:00 UTC. We add a 3-second buffer so the candle
+ * data is guaranteed to have settled by the time we fetch it.
+ */
+function nextCandleClose(timeframe) {
+  const match = String(timeframe || '12h').toLowerCase().match(/^(\d+)(m|h|d|w)$/);
+  if (!match) return Date.now() + 60_000;
+  const num  = parseInt(match[1], 10);
+  const unit = match[2];
+  const mults = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+  const periodMs = num * mults[unit];
+  return Math.ceil(Date.now() / periodMs) * periodMs + 3_000; // +3 s buffer
 }
 
 function logStartup() {
@@ -469,16 +488,16 @@ async function initializeHistoricalData() {
 }
 
 /**
- * Startup smoke test — buy a tiny amount of a random coin, hold 10 seconds, sell it.
+ * Startup smoke test — buy the smallest possible USD amount, hold, sell.
  * Confirms the full buy→sell pipeline (exchange connection, order placement, position
  * tracking) is wired correctly before the main loop starts.
  *
  * Uses $1 in paper mode, $11 in live/testnet (Binance minimum notional is $10).
  */
-async function runSmokeTest() {
+async function runSmokeTest(holdSeconds = 10) {
   const modeName = paperMode ? 'PAPER' : testnetMode ? 'TESTNET' : 'LIVE';
-  const testBudget = paperMode ? 1 : 11;           // $1 paper, $11 live (above $10 minimum)
-  const holdSeconds = 10;
+  // Binance minimum notional is $10; use $11 for safety. Paper mode uses $1 (no real money).
+  const testBudget = paperMode ? 1 : 11;
 
   // Pick a random symbol from the active list
   const symbol = config.symbols[Math.floor(Math.random() * config.symbols.length)];
@@ -505,14 +524,18 @@ async function runSmokeTest() {
     logger.info(`🔬 SMOKE TEST — ${symbol} price=$${price}`);
 
     // ── 2. Build a minimal risk config for this test trade ───────────────────
+    // Use the testBudget as the actual cap so we don't tie up the main balance.
+    // We need getStatus() to know the current balance.
+    const { balance: currentBalance } = await trader.getStatus();
+    const safePct = currentBalance > 0 ? Math.min(testBudget / currentBalance, 0.02) : 0.01;
     const smokeRisk = {
-      maxPositionPct: 0.99,
-      stopLossPct:    0.50,
+      maxPositionPct:  safePct,   // at most testBudget/$, never more than 2% of balance
+      stopLossPct:     0.50,
       takeProfitPct:  10.00,
       trailingStopPct: 0,
     };
 
-    // ── 3. BUY via main trader so trades appear in the dashboard ────────────
+    // ── 3. BUY via main trader so the full execution pipeline is exercised ───
     const buyResult = await trader.execute(symbol, 'BUY', price, smokeRisk);
 
     if (!buyResult) {
@@ -522,7 +545,6 @@ async function runSmokeTest() {
 
     logger.info(`🔬 SMOKE TEST — ✅ BUY OK  ${symbol}  qty=${buyResult.qty ?? '?'}  price=$${price}`);
     dashboardState.pushTrade({ ...buyResult, note: '🔬 smoke-test' });
-    pushEvent('trade', { ...buyResult, note: '🔬 smoke-test' });
 
     // ── 4. Wait 10 seconds ───────────────────────────────────────────────────
     await new Promise(r => setTimeout(r, holdSeconds * 1000));
@@ -550,7 +572,6 @@ async function runSmokeTest() {
     logger.info(`🔬 SMOKE TEST — ✅ SELL OK  ${symbol}  price=$${sellPrice}  pnl=$${pnl}`);
     logger.info(`🔬 SMOKE TEST — ✅ PASSED — buy/sell pipeline is working correctly`);
     dashboardState.pushTrade({ ...sellResult, note: '🔬 smoke-test' });
-    pushEvent('trade', { ...sellResult, note: '🔬 smoke-test' });
 
   } catch (err) {
     logger.error(`🔬 SMOKE TEST — ❌ FAILED: ${err.message}`);
@@ -600,18 +621,74 @@ async function runInitialSignals() {
 
 
 if (config.dashboard?.enabled) {
-  dashboardServer = startDashboardServer(dashboardPort);
+  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest });
 }
 
 logStartup();
+// Expose filter config to the dashboard
+dashboardState.setActiveFilters({
+  regime:       { enabled: config.regime?.enabled ?? false,      adxPeriod: config.regime?.adxPeriod ?? 14,     adxThreshold: config.regime?.adxThreshold ?? 20 },
+  correlation:  { enabled: config.correlation?.enabled ?? false, threshold: config.correlation?.threshold ?? 0.8, period: config.correlation?.period ?? 60 },
+  breakEven:    { enabled: (config.risk?.breakEvenTriggerPct ?? 0) > 0, triggerPct: config.risk?.breakEvenTriggerPct ?? 0 },
+  trailingStop: { enabled: (config.risk?.trailingStopPct ?? 0) > 0, pct: config.risk?.trailingStopPct ?? 0 },
+});
 await initializeHistoricalData();
 buildCorrelationMatrix();         // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
 await runSmokeTest();
-await runAllSymbols();
-const intervalId = setInterval(() => {
-  void runAllSymbols();
-}, config.pollIntervalMs);
+await runAllSymbols();  // immediate run on startup (SL/TP check + fresh signals)
+
+// ── Align all subsequent cycles to candle-close boundaries ───────────────────
+// Binance closes 12h candles at exactly 00:00 and 12:00 UTC. Running on a raw
+// setInterval from startup means signals are computed mid-candle. Instead we:
+//   1. Wait until the next close boundary (+ 3 s settle buffer)
+//   2. Run there, then repeat every pollIntervalMs (which equals the candle period)
+let cycleIntervalId = null;
+let alignTimeoutId  = null;
+let pricePollId     = null;
+
+// Refresh live prices every 3 s for all watched symbols.
+// Open-position symbols get priority; then broadcast via SSE so the dashboard
+// can update price/P&L cells without waiting for the next full cycle event.
+const PRICE_POLL_MS = 5_000;
+async function refreshOpenPositionPrices() {
+  try {
+    const status = await trader?.getStatus?.();
+    const openSymbols = new Set((status?.positions ?? []).map((p) => p.symbol));
+    // Always refresh open positions; also refresh all symbols so the price strip stays live
+    const allSymbols = openSymbols.size ? [...openSymbols] : config.symbols.slice(0, 5);
+    const updates = {};
+    await Promise.allSettled(allSymbols.map(async (symbol) => {
+      const ticker = await fetchTicker(symbol);
+      const price  = Number(ticker?.last ?? ticker?.close ?? 0);
+      if (price > 0) {
+        dashboardState.updatePrice(symbol, price);
+        updates[symbol] = price;
+      }
+    }));
+    if (Object.keys(updates).length) pushEvent('prices', updates);
+  } catch (_) { /* non-critical */ }
+}
+pricePollId = setInterval(() => void refreshOpenPositionPrices(), PRICE_POLL_MS);
+
+function scheduleNextCycle() {
+  const nextClose = nextCandleClose(config.timeframe);
+  const delay     = nextClose - Date.now();
+  dashboardState.setNextRunAt(nextClose);
+  logger.info(`Next cycle aligned to candle close in ${Math.round(delay / 60_000)} min (${new Date(nextClose).toUTCString()})`);
+
+  alignTimeoutId = setTimeout(async () => {
+    alignTimeoutId = null;
+    await runAllSymbols();
+    // After the first aligned run, repeat on the candle period
+    cycleIntervalId = setInterval(() => {
+      dashboardState.setNextRunAt(Date.now() + config.pollIntervalMs);
+      void runAllSymbols();
+    }, config.pollIntervalMs);
+  }, delay);
+}
+
+scheduleNextCycle();
 
 process.on('SIGINT', () => {
   if (shuttingDown) {
@@ -619,7 +696,9 @@ process.on('SIGINT', () => {
   }
 
   shuttingDown = true;
-  clearInterval(intervalId);
+  clearTimeout(alignTimeoutId);
+  clearInterval(cycleIntervalId);
+  clearInterval(pricePollId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });

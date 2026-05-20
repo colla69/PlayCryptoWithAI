@@ -39,15 +39,20 @@ export class PaperTrader {
   getStatus() {
     return {
       balance: roundMoney(this.balance),
-      positions: Array.from(this.positions.entries()).map(([symbol, position]) => ({
-        symbol,
-        qty: roundQty(position.qty),
-        entryPrice: roundPrice(position.entryPrice),
-        stopLoss: roundPrice(position.stopLoss),
-        takeProfit: roundPrice(position.takeProfit),
-        highWaterMark: roundPrice(position.highWaterMark),
-        openedAt: position.openedAt,
-      })),
+      positions: Array.from(this.positions.entries()).map(([symbol, position]) => {
+        const currentPrice = roundPrice(position.currentPrice ?? position.entryPrice);
+        return {
+          symbol,
+          qty: roundQty(position.qty),
+          entryPrice: roundPrice(position.entryPrice),
+          currentPrice,
+          unrealizedPnl: roundMoney((currentPrice - position.entryPrice) * position.qty),
+          stopLoss: roundPrice(position.stopLoss),
+          takeProfit: roundPrice(position.takeProfit),
+          highWaterMark: roundPrice(position.highWaterMark),
+          openedAt: position.openedAt,
+        };
+      }),
       totalPnL: roundMoney(this.totalPnL),
     };
   }
@@ -60,6 +65,9 @@ export class PaperTrader {
     }
 
     this.#updateTrailingStop(symbol, currentPrice);
+
+    // Track latest price for status reporting
+    position.currentPrice = roundPrice(currentPrice);
 
     // Break-even: once price rises enough above entry, lock stop at entry price
     // so the trade can no longer result in a loss.

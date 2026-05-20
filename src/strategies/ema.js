@@ -6,7 +6,8 @@ export class EMAStrategy {
   }
 
   analyze(candles) {
-    const closes = candles.map((candle) => candle.close);
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    const closes = closed.map((candle) => candle.close);
     const requiredCandles = Math.max(this.config.fast, this.config.slow) + 1;
 
     if (closes.length < requiredCandles) {

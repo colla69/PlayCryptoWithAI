@@ -6,7 +6,8 @@ export class BollingerBandsStrategy {
   }
 
   analyze(candles) {
-    const closes = candles.map((c) => c.close);
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    const closes = closed.map((c) => c.close);
 
     if (closes.length < this.config.period) {
       return { name: 'BollingerBands', signal: 'HOLD', reason: `Not enough candles for BB(${this.config.period},${this.config.stdDev})` };

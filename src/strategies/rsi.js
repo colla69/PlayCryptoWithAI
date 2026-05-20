@@ -6,7 +6,8 @@ export class RSIStrategy {
   }
 
   analyze(candles) {
-    const closes = candles.map((candle) => candle.close);
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    const closes = closed.map((candle) => candle.close);
 
     if (closes.length < this.config.period) {
       return {

@@ -462,7 +462,151 @@
       flex-shrink: 0;
     }
 
-    .content-grid {
+    .signal-blocked.block-regime { color: #79c0ff; }
+    .signal-blocked.block-corr   { color: #c084fc; }
+    .signal-blocked.block-risk   { color: #f59e0b; }
+
+    /* ── Filter / strategy status strip ─────────────────────────────────────── */
+    .filters-strip { margin-bottom: 16px; }
+
+    .filters-inner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 18px;
+    }
+
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      cursor: default;
+    }
+
+    .filter-on {
+      color: #7ee787;
+      background: rgba(35, 134, 54, 0.13);
+      border-color: rgba(63, 185, 80, 0.32);
+    }
+
+    .filter-off {
+      color: var(--muted);
+      background: rgba(110, 118, 129, 0.1);
+      border-color: rgba(110, 118, 129, 0.25);
+      opacity: 0.7;
+    }
+
+    .filter-blocked {
+      color: #f2cc60;
+      background: var(--amber-soft);
+      border-color: rgba(210, 153, 34, 0.38);
+    }
+
+    .filter-strategies {
+      color: #a5b4fc;
+      background: rgba(99, 102, 241, 0.13);
+      border-color: rgba(165, 180, 252, 0.28);
+    }
+
+    .filter-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    /* ── Protection badge in positions table ─────────────────────────────────── */
+    .protection-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+
+    .protection-breakeven {
+      color: #7ee787;
+      background: rgba(35, 134, 54, 0.15);
+      border-color: rgba(63, 185, 80, 0.3);
+    }
+
+    .protection-trailing {
+      color: #79c0ff;
+      background: rgba(31, 111, 235, 0.15);
+      border-color: rgba(121, 192, 255, 0.3);
+    }
+
+    .protection-normal {
+      color: var(--muted);
+      background: rgba(110, 118, 129, 0.1);
+      border-color: rgba(110, 118, 129, 0.25);
+    }
+
+    /* ── Legend panel ────────────────────────────────────────────────────────── */
+    .legend-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid rgba(99,102,241,.35);
+      background: rgba(99,102,241,.1);
+      color: #a5b4fc;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .legend-toggle:hover { background: rgba(99,102,241,.2); }
+
+    .legend-panel {
+      border-top: 1px solid rgba(48,54,61,.8);
+      padding: 16px 20px;
+      display: none;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .legend-panel.open { display: flex; }
+
+    .legend-group { min-width: 220px; flex: 1; }
+
+    .legend-heading {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 5px;
+      color: var(--text);
+    }
+
+    .legend-icon { flex-shrink: 0; width: 18px; text-align: center; }
+
+    .legend-label { font-weight: 700; }
+
+    .legend-desc { color: var(--muted); }
       display: grid;
       grid-template-columns: 1fr;
       gap: 16px;
@@ -595,6 +739,8 @@
 
       <div class="topbar-meta">
         <span id="modeBadge" class="badge mode-paper">PAPER</span>
+        <button id="smokeTestBtn" onclick="triggerSmokeTest()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer" title="Run a minimal buy+sell smoke test (45s hold)">🔬 Smoke Test</button>
+        <button onclick="document.getElementById('logsPanel').scrollIntoView({behavior:'smooth'})" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer">📜 Logs</button>
         <span class="connection"><span id="connectionDot" class="ticker-dot"></span><span id="connectionLabel">Disconnected</span></span>
         <span class="clock" id="liveClock">--:--:--</span>
       </div>
@@ -604,9 +750,9 @@
   <main class="page">
     <section class="summary-grid">
       <article class="stat-card">
-        <div class="eyebrow">💰 Portfolio Value</div>
+        <div class="eyebrow">💰 Balance</div>
         <div class="stat-main" id="portfolioValue">$0.00</div>
-        <div class="stat-sub">Cash plus the current value of everything the bot is holding.</div>
+        <div class="stat-sub" id="portfolioSub">Available cash to deploy</div>
       </article>
 
       <article class="stat-card">
@@ -628,29 +774,79 @@
       </article>
     </section>
 
+    <section class="panel filters-strip" id="filtersStrip">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px 0;">
+        <span style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">🛡 Active Strategies &amp; Filters</span>
+        <button class="legend-toggle" id="legendToggle" onclick="toggleLegend()">ℹ Legend</button>
+      </div>
+      <div class="filters-inner" id="filtersInner">
+        <span class="filter-pill filter-off">Loading filters…</span>
+      </div>
+
+      <div class="legend-panel" id="legendPanel">
+        <div class="legend-group">
+          <div class="legend-heading">Risk Protections</div>
+          <div class="legend-row"><span class="legend-icon">⚡</span><div><span class="legend-label">Break-even</span> <span class="legend-desc">— once price rises to the trigger %, the stop loss moves to entry so the position can never close at a loss.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🔻</span><div><span class="legend-label">Trailing stop</span> <span class="legend-desc">— stop loss follows the price upward, locking in gains as the trade runs in our favour.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🛑</span><div><span class="legend-label">Fixed stop</span> <span class="legend-desc">— standard stop loss at a fixed % below entry price.</span></div></div>
+        </div>
+
+        <div class="legend-group">
+          <div class="legend-heading">Entry Filters</div>
+          <div class="legend-row"><span class="legend-icon">📉</span><div><span class="legend-label" style="color:#79c0ff">Regime filter</span> <span class="legend-desc">— blocks new BUY entries when ADX is below the threshold, indicating a ranging/choppy market with no clear trend.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🔗</span><div><span class="legend-label" style="color:#c084fc">Correlation filter</span> <span class="legend-desc">— skips a BUY if an open position is already highly correlated with the incoming coin (Pearson r), avoiding doubling up on the same market move.</span></div></div>
+        </div>
+
+        <div class="legend-group">
+          <div class="legend-heading">Signal Feed Colours</div>
+          <div class="legend-row"><span class="legend-icon">🟢</span><div><span class="legend-label">BUY</span> <span class="legend-desc">— all strategy conditions met and entry is allowed.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🔴</span><div><span class="legend-label">SELL</span> <span class="legend-desc">— strategy signals an exit; position will close if one is open.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">⚪</span><div><span class="legend-label">HOLD</span> <span class="legend-desc">— no actionable signal; bot monitors stops only.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📉</span><div><span class="legend-label" style="color:#79c0ff">Ranging market</span> <span class="legend-desc">— BUY blocked by regime filter (ADX too low).</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🔗</span><div><span class="legend-label" style="color:#c084fc">Correlated</span> <span class="legend-desc">— BUY blocked because a correlated coin is already held.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">⚠️</span><div><span class="legend-label" style="color:#f59e0b">Risk block</span> <span class="legend-desc">— BUY blocked by risk manager (daily loss limit, max positions, low confidence, etc.).</span></div></div>
+        </div>
+
+        <div class="legend-group">
+          <div class="legend-heading">Strategies</div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">RSI</span> <span class="legend-desc">— buys when oversold (&lt;30), sells when overbought (&gt;70).</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">EMA</span> <span class="legend-desc">— buys when price crosses above the fast EMA; sells on cross below.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">MACD</span> <span class="legend-desc">— buys on bullish MACD crossover; sells on bearish.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">BollingerBands</span> <span class="legend-desc">— buys near lower band; sells near upper band.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">Stochastic</span> <span class="legend-desc">— buys on oversold %K/%D crossover; sells when overbought.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">ADX</span> <span class="legend-desc">— confirms trend strength; contributes to confidence score.</span></div></div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel" id="positionsPanel" hidden>
       <div class="panel-header">
         <div>
           <div class="panel-title">📍 Currently Holding</div>
           <div class="panel-subtitle">Open positions with live prices, safety levels, and how long each one has been held.</div>
         </div>
-        <div class="panel-count" id="positionsCountLabel"></div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <span id="priceRefreshCountdown" style="font-size:11px;color:#475569;display:none">🔄 <span id="priceCountdownSecs">5</span>s</span>
+          <div class="panel-count" id="positionsCountLabel"></div>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Coin</th>
+              <th>Size</th>
               <th>Bought At</th>
               <th>Current Price</th>
               <th>Unrealised P&amp;L</th>
               <th>Stop Loss</th>
               <th>Take Profit</th>
+              <th>Protection</th>
               <th>Held For</th>
             </tr>
           </thead>
           <tbody id="positionsBody">
-            <tr><td colspan="7" class="loading">Loading positions…</td></tr>
+            <tr><td colspan="9" class="loading">Loading positions…</td></tr>
           </tbody>
         </table>
       </div>
@@ -697,6 +893,29 @@
           </table>
         </div>
       </section>
+    </section>
+
+    <!-- ── Logs panel ─────────────────────────────────────────────────────── -->
+    <section class="panel" id="logsPanel" style="margin-top:24px">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">📜 App Logs</div>
+          <div class="panel-subtitle">Live view of the bot's log output. Newest entries first.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="logFilter" type="text" placeholder="Filter…" oninput="loadLogs()" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:4px 10px;border-radius:6px;font-size:12px;width:160px">
+          <select id="logLines" onchange="loadLogs()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
+            <option value="200">200 lines</option>
+            <option value="500" selected>500 lines</option>
+            <option value="1000">1000 lines</option>
+            <option value="2000">2000 lines</option>
+          </select>
+          <button onclick="loadLogs()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer">↺ Refresh</button>
+        </div>
+      </div>
+      <div id="logsBody" style="font-family:monospace;font-size:11px;line-height:1.6;max-height:500px;overflow-y:auto;padding:12px 16px;background:#0f172a;border-radius:8px;color:#94a3b8">
+        <div class="loading">Loading logs…</div>
+      </div>
     </section>
   </main>
 
@@ -756,6 +975,7 @@
       connectionLabel: document.getElementById('connectionLabel'),
       liveClock: document.getElementById('liveClock'),
       portfolioValue: document.getElementById('portfolioValue'),
+      portfolioSub: document.getElementById('portfolioSub'),
       totalPnl: document.getElementById('totalPnl'),
       totalPnlSub: document.getElementById('totalPnlSub'),
       winRate: document.getElementById('winRate'),
@@ -810,6 +1030,35 @@
       return `${API_BASE}${path}`;
     }
 
+    // EUR/USD exchange rate — fetched once on load, refreshed every 10 min
+    let eurRate = null;
+    async function refreshEurRate() {
+      try {
+        const r = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' });
+        if (r.ok) {
+          const data = await r.json();
+          eurRate = data?.rates?.EUR ?? null;
+        }
+      } catch (_) { /* non-critical */ }
+    }
+    refreshEurRate();
+    setInterval(refreshEurRate, 10 * 60 * 1000);
+
+    function formatEur(usdValue) {
+      if (!eurRate) return null;
+      const eur = Number(usdValue) * eurRate;
+      if (!Number.isFinite(eur)) return null;
+      return eur.toLocaleString(undefined, { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // Returns "±$X.XX / ±€Y.YY" or just "±$X.XX" if rate not available
+    function formatSignedDual(usdValue) {
+      const prefix = usdValue >= 0 ? '+' : '';
+      const usd = `${prefix}${formatMoney(Math.abs(usdValue))}`;
+      const eurStr = eurRate ? ` / ${usdValue >= 0 ? '+' : '−'}${formatEur(Math.abs(usdValue))}` : '';
+      return `${usd}${eurStr}`;
+    }
+
     async function fetchJson(path) {
       const response = await fetch(endpoint(path), { cache: 'no-store' });
       if (!response.ok) {
@@ -830,6 +1079,15 @@
       if (amount >= 1) return 4;
       if (amount >= 0.01) return 5;
       return 6;
+    }
+
+    function formatQty(qty) {
+      const n = Number(qty);
+      if (!Number.isFinite(n) || n === 0) return '—';
+      if (n >= 1_000_000)  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      if (n >= 1_000)      return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      if (n >= 1)          return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+      return n.toLocaleString(undefined, { maximumSignificantDigits: 5 });
     }
 
     function formatPrice(value, symbol = '') {
@@ -1003,11 +1261,41 @@
       return symbols.size;
     }
 
+    // Returns open trades derived from trade history: BUYs without a matching SELL for the same symbol.
+    function getHistoryOpenPositions(trades, prices = {}) {
+      const soldSymbols = new Set(trades.filter((t) => t.side === 'SELL').map((t) => t.symbol));
+      return trades
+        .filter((t) => t.side === 'BUY' && !soldSymbols.has(t.symbol))
+        .map((t) => {
+          const entry       = t.entryPrice ?? t.price ?? 0;
+          const currentPrice = prices[t.symbol] ?? null;
+          const qty          = t.qty ?? 0;
+          return {
+            symbol:        t.symbol,
+            qty,
+            entryPrice:    entry,
+            stopLoss:      t.stopLoss ?? t.initialStopLoss ?? 0,
+            takeProfit:    t.takeProfit ?? 0,
+            openedAt:      t.openedAt ?? t.timestamp,
+            currentPrice,
+            unrealizedPnl: currentPrice != null ? (currentPrice - entry) * qty : null,
+            _fromHistory:  true,
+          };
+        });
+    }
+
     function getPortfolioStats(summary) {
-      const positions = summary?.latestStatus?.positions || [];
+      const livePosns  = summary?.latestStatus?.positions || [];
+      const allTrades  = state.trades.length ? state.trades : (state.summary?.trades || []);
+      const histPosns  = getHistoryOpenPositions(allTrades, summary?.prices || {});
+      // Prefer live positions from running bot; fall back to history-derived positions
+      const positions  = livePosns.length ? livePosns : histPosns;
       const cashBalance = Number(summary?.latestStatus?.balance ?? summary?.metrics?.balance ?? 0);
       const realizedPnl = Number(summary?.metrics?.totalPnL ?? 0);
-      const openMarketValue = positions.reduce((total, position) => total + (Number(position.currentPrice ?? 0) * Number(position.qty ?? 0)), 0);
+      const openMarketValue = positions.reduce((total, position) => {
+        const price = position.currentPrice != null ? Number(position.currentPrice) : Number(position.entryPrice ?? 0);
+        return total + price * Number(position.qty ?? 0);
+      }, 0);
       const openCostBasis = positions.reduce((total, position) => total + (Number(position.entryPrice ?? 0) * Number(position.qty ?? 0)), 0);
       const unrealizedPnl = positions.reduce((total, position) => total + Number(position.unrealizedPnl ?? 0), 0);
       const portfolioValue = cashBalance + openMarketValue;
@@ -1033,15 +1321,33 @@
     }
 
     function renderSummary(summary) {
-      const stats = getPortfolioStats(summary);
-      const wins = Number(summary?.metrics?.wins ?? 0);
-      const losses = Number(summary?.metrics?.losses ?? 0);
+      const stats       = getPortfolioStats(summary);
+      const wins        = Number(summary?.metrics?.wins ?? 0);
+      const losses      = Number(summary?.metrics?.losses ?? 0);
       const closedTrades = wins + losses;
 
-      el.portfolioValue.textContent = formatMoney(stats.portfolioValue);
-      el.totalPnl.textContent = formatSignedMoney(stats.totalPnl);
+      // Main number = available cash; sub = total portfolio value (cash + open positions)
+      el.portfolioValue.textContent = formatMoney(stats.cashBalance);
+      const posVal   = stats.portfolioValue - stats.cashBalance;
+      const botOnline = summary?.latestStatus != null;
+      if (el.portfolioSub) {
+        if (posVal > 0) {
+          const staleSuffix = !botOnline ? ' · ⚠️ bot offline' : '';
+          el.portfolioSub.textContent = `Portfolio total: ${formatMoney(stats.portfolioValue)} · In positions: ${formatMoney(posVal)}${staleSuffix}`;
+        } else if (stats.openCount > 0 && !botOnline) {
+          el.portfolioSub.textContent = `${stats.openCount} open position${stats.openCount === 1 ? '' : 's'} tracked · ⚠️ bot offline`;
+        } else {
+          el.portfolioSub.textContent = 'No open positions — full balance available';
+        }
+      }
+      // P&L stat card: percentage as main, $ amount in sub-line, hover shows exact dollar
+      const pnlSign = stats.totalPnl >= 0 ? '+' : '';
+      el.totalPnl.textContent = `${pnlSign}${formatPercent(stats.pnlPct)}`;
       el.totalPnl.className = `stat-main ${classForValue(stats.totalPnl)}`;
-      el.totalPnlSub.textContent = `${formatPercent(stats.pnlPct)} overall`;
+      el.totalPnl.title = `${pnlSign}${formatMoney(Math.abs(stats.totalPnl))} total`;
+      el.totalPnl.style.cursor = 'default';
+      const eurPnl = eurRate ? ` · ${formatEur(stats.totalPnl)}` : '';
+      el.totalPnlSub.textContent = `${formatSignedMoney(stats.totalPnl)} overall${eurPnl}`;
 
       el.winRate.textContent = `${Number(summary?.metrics?.winRate ?? 0).toFixed(0)}%`;
       el.winRateSub.textContent = `${closedTrades} closed trade${closedTrades === 1 ? '' : 's'} tracked`;
@@ -1049,9 +1355,17 @@
     }
 
     function renderPositions(summary) {
-      const positions = summary?.latestStatus?.positions || [];
+      const livePosns = summary?.latestStatus?.positions || [];
+      const allTrades = state.trades.length ? state.trades : (state.summary?.trades || []);
+      const histPosns = getHistoryOpenPositions(allTrades, summary?.prices || {});
+      const positions = livePosns.length ? livePosns : histPosns;
+      const botOnline  = summary?.latestStatus != null;
+      const isStale    = !livePosns.length && histPosns.length > 0 && !botOnline;
+
       el.positionsPanel.hidden = positions.length === 0;
-      el.positionsCountLabel.textContent = positions.length ? `${positions.length} open position${positions.length === 1 ? '' : 's'}` : '';
+      el.positionsCountLabel.textContent = positions.length
+        ? `${positions.length} open position${positions.length === 1 ? '' : 's'}${isStale ? ' · ⚠️ from history (bot offline)' : ''}`
+        : '';
 
       if (!positions.length) {
         el.positionsBody.innerHTML = '';
@@ -1059,17 +1373,31 @@
       }
 
       el.positionsBody.innerHTML = positions.map((position) => {
-        const entry = Number(position.entryPrice ?? 0);
-        const stopLoss = Number(position.stopLoss ?? 0);
+        const entry      = Number(position.entryPrice ?? 0);
+        const qty        = Number(position.qty ?? 0);
+        const costBasis  = entry * qty;
+        const stopLoss   = Number(position.stopLoss ?? 0);
         const takeProfit = Number(position.takeProfit ?? 0);
-        const stopPct = entry > 0 ? ((entry - stopLoss) / entry) * 100 : 0;
-        const takePct = entry > 0 ? ((takeProfit - entry) / entry) * 100 : 0;
+        const stopPct    = entry > 0 ? ((entry - stopLoss) / entry) * 100 : 0;
+        const takePct    = entry > 0 ? ((takeProfit - entry) / entry) * 100 : 0;
         const unrealized = Number(position.unrealizedPnl ?? 0);
-        const base = getBaseSymbol(position.symbol);
-        const heldFor = position.openedAt ? formatDuration(Date.now() - new Date(position.openedAt).getTime()) : '—';
+        const unrealizedPct = costBasis > 0 ? (unrealized / costBasis) * 100 : null;
+        const unrealizedDisplay = unrealizedPct !== null
+          ? `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${unrealizedPct >= 0 ? '+' : ''}${formatPercent(unrealizedPct)}</span>`
+          : '—';
+        const base       = getBaseSymbol(position.symbol);
+        const heldFor    = position.openedAt ? formatDuration(Date.now() - new Date(position.openedAt).getTime()) : '—';
+
+        // Detect break-even: stop loss is within 0.2% of entry price (was moved there by the BE rule)
+        const isBreakEven = entry > 0 && stopLoss > 0 && Math.abs(stopLoss - entry) / entry < 0.002;
+        const protectionHtml = isBreakEven
+          ? `<span class="protection-badge protection-breakeven" title="Stop loss has been moved to entry — this position cannot close at a loss">⚡ Break-even</span>`
+          : stopLoss > 0
+            ? `<span class="protection-badge protection-normal" title="Fixed stop loss at ${formatPercent(-stopPct)} below entry">🛑 ${formatPercent(-stopPct)}</span>`
+            : '—';
 
         return `
-          <tr>
+          <tr data-symbol="${escapeHtml(position.symbol)}" data-entry="${entry}" data-qty="${qty}">
             <td>
               <div class="coin-cell">
                 <span class="coin-icon">${escapeHtml(base.slice(0, 4))}</span>
@@ -1079,9 +1407,13 @@
                 </div>
               </div>
             </td>
+            <td>
+              <div>${qty > 0 ? formatQty(qty) : '—'}</div>
+              <div class="helper">${costBasis > 0 ? formatMoney(costBasis) : ''}</div>
+            </td>
             <td>${formatPrice(entry, position.symbol)}</td>
-            <td>${formatPrice(position.currentPrice ?? entry, position.symbol)}</td>
-            <td class="${classForValue(unrealized)}">${formatSignedMoney(unrealized)}</td>
+            <td class="pos-current-price">${formatPrice(position.currentPrice ?? entry, position.symbol)}</td>
+            <td class="pos-unrealized ${classForValue(unrealized)}">${unrealizedDisplay}</td>
             <td>
               <div>${formatPrice(stopLoss, position.symbol)}</div>
               <div class="helper">${formatPercent(-stopPct)}</div>
@@ -1090,6 +1422,7 @@
               <div>${formatPrice(takeProfit, position.symbol)}</div>
               <div class="helper">${formatPercent(takePct)}</div>
             </td>
+            <td>${protectionHtml}</td>
             <td title="${escapeHtml(position.openedAt || '')}">${escapeHtml(heldFor)}</td>
           </tr>
         `;
@@ -1121,9 +1454,14 @@
           return `<span class="hint-btn" data-hint="${escapeHtml(JSON.stringify(hints))}" data-hint-extra="${escapeHtml(extra)}">?</span>`;
         })() : '';
 
-        const blockNote = signal.blockReason
-          ? `<span class="signal-blocked">⚠️ ${escapeHtml(signal.blockReason)}</span>`
-          : '';
+        const blockNote = signal.blockReason ? (() => {
+          const r = String(signal.blockReason).toLowerCase();
+          const cls = r.includes('ranging') || r.includes('adx') ? 'block-regime'
+                    : r.includes('correl') ? 'block-corr'
+                    : 'block-risk';
+          const icon = cls === 'block-regime' ? '📉' : cls === 'block-corr' ? '🔗' : '⚠️';
+          return `<span class="signal-blocked ${cls}">${icon} ${escapeHtml(signal.blockReason)}</span>`;
+        })() : '';
 
         const icon = decision === 'BUY' ? '🟢' : decision === 'SELL' ? '🔴' : '⚪';
         const confText = decision !== 'HOLD' ? `${confidence.toFixed(0)}%` : '';
@@ -1144,7 +1482,8 @@
     }
 
     function renderTrades() {
-      const trades = (state.trades.length ? state.trades : (state.summary?.trades || [])).slice(0, 20);
+      const allTrades = (state.trades.length ? state.trades : (state.summary?.trades || []));
+      const trades = allTrades.slice(0, 20);
 
       if (!trades.length) {
         el.tradesBody.innerHTML = '<tr><td colspan="7" class="empty-state">No trades yet. Closed positions and new entries will show up here.</td></tr>';
@@ -1155,10 +1494,18 @@
         const side = String(trade.side || 'SELL').toUpperCase();
         const sideClass = side === 'BUY' ? 'buy' : side === 'SELL' ? 'sell' : 'hold';
         const pnl = Number(trade.pnl ?? 0);
+        const tradeCost = (trade.entryPrice ?? trade.price ?? 0) * (trade.qty ?? 0);
+        const tradePnlPct = tradeCost > 0 ? (pnl / tradeCost) * 100 : null;
+        const pnlDisplay = side === 'BUY'
+          ? `<span class="neutral">–${formatMoney(tradeCost)}</span>`
+          : tradePnlPct !== null
+            ? `<span title="${formatSignedMoney(pnl)}" style="cursor:default">${pnl >= 0 ? '+' : ''}${formatPercent(tradePnlPct)}</span>`
+            : formatSignedMoney(pnl);
         const base = getBaseSymbol(trade.symbol);
+        const isSmoke = String(trade.note || '').includes('smoke-test');
         return `
-          <tr>
-            <td title="${escapeHtml(new Date(trade.timestamp || Date.now()).toLocaleString())}">${escapeHtml(formatTradeTime(trade.timestamp))}</td>
+          <tr${isSmoke ? ' style="opacity:0.5" title="Smoke-test trade"' : ''}>
+            <td title="${escapeHtml(new Date(trade.timestamp || Date.now()).toLocaleString())}">${escapeHtml(formatTradeTime(trade.timestamp))}${isSmoke ? ' <span style="font-size:0.7em;color:#64748b">🔬</span>' : ''}</td>
             <td>
               <div class="coin-cell">
                 <span class="coin-icon">${escapeHtml(base.slice(0, 4))}</span>
@@ -1171,7 +1518,7 @@
             <td><span class="signal-tag ${sideClass}">${escapeHtml(side)}</span></td>
             <td>${trade.entryPrice ? formatPrice(trade.entryPrice, trade.symbol) : trade.price ? formatPrice(trade.price, trade.symbol) : '—'}</td>
             <td>${trade.exitPrice ? formatPrice(trade.exitPrice, trade.symbol) : '—'}</td>
-            <td class="${classForValue(pnl)}">${side === 'BUY' ? '—' : formatSignedMoney(pnl)}</td>
+            <td class="${classForValue(pnl)}">${pnlDisplay}</td>
             <td><span class="result-badge">${escapeHtml(tradeResultLabel(trade))}</span></td>
           </tr>
         `;
@@ -1180,22 +1527,86 @@
 
     function renderFooter(summary) {
       const runtime = summary?.runtimeConfig || {};
-      const pollIntervalMs = Number(runtime.pollIntervalMs ?? 0);
-      const nextCycleTime = summary?.lastUpdatedAt && pollIntervalMs > 0
-        ? new Date(summary.lastUpdatedAt).getTime() + pollIntervalMs
-        : null;
+      // Use the exact next-run timestamp from the backend (aligned to candle close),
+      // falling back to the old estimate only if it hasn't been set yet.
+      const nextCycleTime = summary?.nextRunAt
+        ?? (summary?.lastUpdatedAt && Number(runtime.pollIntervalMs) > 0
+          ? new Date(summary.lastUpdatedAt).getTime() + Number(runtime.pollIntervalMs)
+          : null);
 
-      el.lastCycle.textContent = relativeTime(summary?.lastUpdatedAt);
-      el.nextCycle.textContent = nextCycleTime ? relativeTime(nextCycleTime) : '—';
+      el.lastCycle.textContent  = relativeTime(summary?.lastUpdatedAt);
+      el.nextCycle.textContent  = nextCycleTime ? relativeTime(nextCycleTime) : '—';
       el.runningFor.textContent = formatDuration(summary?.uptimeMs ?? 0);
-      el.timeframe.textContent = runtime.timeframe || '—';
-      el.watching.textContent = `${getWatchCount(summary)} coin${getWatchCount(summary) === 1 ? '' : 's'}`;
+      el.timeframe.textContent  = runtime.timeframe || '—';
+      el.watching.textContent   = `${getWatchCount(summary)} coin${getWatchCount(summary) === 1 ? '' : 's'}`;
+    }
+
+    function toggleLegend() {
+      const panel  = document.getElementById('legendPanel');
+      const toggle = document.getElementById('legendToggle');
+      const open   = panel.classList.toggle('open');
+      toggle.textContent = open ? '✕ Close' : 'ℹ Legend';
+    }
+
+    function renderFilters(summary) {
+      const inner = document.getElementById('filtersInner');
+      if (!inner) return;
+      const filters  = summary?.activeFilters  || {};
+      const blocked  = summary?.blockedStats   || {};
+      const strats   = (summary?.strategiesConfig || []).map((s) => s.name);
+      const pills    = [];
+
+      // Break-even stop
+      const be = filters.breakEven;
+      if (be) {
+        const pct = be.triggerPct > 0 ? ` +${(be.triggerPct * 100).toFixed(0)}%` : '';
+        pills.push(`<span class="filter-pill ${be.enabled ? 'filter-on' : 'filter-off'}" title="Once price rises ${pct}, the stop loss moves to entry price — locking in break-even">⚡ Break-even${escapeHtml(pct)}</span>`);
+      }
+
+      // Trailing stop
+      const ts = filters.trailingStop;
+      if (ts && ts.pct > 0) {
+        pills.push(`<span class="filter-pill ${ts.enabled ? 'filter-on' : 'filter-off'}" title="Stop loss trails the price upward, locking in gains as the trade moves in our favour">🔻 Trailing ${(ts.pct * 100).toFixed(0)}%</span>`);
+      }
+
+      // Regime filter
+      const rc = filters.regime;
+      if (rc) {
+        pills.push(`<span class="filter-pill ${rc.enabled ? 'filter-on' : 'filter-off'}" title="Blocks new BUY entries when ADX < ${rc.adxThreshold} — the market is ranging/choppy rather than trending">📉 Regime ADX&lt;${rc.adxThreshold}</span>`);
+      }
+
+      // Correlation filter
+      const cc = filters.correlation;
+      if (cc) {
+        pills.push(`<span class="filter-pill ${cc.enabled ? 'filter-on' : 'filter-off'}" title="Skips a BUY if an open position has Pearson r &gt; ${cc.threshold} with the incoming coin — avoids doubling up on the same market move">🔗 Correlation r&gt;${cc.threshold}</span>`);
+      }
+
+      // Blocked stats this session
+      if (blocked.total > 0) {
+        pills.push('<span class="filter-divider"></span>');
+        const parts = [];
+        if (blocked.regime      > 0) parts.push(`${blocked.regime} regime`);
+        if (blocked.correlation > 0) parts.push(`${blocked.correlation} corr`);
+        if (blocked.daily       > 0) parts.push(`${blocked.daily} daily`);
+        if (blocked.risk        > 0) parts.push(`${blocked.risk} risk`);
+        const detail = parts.length ? ` (${parts.join(', ')})` : '';
+        pills.push(`<span class="filter-pill filter-blocked" title="BUY signals blocked by active filters this session">⚠️ ${blocked.total} BUY${blocked.total === 1 ? '' : 's'} blocked${escapeHtml(detail)}</span>`);
+      }
+
+      // Active strategies
+      if (strats.length) {
+        pills.push('<span class="filter-divider"></span>');
+        pills.push(`<span class="filter-pill filter-strategies" title="Technical strategies that each cast a vote on every BUY / SELL decision">📊 ${escapeHtml(strats.join(' · '))}</span>`);
+      }
+
+      inner.innerHTML = pills.join('') || '<span class="filter-pill filter-off">No filter info yet</span>';
     }
 
     function render(summary) {
       state.summary = summary;
       renderHeader(summary);
       renderSummary(summary);
+      renderFilters(summary);
       renderPositions(summary);
       renderSignals(summary);
       renderTrades();
@@ -1249,6 +1660,13 @@
         renderTrades();
       });
 
+      source.addEventListener('prices', (event) => {
+        const prices = JSON.parse(event.data); // { "BCH/USDT": 371.5, ... }
+        updatePositionPrices(prices);
+        // also update summary prices cache for history-derived positions
+        if (state.summary) state.summary.prices = { ...(state.summary.prices || {}), ...prices };
+      });
+
       source.onerror = () => {
         setConnection(false);
         source.close();
@@ -1256,11 +1674,126 @@
       };
     }
 
+    // Surgically update only price + P&L cells for open positions — no full re-render.
+    function updatePositionPrices(prices) {
+      const rows = document.querySelectorAll('#positionsBody tr[data-symbol]');
+      rows.forEach(row => {
+        const symbol = row.dataset.symbol;
+        const price  = prices[symbol];
+        if (!price) return;
+        const entry    = Number(row.dataset.entry);
+        const qty      = Number(row.dataset.qty);
+        const costBasis = entry * qty;
+        const unrealized = (price - entry) * qty;
+        const unrealizedPct = costBasis > 0 ? (unrealized / costBasis) * 100 : null;
+
+        const priceCell = row.querySelector('.pos-current-price');
+        if (priceCell) priceCell.textContent = formatPrice(price, symbol);
+
+        const pnlCell = row.querySelector('.pos-unrealized');
+        if (pnlCell && unrealizedPct !== null) {
+          pnlCell.className = `pos-unrealized ${classForValue(unrealized)}`;
+          pnlCell.innerHTML = `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${unrealizedPct >= 0 ? '+' : ''}${formatPercent(unrealizedPct)}</span>`;
+        }
+      });
+    }
+
     renderClock();
     setInterval(renderClock, 1000);
     setInterval(() => {
       if (state.summary) render(state.summary);
     }, 30000);
+
+    // ── Live price polling every 5s with countdown ────────────────────────────
+    const PRICE_REFRESH_S = 5;
+    let priceCountdown = PRICE_REFRESH_S;
+    const countdownEl  = document.getElementById('priceCountdownSecs');
+    const countdownWrap = document.getElementById('priceRefreshCountdown');
+
+    async function pollPositionPrices() {
+      priceCountdown = PRICE_REFRESH_S;
+      try {
+        const r = await fetch(`${API_BASE}/api/status`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const data = await r.json();
+        const prices = data.prices || {};
+        if (Object.keys(prices).length) updatePositionPrices(prices);
+        if (state.summary) state.summary.prices = { ...(state.summary.prices || {}), ...prices };
+      } catch (_) {}
+    }
+
+    // Tick the countdown every second; fire the poll when it hits 0
+    setInterval(() => {
+      const hasPositions = document.querySelectorAll('#positionsBody tr[data-symbol]').length > 0;
+      if (countdownWrap) countdownWrap.style.display = hasPositions ? 'inline' : 'none';
+      if (!hasPositions) { priceCountdown = PRICE_REFRESH_S; return; }
+      priceCountdown--;
+      if (countdownEl) countdownEl.textContent = Math.max(priceCountdown, 0);
+      if (priceCountdown <= 0) pollPositionPrices();
+    }, 1000);
+
+    // ── Smoke test ─────────────────────────────────────────────────────────
+    let smokeCountdown = null;
+    async function triggerSmokeTest() {
+      const btn = document.getElementById('smokeTestBtn');
+      if (!btn) return;
+      try {
+        const r = await fetch(`${API_BASE}/api/smoke-test`, { method: 'POST' });
+        if (r.status === 409) { btn.textContent = '🔬 Already running…'; return; }
+        if (!r.ok) { btn.textContent = '❌ Failed'; setTimeout(() => { btn.textContent = '🔬 Smoke Test'; }, 3000); return; }
+        let secs = 50; // 45s hold + overhead
+        btn.disabled = true;
+        btn.style.color = '#f59e0b';
+        if (smokeCountdown) clearInterval(smokeCountdown);
+        smokeCountdown = setInterval(() => {
+          secs--;
+          btn.textContent = `🔬 Running… ${secs}s`;
+          if (secs <= 0) {
+            clearInterval(smokeCountdown);
+            btn.textContent = '🔬 Smoke Test';
+            btn.disabled = false;
+            btn.style.color = '#94a3b8';
+          }
+        }, 1000);
+      } catch (e) {
+        btn.textContent = '❌ Error';
+        setTimeout(() => { btn.textContent = '🔬 Smoke Test'; }, 3000);
+      }
+    }
+    window.triggerSmokeTest = triggerSmokeTest;
+
+    // ── Logs ───────────────────────────────────────────────────────────────
+    function logLevelColor(line) {
+      if (line.includes(' error:') || line.includes('❌')) return '#f87171';
+      if (line.includes(' warn:')  || line.includes('⚠️')) return '#fb923c';
+      if (line.includes('🔬'))                              return '#818cf8';
+      if (line.includes('✅') || line.includes('BUY '))     return '#4ade80';
+      if (line.includes('SELL '))                           return '#f472b6';
+      return '#94a3b8';
+    }
+    async function loadLogs() {
+      const body   = document.getElementById('logsBody');
+      const lines  = document.getElementById('logLines')?.value || 500;
+      const filter = encodeURIComponent(document.getElementById('logFilter')?.value || '');
+      if (!body) return;
+      try {
+        const r = await fetch(`${API_BASE}/api/logs?lines=${lines}&filter=${filter}`, { cache: 'no-store' });
+        const data = await r.json();
+        if (!data.lines?.length) { body.innerHTML = '<div style="color:#475569">No log entries found.</div>'; return; }
+        body.innerHTML = data.lines.map(line =>
+          `<div style="color:${logLevelColor(line)};border-bottom:1px solid #1e293b;padding:1px 0">${escapeHtml(line)}</div>`
+        ).join('');
+      } catch (e) {
+        body.innerHTML = `<div style="color:#f87171">Failed to load logs: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+    window.loadLogs = loadLogs;
+    // Auto-refresh logs every 15s if panel is visible
+    setInterval(() => {
+      const panel = document.getElementById('logsPanel');
+      if (panel && panel.getBoundingClientRect().top < window.innerHeight + 200) loadLogs();
+    }, 15000);
+    loadLogs();
 
     loadInitialState()
       .catch(() => {

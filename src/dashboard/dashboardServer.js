@@ -22,6 +22,7 @@ const clients = new Set();
 const HEARTBEAT_MS = 15_000;
 const publicDir = path.resolve(process.cwd(), 'public');
 const indexPath = path.join(publicDir, 'index.html');
+const logsDir   = path.resolve(process.cwd(), 'logs');
 const packageJsonPath = path.resolve(process.cwd(), 'package.json');
 const packageVersion = fs.existsSync(packageJsonPath)
   ? JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version
@@ -36,8 +37,11 @@ function startHeartbeat() {
   }
 
   heartbeatId = setInterval(() => {
+    if (!clients.size) return;
+    // Push a full cycle update so the dashboard stays live without polling
+    const payload = `event: cycle\ndata: ${JSON.stringify(dashboardState.getSummary())}\n\n`;
     for (const client of clients) {
-      client.write(':\n\n');
+      client.write(payload);
     }
   }, HEARTBEAT_MS);
   heartbeatId.unref?.();
@@ -64,7 +68,7 @@ export function pushEvent(eventName, data) {
   }
 }
 
-export function startDashboardServer(port = 3001) {
+export function startDashboardServer(port = 3001, { runSmokeTest } = {}) {
   if (serverInstance) {
     return serverInstance;
   }
@@ -195,6 +199,36 @@ export function startDashboardServer(port = 3001) {
     sendCandles(String(req.params.symbol || 'BTC/USDT'), res);
   });
 
+  // ── Smoke-test trigger ──────────────────────────────────────────────────────
+  let smokeTestRunning = false;
+  app.post(['/api/smoke-test', '/smoke-test'], async (req, res) => {
+    if (!runSmokeTest) return res.status(503).json({ error: 'smoke-test not available' });
+    if (smokeTestRunning) return res.status(409).json({ error: 'smoke-test already running' });
+    smokeTestRunning = true;
+    res.json({ started: true, holdSeconds: 45 });
+    try {
+      await runSmokeTest(45);
+    } finally {
+      smokeTestRunning = false;
+    }
+  });
+
+  app.get(['/api/smoke-test/status', '/smoke-test/status'], (_req, res) => {
+    res.json({ running: smokeTestRunning });
+  });
+
+  // ── Log streaming ───────────────────────────────────────────────────────────
+  app.get(['/api/logs', '/logs-data'], (req, res) => {
+    const lines  = Math.min(parseInt(req.query.lines ?? 500, 10), 5000);
+    const filter = String(req.query.filter ?? '').toLowerCase();
+    const logFile = path.join(logsDir, 'app.log');
+    if (!fs.existsSync(logFile)) return res.json({ lines: [] });
+    const raw   = fs.readFileSync(logFile, 'utf8');
+    let entries = raw.trim().split('\n').filter(Boolean);
+    if (filter) entries = entries.filter(l => l.toLowerCase().includes(filter));
+    res.json({ lines: entries.slice(-lines).reverse() });
+  });
+
   app.get(['/api/events', '/events'], (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -219,7 +253,11 @@ export function startDashboardServer(port = 3001) {
 
   serverInstance.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      logger.warn(`Dashboard port ${port} already in use — dashboard disabled. Kill the old process or change DASHBOARD_PORT in .env`);
+      logger.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      logger.error(`❌  Dashboard port ${port} is already in use.`);
+      logger.error(`    Another bot instance is running. Stop it first, then restart.`);
+      logger.error(`    Run:  lsof -ti:${port} | xargs kill`);
+      logger.error(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     } else {
       logger.error(`Dashboard server error: ${err.message}`);
     }

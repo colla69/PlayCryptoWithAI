@@ -6,7 +6,8 @@ export class MACDStrategy {
   }
 
   analyze(candles) {
-    const closes = candles.map((c) => c.close);
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    const closes = closed.map((c) => c.close);
     const required = this.config.slow + this.config.signal;
 
     if (closes.length < required) {

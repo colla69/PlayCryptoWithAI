@@ -21,7 +21,7 @@ export class LiveTrader {
     this.totalPnL = 0;
   }
 
-  async execute(symbol, decision, currentPrice) {
+  async execute(symbol, decision, currentPrice, riskOverride) {
     const price = roundPrice(currentPrice);
 
     if (!Number.isFinite(price) || price <= 0) {
@@ -35,7 +35,7 @@ export class LiveTrader {
     }
 
     if (decision === 'BUY') {
-      return this.#openPosition(symbol, price);
+      return this.#openPosition(symbol, price, riskOverride);
     }
 
     if (decision === 'SELL') {
@@ -134,7 +134,7 @@ export class LiveTrader {
     }
   }
 
-  async #openPosition(symbol, referencePrice) {
+  async #openPosition(symbol, referencePrice, riskOverride) {
     try {
       if (this.positions.has(symbol)) {
         logger.info(`[LIVE] ${symbol}: BUY skipped, existing position open`);
@@ -146,6 +146,8 @@ export class LiveTrader {
         return null;
       }
 
+      // Merge per-symbol risk override on top of global config for this trade
+      const risk = riskOverride ? { ...this.config, ...riskOverride } : this.config;
       const balance = await fetchBalance();
       const freeUsdt = Number(balance.free?.USDT ?? balance.total?.USDT ?? 0);
 
@@ -153,7 +155,7 @@ export class LiveTrader {
         this.initialBalance = roundMoney(balance.total?.USDT ?? freeUsdt);
       }
 
-      const allocation = roundMoney(freeUsdt * this.config.maxPositionPct);
+      const allocation = roundMoney(freeUsdt * risk.maxPositionPct);
       const qty = roundQty(allocation / referencePrice);
       const notional = roundMoney(qty * referencePrice);
 
@@ -171,9 +173,9 @@ export class LiveTrader {
       const entryPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
       const reportedQty = Number(order.filled ?? order.amount ?? qty);
       const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
-      const initialStopLoss = roundPrice(entryPrice * (1 - this.config.stopLossPct));
-      const trailingStopPct = Number.isFinite(this.config.trailingStopPct) && this.config.trailingStopPct > 0
-        ? this.config.trailingStopPct
+      const initialStopLoss = roundPrice(entryPrice * (1 - risk.stopLossPct));
+      const trailingStopPct = Number.isFinite(risk.trailingStopPct) && risk.trailingStopPct > 0
+        ? risk.trailingStopPct
         : undefined;
       const timestamp = new Date().toISOString();
       const position = {
@@ -181,7 +183,7 @@ export class LiveTrader {
         entryPrice,
         initialStopLoss,
         stopLoss: initialStopLoss,
-        takeProfit: roundPrice(entryPrice * (1 + this.config.takeProfitPct)),
+        takeProfit: roundPrice(entryPrice * (1 + risk.takeProfitPct)),
         highWaterMark: entryPrice,
         orderId: order.id,
         side: 'buy',
