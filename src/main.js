@@ -422,8 +422,17 @@ async function runSmokeTest(holdSeconds = 10) {
   // regardless of mode.
   const testBudget = 11;
 
-  // Pick a random symbol from the active list
-  const symbol = config.symbols[Math.floor(Math.random() * config.symbols.length)];
+  // Pick a symbol that doesn't have an existing open position in trade history.
+  // This prevents the smoke-test SELL from polluting history-derived positions
+  // on the dashboard (histPosns fallback when the bot is offline).
+  const histTrades = dashboardState.getSummary().trades.filter(
+    (t) => !String(t.note ?? '').includes('smoke-test'),
+  );
+  const histSold = new Set(histTrades.filter((t) => t.side === 'SELL').map((t) => t.symbol));
+  const histOpen = new Set(histTrades.filter((t) => t.side === 'BUY' && !histSold.has(t.symbol)).map((t) => t.symbol));
+  const candidateSymbols = config.symbols.filter((s) => !histOpen.has(s));
+  const symbolPool = candidateSymbols.length > 0 ? candidateSymbols : config.symbols;
+  const symbol = symbolPool[Math.floor(Math.random() * symbolPool.length)];
 
   logger.info(`🔬 SMOKE TEST [${modeName}] — ${symbol} | budget=$${testBudget} | hold=${holdSeconds}s`);
   dashboardState.pushEvent?.('smoke_test', { phase: 'start', symbol, budget: testBudget });
@@ -558,6 +567,28 @@ dashboardState.setActiveFilters({
 await initializeHistoricalData();
 // Seed daily P&L from persisted history so the loss limit survives restarts
 riskManager.seedFromHistory(dashboardState.getSummary().trades);
+
+// ── Restore in-memory paper positions from persisted trade history ────────────
+// paperTrader.positions is volatile (in-memory Map). On restart it resets to
+// empty, causing the dashboard to show no open positions and allowing the risk
+// manager to open duplicate BUYs. Rebuild from the trade log: any BUY without
+// a matching SELL (excluding smoke-test probes) is an open position.
+if (paperMode) {
+  const allTrades = dashboardState.getSummary().trades.filter(
+    (t) => !String(t.note ?? '').includes('smoke-test'),
+  );
+  // Set balance from the most-recent trade's recorded balance (already reflects all costs)
+  if (allTrades.length > 0 && typeof allTrades[0].balance === 'number' && allTrades[0].balance > 0) {
+    trader.balance = allTrades[0].balance;
+  }
+  // Walk chronologically to find open positions (order-aware: last BUY wins)
+  const openTrades = {};
+  for (const t of [...allTrades].reverse()) {
+    if (t.side === 'BUY')  openTrades[t.symbol] = t;
+    if (t.side === 'SELL') delete openTrades[t.symbol];
+  }
+  for (const t of Object.values(openTrades)) trader.restorePosition(t);
+}
 correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation); // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
 await runSmokeTest();

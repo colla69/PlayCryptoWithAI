@@ -1263,10 +1263,20 @@
 
     // Returns open trades derived from trade history: BUYs without a matching SELL for the same symbol.
     function getHistoryOpenPositions(trades, prices = {}) {
-      const soldSymbols = new Set(trades.filter((t) => t.side === 'SELL').map((t) => t.symbol));
-      return trades
-        .filter((t) => t.side === 'BUY' && !soldSymbols.has(t.symbol))
-        .map((t) => {
+      // Walk trades in chronological order (oldest first) so a new BUY after a SELL
+      // correctly re-opens the position. Exclude smoke-test probes entirely.
+      const realTrades = trades
+        .filter((t) => !String(t.note || '').includes('smoke-test'))
+        .slice()
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const openMap = {};
+      for (const t of realTrades) {
+        if (t.side === 'BUY')  openMap[t.symbol] = t;
+        if (t.side === 'SELL') delete openMap[t.symbol];
+      }
+
+      return Object.values(openMap).map((t) => {
           const entry       = t.entryPrice ?? t.price ?? 0;
           const currentPrice = prices[t.symbol] ?? null;
           const qty          = t.qty ?? 0;

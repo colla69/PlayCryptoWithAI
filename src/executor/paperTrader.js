@@ -229,6 +229,37 @@ export class PaperTrader {
 
     return null;
   }
+
+  /**
+   * Restore an in-memory position from a persisted BUY trade record.
+   * Called on startup to rebuild the positions Map from trade history so that
+   * SL/TP management and the dashboard positions panel work correctly after a restart.
+   *
+   * @param {object} trade - A BUY trade object previously saved by pushTrade / appendTrade
+   */
+  restorePosition(trade) {
+    const symbol = trade.symbol;
+    if (!symbol || this.positions.has(symbol)) return;
+
+    const entryPrice = Number(trade.entryPrice ?? trade.price ?? 0);
+    if (entryPrice <= 0) return;
+
+    this.positions.set(symbol, {
+      qty:             Number(trade.qty ?? 0),
+      entryPrice,
+      initialStopLoss: Number(trade.initialStopLoss ?? trade.stopLoss ?? 0),
+      stopLoss:        Number(trade.stopLoss ?? trade.initialStopLoss ?? 0),
+      takeProfit:      Number(trade.takeProfit ?? 0),
+      highWaterMark:   Number(trade.highWaterMark ?? entryPrice),
+      trailingStopPct: Number.isFinite(Number(trade.trailingStopPct)) ? Number(trade.trailingStopPct) : undefined,
+      openedAt:        trade.openedAt ?? trade.timestamp ?? new Date().toISOString(),
+      currentPrice:    entryPrice,
+    });
+
+    logger.info(
+      `[PAPER] Restored position: ${symbol} qty=${trade.qty} entryPrice=${entryPrice} stopLoss=${trade.stopLoss ?? trade.initialStopLoss ?? 0}`,
+    );
+  }
 }
 
 export default PaperTrader;
