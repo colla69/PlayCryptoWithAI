@@ -417,8 +417,10 @@ async function initializeHistoricalData() {
  */
 async function runSmokeTest(holdSeconds = 10) {
   const modeName = paperMode ? 'PAPER' : testnetMode ? 'TESTNET' : 'LIVE';
-  // Binance minimum notional is $10; use $11 for safety. Paper mode uses $1 (no real money).
-  const testBudget = paperMode ? 1 : 11;
+  // Use $11 for both paper and live — the paper trader mirrors the Binance $10 minimum
+  // notional check, so anything below $10 is silently rejected. $11 clears the floor
+  // regardless of mode.
+  const testBudget = 11;
 
   // Pick a random symbol from the active list
   const symbol = config.symbols[Math.floor(Math.random() * config.symbols.length)];
@@ -445,10 +447,10 @@ async function runSmokeTest(holdSeconds = 10) {
     logger.info(`🔬 SMOKE TEST — ${symbol} price=$${price}`);
 
     // ── 2. Build a minimal risk config for this test trade ───────────────────
-    // Use the testBudget as the actual cap so we don't tie up the main balance.
-    // We need getStatus() to know the current balance.
+    // Compute safePct so the notional is exactly testBudget, no percentage cap —
+    // the cap (Math.min with 0.02) could produce <$10 on low-balance accounts.
     const { balance: currentBalance } = await trader.getStatus();
-    const safePct = currentBalance > 0 ? Math.min(testBudget / currentBalance, 0.02) : 0.01;
+    const safePct = currentBalance > 0 ? testBudget / currentBalance : 0.02;
     const smokeRisk = {
       maxPositionPct:  safePct,   // at most testBudget/$, never more than 2% of balance
       stopLossPct:     0.50,
