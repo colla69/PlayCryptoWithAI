@@ -309,6 +309,17 @@ export default {
     enabled: true,
     period: 14,
   },
+  // ── Macro bear filter — reduce position sizes when BTC is in a downtrend ──────
+  // When BTC spot price falls below its EMA(200), the portfolio is in a bear phase.
+  // All new BUY positions are opened at sizeReduceFactor × normal maxPositionPct.
+  // Existing positions are unaffected — SL/TP management continues as normal.
+  // Backtest evidence: the 2022 bear market (LUNA/FTX) destroyed mean-reversion
+  // strategies; halving size during confirmed downtrends limits exposure.
+  macroFilter: {
+    enabled: true,
+    emaPeriod: 200,          // BTC EMA period used to detect bear phase
+    sizeReduceFactor: 0.5,   // multiply maxPositionPct by this in bear market
+  },
   // ── Correlation filter — avoid holding two coins that move together ──────────
   // Before entering a new position, checks if any open position has Pearson
   // correlation > threshold against the incoming coin (computed from past candles).

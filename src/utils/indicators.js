@@ -72,3 +72,23 @@ export function computeATRPct(candles, period = 14) {
   const close = Number(candles.at(-1).close);
   return close > 0 ? (sum / period) / close : null;
 }
+
+/**
+ * Returns true when the market is in a bull phase (price ≥ EMA).
+ * Used as a portfolio-level macro filter: when BTC is below its long EMA
+ * the portfolio is considered in a bear phase and positions are scaled down.
+ * Returns true by default when there is insufficient candle history.
+ *
+ * @param {Array}  candles    Full candle array (newest last)
+ * @param {number} emaPeriod  EMA lookback (default 200)
+ * @returns {boolean}
+ */
+export function isBullTrend(candles, emaPeriod = 200) {
+  if (!Array.isArray(candles) || candles.length < emaPeriod) return true;
+
+  const closes = candles.map((c) => Number(c.close));
+  const emaValues = calculateEMA(closes, emaPeriod);
+  const ema   = emaValues.at(-1);
+  const price = closes.at(-1);
+  return Number.isFinite(ema) && Number.isFinite(price) ? price >= ema : true;
+}

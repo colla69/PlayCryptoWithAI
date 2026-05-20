@@ -9,7 +9,7 @@ import RiskManager from './risk/index.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger from './utils/logger.js';
-import { isMarketTrending, computeATRPct } from './utils/indicators.js';
+import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import {
   buildStrategiesForSymbol,
@@ -44,6 +44,11 @@ let correlationMatrix = {};
 // Median ATR% across all symbols, updated once per cycle in runAllSymbols().
 // Used in runCycle to scale individual position sizes inversely to volatility.
 let medianATRPct = null;
+
+// ── BTC macro filter state ────────────────────────────────────────────────────
+// True when BTC price is above its EMA(200) — normal sizing applies.
+// False in bear phase — new positions are opened at sizeReduceFactor × base size.
+let btcMacroBull = true;
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -164,6 +169,12 @@ async function runCycle(symbol) {
         positionPct *= Math.max(0.5, Math.min(2.0, medianATRPct / symbolATRPct));
       }
     }
+
+    // ── Macro bear filter: halve position size when BTC is below EMA(200) ────────
+    if (config.macroFilter?.enabled && !btcMacroBull) {
+      positionPct *= config.macroFilter.sizeReduceFactor ?? 0.5;
+    }
+
     const effectiveRisk = { ...symRisk, maxPositionPct: positionPct };
 
     if (!tradeCheck.allowed) {
@@ -244,6 +255,19 @@ async function runAllSymbols() {
       medianATRPct = atrPcts.length ? medianOfArray(atrPcts) : null;
     }
 
+    // Macro filter: check BTC vs EMA(200) to determine portfolio-level bear phase
+    if (config.macroFilter?.enabled) {
+      const prevBull = btcMacroBull;
+      btcMacroBull = isBullTrend(dashboardState.getCandles('BTC/USDT'), config.macroFilter.emaPeriod ?? 200);
+      if (btcMacroBull !== prevBull) {
+        const factor = (config.macroFilter.sizeReduceFactor ?? 0.5) * 100;
+        logger.warn(
+          `Macro filter: BTC ${btcMacroBull ? 'ABOVE' : 'BELOW'} EMA${config.macroFilter.emaPeriod ?? 200} — ` +
+          `new positions ${btcMacroBull ? 'normal size' : `reduced to ${factor.toFixed(0)}%`}`,
+        );
+      }
+    }
+
     await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
   } finally {
     cycleInProgress = false;
@@ -295,6 +319,10 @@ function logStartup() {
   const atrCfg = config.atr;
   logger.info(
     `ATR sizing: ${atrCfg?.enabled ? `ON — period=${atrCfg.period}, inverse-vol scaling [0.5×–2×]` : 'OFF'}`,
+  );
+  const mf = config.macroFilter;
+  logger.info(
+    `Macro filter: ${mf?.enabled ? `ON — BTC EMA${mf.emaPeriod ?? 200} bear → ${((mf.sizeReduceFactor ?? 0.5) * 100).toFixed(0)}% position size` : 'OFF'}`,
   );
   const cc = config.correlation;
   logger.info(
