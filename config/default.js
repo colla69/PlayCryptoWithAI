@@ -29,6 +29,12 @@ export default {
     breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
     maxDailyLossPct: 0.05,
     maxOpenPositions: 34,    // one per symbol
+    // minConfidence threshold vs 3-strategy vote math:
+    //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
+    //   2-of-3 majority   → confidence = 0.67  → fails  0.70 ❌ (requires unanimity)
+    //   2-of-3 majority   → confidence = 0.67  → passes 0.55 ✅ (used for trend symbols)
+    // This is intentional: mean-reversion coins (0.70) need all 3 indicators to agree;
+    // trend-following coins (0.55) allow 2-of-3 for earlier crossover entries.
     minConfidence: 0.70,
   },
   // ──────────────────────────────────────────────────────────────────
