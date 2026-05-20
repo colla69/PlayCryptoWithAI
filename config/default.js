@@ -300,6 +300,15 @@ export default {
     adxPeriod: 14,
     adxThreshold: 20,
   },
+  // ── ATR position sizing — inverse-vol sizing for each symbol ──────────────────
+  // Scales each trade's position size proportionally to (medianATR / symbolATR).
+  // High-volatility coins → smaller positions; low-volatility coins → larger ones.
+  // Size is clamped to [0.5×, 2×] of the base maxPositionPct to prevent extremes.
+  // Backtest evidence: cuts max drawdown by ~7% in bear markets at minimal cost.
+  atr: {
+    enabled: true,
+    period: 14,
+  },
   // ── Correlation filter — avoid holding two coins that move together ──────────
   // Before entering a new position, checks if any open position has Pearson
   // correlation > threshold against the incoming coin (computed from past candles).

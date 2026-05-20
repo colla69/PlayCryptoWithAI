@@ -49,3 +49,26 @@ export function isMarketTrending(candles, period = 14, threshold = 20) {
   const last   = values.at(-1)?.adx;
   return Number.isFinite(last) ? last >= threshold : true;
 }
+
+/**
+ * Computes ATR as a fraction of price (ATR%) for the last `period` candles.
+ * Returns null when there are insufficient candles.
+ *
+ * @param {Array}  candles  Full candle array (newest last)
+ * @param {number} period   ATR lookback window (default 14)
+ * @returns {number|null}
+ */
+export function computeATRPct(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length < period + 2) return null;
+
+  const recent = candles.slice(-(period + 1));
+  let sum = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const h  = Number(recent[i].high);
+    const l  = Number(recent[i].low);
+    const pc = Number(recent[i - 1].close);
+    sum += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  }
+  const close = Number(candles.at(-1).close);
+  return close > 0 ? (sum / period) / close : null;
+}

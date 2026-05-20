@@ -9,7 +9,7 @@ import RiskManager from './risk/index.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger from './utils/logger.js';
-import { isMarketTrending } from './utils/indicators.js';
+import { isMarketTrending, computeATRPct } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import {
   buildStrategiesForSymbol,
@@ -40,6 +40,11 @@ const riskManager = new RiskManager(config.risk);
 // Rebuilt after candle init and after each cycle so it always reflects recent data.
 let correlationMatrix = {};
 
+// ── ATR position sizing state ─────────────────────────────────────────────────
+// Median ATR% across all symbols, updated once per cycle in runAllSymbols().
+// Used in runCycle to scale individual position sizes inversely to volatility.
+let medianATRPct = null;
+
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
 dashboardState.setStrategyRegistry(getRegistryMeta());
@@ -61,6 +66,13 @@ let telegramBot = null;
 let twitterSentimentService = null;
 let copyTradingService = null;
 let dashboardServer = null;
+
+function medianOfArray(arr) {
+  if (!arr.length) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
 
 function initializeExternalSignalSources() {
   if (signalConfig.webhook?.enabled) {
@@ -142,10 +154,22 @@ async function runCycle(symbol) {
       : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
     let tradeResult = null;
 
+    // ── ATR position sizing: scale maxPositionPct inversely to symbol volatility ─
+    // High-volatility symbols get smaller allocations; low-vol symbols get larger ones.
+    // Only applies when config.atr.enabled and the portfolio median is known.
+    let positionPct = symRisk.maxPositionPct;
+    if (config.atr?.enabled && medianATRPct != null) {
+      const symbolATRPct = computeATRPct(candles, config.atr.period);
+      if (symbolATRPct > 0) {
+        positionPct *= Math.max(0.5, Math.min(2.0, medianATRPct / symbolATRPct));
+      }
+    }
+    const effectiveRisk = { ...symRisk, maxPositionPct: positionPct };
+
     if (!tradeCheck.allowed) {
       logger.info(`${symbol}: trade blocked - ${tradeCheck.reason}`);
     } else {
-      tradeResult = await trader.execute(symbol, result.decision, currentPrice, symRisk);
+      tradeResult = await trader.execute(symbol, result.decision, currentPrice, effectiveRisk);
 
       if (tradeResult) {
         if (typeof tradeResult.pnl === 'number' && tradeResult.side === 'SELL') {
@@ -211,6 +235,15 @@ async function runAllSymbols() {
   try {
     // Refresh correlation matrix each cycle — new candles may have arrived
     correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation);
+
+    // ATR sizing: compute portfolio median ATR% so each symbol can be scaled relative to it
+    if (config.atr?.enabled) {
+      const atrPcts = config.symbols
+        .map((sym) => computeATRPct(dashboardState.getCandles(sym), config.atr.period))
+        .filter((v) => v != null && v > 0);
+      medianATRPct = atrPcts.length ? medianOfArray(atrPcts) : null;
+    }
+
     await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
   } finally {
     cycleInProgress = false;
@@ -258,6 +291,10 @@ function logStartup() {
   const rc = config.regime;
   logger.info(
     `Regime filter: ${rc?.enabled ? `ON — ADX(${rc.adxPeriod}) < ${rc.adxThreshold} blocks BUY signals` : 'OFF'}`,
+  );
+  const atrCfg = config.atr;
+  logger.info(
+    `ATR sizing: ${atrCfg?.enabled ? `ON — period=${atrCfg.period}, inverse-vol scaling [0.5×–2×]` : 'OFF'}`,
   );
   const cc = config.correlation;
   logger.info(
