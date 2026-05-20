@@ -116,6 +116,12 @@ export class PaperTrader {
       return null;
     }
 
+    // Mirror the live exchange minimum notional so paper results stay comparable
+    if (cost < 10) {
+      logger.warn(`[PAPER] ${symbol}: BUY skipped, order value ${cost.toFixed(2)} below $10 minimum notional`);
+      return null;
+    }
+
     const initialStopLoss = roundPrice(price * (1 - risk.stopLossPct));
     const timestamp = new Date().toISOString();
     const position = {
