@@ -669,7 +669,9 @@ async function refreshOpenPositionPrices() {
       }
     }));
     if (Object.keys(updates).length) pushEvent('prices', updates);
-  } catch (_) { /* non-critical */ }
+  } catch (err) {
+    logger.debug(`Price poll error: ${err.message}`);
+  }
 }
 pricePollId = setInterval(() => void refreshOpenPositionPrices(), PRICE_POLL_MS);
 
