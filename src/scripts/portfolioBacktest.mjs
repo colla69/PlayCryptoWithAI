@@ -59,14 +59,19 @@ function parseArgs(argv) {
     swapConf:    0.75,
     minHold:     3,
     // position sizing
-    atr:         false,
-    atrPeriod:   14,
+    atr:         config.atr?.enabled ?? false,
+    atrPeriod:   config.atr?.period  ?? 14,
     kelly:       false,
     kellyWindow: 20,
     kellyFrac:   0.25,
     // regime
     regime:      false,
     adxThresh:   20,
+    // trailing stop
+    trailing:    0,
+    // SL/TP override (overrides per-symbol config when set)
+    sl:          null,
+    tp:          null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -85,6 +90,9 @@ function parseArgs(argv) {
     if (a === '--kellyFrac'   && argv[i+1]) { args.kellyFrac   = Number(argv[++i]); continue; }
     if (a === '--regime')                    { args.regime      = true;              continue; }
     if (a === '--adxThresh'   && argv[i+1]) { args.adxThresh   = Number(argv[++i]); continue; }
+    if (a === '--trailing'    && argv[i+1]) { args.trailing    = Number(argv[++i]); continue; }
+    if (a === '--sl'          && argv[i+1]) { args.sl          = Number(argv[++i]); continue; }
+    if (a === '--tp'          && argv[i+1]) { args.tp          = Number(argv[++i]); continue; }
   }
   return args;
 }
@@ -189,14 +197,16 @@ const symbolStrategies = Object.fromEntries(
 const riskValues = symbols.map(s => getRiskConfig(s));
 const portfolioRisk = {
   initialBalance:  args.budget,
-  stopLossPct:     median(riskValues.map(r => r.stopLossPct)),
-  takeProfitPct:   median(riskValues.map(r => r.takeProfitPct)),
-  trailingStopPct: 0,
+  stopLossPct:     args.sl ?? median(riskValues.map(r => r.stopLossPct)),
+  takeProfitPct:   args.tp ?? median(riskValues.map(r => r.takeProfitPct)),
+  trailingStopPct: args.trailing,
   feePct:          0.001,
   slippagePct:     0.001,
 };
 
-console.log(`  Risk config: SL=${(portfolioRisk.stopLossPct*100).toFixed(0)}%  TP=${(portfolioRisk.takeProfitPct*100).toFixed(0)}%  (median across all symbols)\n`);
+const trailingLabel = args.trailing > 0 ? `  TrailingStop: ${(args.trailing*100).toFixed(0)}%` : '';
+const slLabel = args.sl ? ` (override)` : '';
+console.log(`  Risk config: SL=${(portfolioRisk.stopLossPct*100).toFixed(0)}%${slLabel}  TP=${(portfolioRisk.takeProfitPct*100).toFixed(0)}%${slLabel}${trailingLabel}  (median across all symbols)\n`);
 
 // Build backtester
 const backtester = new PortfolioBacktester(symbolStrategies, {

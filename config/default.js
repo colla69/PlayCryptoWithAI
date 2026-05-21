@@ -33,7 +33,8 @@ export default {
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
     breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
     maxDailyLossPct: 0.05,
-    maxOpenPositions: 34,    // one per symbol
+    maxOpenPositions: 5,     // 5 slots → ~20% per position; best risk-adjusted result (Sharpe 1.29, +30%)
+                              // slots=3 gives +47% but -20% DD; slots=34 gives +9.6% tiny positions
     // minConfidence threshold vs 3-strategy vote math:
     //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
     //   2-of-3 majority   → confidence = 0.67  → fails  0.70 ❌ (requires unanimity)
