@@ -70,25 +70,18 @@ export class SupertrendStrategy {
       };
     }
 
-    // Continuation — signal the current trend direction at lower confidence
-    if (curr.trend === 1) {
-      const confidence = Number(Math.min(0.50 + distBoost, 0.65).toFixed(2));
-      return {
-        name: 'Supertrend',
-        signal: 'BUY',
-        value: stLine,
-        confidence,
-        reason: `Supertrend uptrend (ST ${stLine.toFixed(4)})`,
-      };
-    }
-
-    const confidence = Number(Math.min(0.50 + distBoost, 0.65).toFixed(2));
+    // No flip this candle → HOLD.
+    // Supertrend votes only on trend reversals, not continuations.
+    // As a 4th strategy in a 3-indicator combo (e.g. RSI+BB+CCI+ST), the
+    // other 3 can still reach majority (3/4 = 0.75 > 0.70 threshold) without it,
+    // while a fresh flip adds maximum conviction (4/4 = 1.0).
+    // Constant directional voting caused deadlock or amplified whipsaws in backtests.
     return {
       name: 'Supertrend',
-      signal: 'SELL',
+      signal: 'HOLD',
       value: stLine,
-      confidence,
-      reason: `Supertrend downtrend (ST ${stLine.toFixed(4)})`,
+      confidence: 0.1,
+      reason: `Supertrend ${curr.trend === 1 ? 'uptrend' : 'downtrend'} continues (ST ${stLine.toFixed(4)})`,
     };
   }
 }

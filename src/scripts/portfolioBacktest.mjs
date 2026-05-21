@@ -43,6 +43,7 @@ import { fetchHistoricalOHLCV } from '../exchange/binanceClient.js';
 import {
   ADXStrategy, BollingerBandsStrategy, CCIStrategy,
   EMAStrategy, MACDStrategy, RSIStrategy, StochasticStrategy,
+  SupertrendStrategy,
 } from '../strategies/index.js';
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
@@ -93,13 +94,14 @@ function getSymbolCfg(symbol, key, defaults) {
   return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
 }
 const BUILDERS = {
-  RSI:   (s) => new RSIStrategy(getSymbolCfg(s, 'rsi', config.rsi)),
-  EMA:   (s) => new EMAStrategy(getSymbolCfg(s, 'ema', config.ema)),
-  MACD:  (s) => new MACDStrategy(getSymbolCfg(s, 'macd', config.macd)),
-  BB:    (s) => new BollingerBandsStrategy(getSymbolCfg(s, 'bollinger', config.bollinger)),
-  Stoch: (s) => new StochasticStrategy(getSymbolCfg(s, 'stochastic', config.stochastic)),
-  ADX:   (s) => new ADXStrategy(getSymbolCfg(s, 'adx', config.adx)),
-  CCI:   (s) => new CCIStrategy(getSymbolCfg(s, 'cci', config.cci)),
+  RSI:        (s) => new RSIStrategy(getSymbolCfg(s, 'rsi', config.rsi)),
+  EMA:        (s) => new EMAStrategy(getSymbolCfg(s, 'ema', config.ema)),
+  MACD:       (s) => new MACDStrategy(getSymbolCfg(s, 'macd', config.macd)),
+  BB:         (s) => new BollingerBandsStrategy(getSymbolCfg(s, 'bollinger', config.bollinger)),
+  Stoch:      (s) => new StochasticStrategy(getSymbolCfg(s, 'stochastic', config.stochastic)),
+  ADX:        (s) => new ADXStrategy(getSymbolCfg(s, 'adx', config.adx)),
+  CCI:        (s) => new CCIStrategy(getSymbolCfg(s, 'cci', config.cci)),
+  Supertrend: (s) => new SupertrendStrategy(getSymbolCfg(s, 'supertrend', config.supertrend)),
 };
 function buildStrategies(symbol) {
   const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];
