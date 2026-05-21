@@ -15,6 +15,10 @@ export default {
   adx: { period: 14, threshold: 25 },
   cci: { period: 20, oversold: -100, overbought: 100 },
   supertrend: { period: 10, multiplier: 3.0 },
+  mfi:        { period: 14, oversold: 20, overbought: 80 },
+  obv:        { emaPeriod: 20 },
+  psar:       { step: 0.02, max: 0.2 },
+  williamsR:  { period: 14, oversold: -80, overbought: -20 },
   // ──────────────────────────────────────────────────────────────────
   // Default strategy (BTC/USDT, NEAR/USDT — mean-reversion, 12h holdout-validated)
   //   BTC:  RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +35.9%  Y1 +12.5%  Sharpe 1.35/0.53 ✅

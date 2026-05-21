@@ -8,6 +8,10 @@ import {
   RSIStrategy,
   StochasticStrategy,
   SupertrendStrategy,
+  MFIStrategy,
+  OBVStrategy,
+  PSARStrategy,
+  WilliamsRStrategy,
 } from '../strategies/index.js';
 
 const STRATEGY_REASON_PREFIX = {
@@ -19,17 +23,25 @@ const STRATEGY_REASON_PREFIX = {
   ADX:            'adx',
   CCI:            'cci',
   Supertrend:     'supertrend',
+  MFI:            'mfi',
+  OBV:            'obv',
+  PSAR:           'psar',
+  WilliamsR:      'williamsR',
 };
 
 const STRATEGY_TRIGGER_HINTS = {
-  RSI:   'RSI < 30 → BUY (oversold) · RSI > 70 → SELL (overbought)',
-  BB:    'Price touches lower Bollinger Band → BUY · upper band → SELL',
-  MACD:  'MACD line crosses above signal line → BUY · below → SELL',
-  Stoch: 'Stochastic K crosses above D below 20 → BUY · above 80 → SELL',
-  EMA:   'Fast EMA crosses above slow EMA → BUY · below → SELL',
-  ADX:   'ADX > 25 confirms trend; direction from price vs EMA',
+  RSI:        'RSI < 30 → BUY (oversold) · RSI > 70 → SELL (overbought)',
+  BB:         'Price touches lower Bollinger Band → BUY · upper band → SELL',
+  MACD:       'MACD line crosses above signal line → BUY · below → SELL',
+  Stoch:      'Stochastic K crosses above D below 20 → BUY · above 80 → SELL',
+  EMA:        'Fast EMA crosses above slow EMA → BUY · below → SELL',
+  ADX:        'ADX > 25 confirms trend; direction from price vs EMA',
   CCI:        'CCI crosses above −100 from oversold → BUY · below +100 from overbought → SELL',
   Supertrend: 'Supertrend flips bullish → BUY · flips bearish → SELL',
+  MFI:        'MFI < 20 + turning up → BUY (oversold volume reversal) · MFI > 80 + turning down → SELL',
+  OBV:        'OBV crosses above EMA-20 → BUY (volume buyers) · crosses below → SELL',
+  PSAR:       'Parabolic SAR flips below price → BUY · flips above price → SELL',
+  WilliamsR:  '%R < −80 + turning up → BUY (oversold) · %R > −20 + turning down → SELL',
 };
 
 function getStrategyConfigForSymbol(symbol, key, defaults) {
@@ -40,14 +52,18 @@ function getStrategyConfigForSymbol(symbol, key, defaults) {
 }
 
 const STRATEGY_BUILDERS = {
-  RSI:   (symbol) => new RSIStrategy(getStrategyConfigForSymbol(symbol, 'rsi', config.rsi)),
-  EMA:   (symbol) => new EMAStrategy(getStrategyConfigForSymbol(symbol, 'ema', config.ema)),
-  MACD:  (symbol) => new MACDStrategy(getStrategyConfigForSymbol(symbol, 'macd', config.macd)),
-  BB:    (symbol) => new BollingerBandsStrategy(getStrategyConfigForSymbol(symbol, 'bollinger', config.bollinger)),
-  Stoch: (symbol) => new StochasticStrategy(getStrategyConfigForSymbol(symbol, 'stochastic', config.stochastic)),
-  ADX:   (symbol) => new ADXStrategy(getStrategyConfigForSymbol(symbol, 'adx', config.adx)),
+  RSI:        (symbol) => new RSIStrategy(getStrategyConfigForSymbol(symbol, 'rsi', config.rsi)),
+  EMA:        (symbol) => new EMAStrategy(getStrategyConfigForSymbol(symbol, 'ema', config.ema)),
+  MACD:       (symbol) => new MACDStrategy(getStrategyConfigForSymbol(symbol, 'macd', config.macd)),
+  BB:         (symbol) => new BollingerBandsStrategy(getStrategyConfigForSymbol(symbol, 'bollinger', config.bollinger)),
+  Stoch:      (symbol) => new StochasticStrategy(getStrategyConfigForSymbol(symbol, 'stochastic', config.stochastic)),
+  ADX:        (symbol) => new ADXStrategy(getStrategyConfigForSymbol(symbol, 'adx', config.adx)),
   CCI:        (symbol) => new CCIStrategy(getStrategyConfigForSymbol(symbol, 'cci', config.cci)),
   Supertrend: (symbol) => new SupertrendStrategy(getStrategyConfigForSymbol(symbol, 'supertrend', config.supertrend)),
+  MFI:        (symbol) => new MFIStrategy(getStrategyConfigForSymbol(symbol, 'mfi', config.mfi)),
+  OBV:        (symbol) => new OBVStrategy(getStrategyConfigForSymbol(symbol, 'obv', config.obv)),
+  PSAR:       (symbol) => new PSARStrategy(getStrategyConfigForSymbol(symbol, 'psar', config.psar)),
+  WilliamsR:  (symbol) => new WilliamsRStrategy(getStrategyConfigForSymbol(symbol, 'williamsR', config.williamsR)),
 };
 
 export function buildStrategiesForSymbol(symbol) {

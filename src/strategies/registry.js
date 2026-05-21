@@ -6,6 +6,10 @@ import { StochasticStrategy } from './stochastic.js';
 import { ADXStrategy } from './adx.js';
 import { CCIStrategy } from './cci.js';
 import { SupertrendStrategy } from './supertrend.js';
+import { MFIStrategy } from './mfi.js';
+import { OBVStrategy } from './obv.js';
+import { PSARStrategy } from './psar.js';
+import { WilliamsRStrategy } from './williamsR.js';
 
 /**
  * Registry of all available strategies.
@@ -121,6 +125,59 @@ export const STRATEGY_REGISTRY = [
       { key: 'multiplier', label: 'Multiplier',   type: 'number', default: 3.0 },
     ],
     tags: ['trend', 'atr', 'trailing stop'],
+  },
+  {
+    id: 'mfi',
+    name: 'MFI',
+    fullName: 'Money Flow Index',
+    Class: MFIStrategy,
+    defaultConfig: { period: 14, oversold: 20, overbought: 80 },
+    description: 'Volume-weighted RSI. Measures buying/selling pressure using both price direction and volume. Catches accumulation/distribution that RSI misses. Buys on oversold reversal (<20 turning up), sells on overbought reversal (>80 turning down).',
+    params: [
+      { key: 'period',     label: 'Period',             type: 'number', default: 14 },
+      { key: 'oversold',   label: 'Oversold threshold', type: 'number', default: 20 },
+      { key: 'overbought', label: 'Overbought threshold', type: 'number', default: 80 },
+    ],
+    tags: ['volume', 'momentum', 'oscillator'],
+  },
+  {
+    id: 'obv',
+    name: 'OBV',
+    fullName: 'On-Balance Volume',
+    Class: OBVStrategy,
+    defaultConfig: { emaPeriod: 20 },
+    description: 'Cumulative volume indicator. Adds volume on up-candles, subtracts on down-candles. A rising OBV confirms institutional buying. Signals when OBV crosses above/below its EMA — effective trend confirmation for momentum and trend-following strategies.',
+    params: [
+      { key: 'emaPeriod', label: 'EMA period', type: 'number', default: 20 },
+    ],
+    tags: ['volume', 'trend'],
+  },
+  {
+    id: 'psar',
+    name: 'PSAR',
+    fullName: 'Parabolic SAR',
+    Class: PSARStrategy,
+    defaultConfig: { step: 0.02, max: 0.2 },
+    description: 'Trailing stop-reversal system. The SAR dot tracks price, sitting below in uptrends and above in downtrends. Flip-only design: signals BUY/SELL only when the dot crosses to the other side of price — avoids noisy continuation signals on higher timeframes.',
+    params: [
+      { key: 'step', label: 'Acceleration factor step', type: 'number', default: 0.02 },
+      { key: 'max',  label: 'Max acceleration factor',  type: 'number', default: 0.2  },
+    ],
+    tags: ['trend', 'trailing stop'],
+  },
+  {
+    id: 'williamsR',
+    name: 'Williams %R',
+    fullName: 'Williams %R',
+    Class: WilliamsRStrategy,
+    defaultConfig: { period: 14, oversold: -80, overbought: -20 },
+    description: 'Fast momentum oscillator (range −100 to 0). Responds more quickly than Stochastic. Buys when %R < −80 and turning up (oversold reversal), sells when %R > −20 and turning down (overbought reversal). Good complement to Bollinger Bands in mean-reversion setups.',
+    params: [
+      { key: 'period',     label: 'Period',             type: 'number', default: 14  },
+      { key: 'oversold',   label: 'Oversold threshold', type: 'number', default: -80 },
+      { key: 'overbought', label: 'Overbought threshold', type: 'number', default: -20 },
+    ],
+    tags: ['momentum', 'oscillator'],
   },
   {
     id: 'telegram',

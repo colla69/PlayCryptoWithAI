@@ -6,4 +6,8 @@ export { StochasticStrategy } from './stochastic.js';
 export { ADXStrategy } from './adx.js';
 export { CCIStrategy } from './cci.js';
 export { SupertrendStrategy } from './supertrend.js';
+export { MFIStrategy } from './mfi.js';
+export { OBVStrategy } from './obv.js';
+export { PSARStrategy } from './psar.js';
+export { WilliamsRStrategy } from './williamsR.js';
 export { STRATEGY_REGISTRY, getRegistryMeta } from './registry.js';
