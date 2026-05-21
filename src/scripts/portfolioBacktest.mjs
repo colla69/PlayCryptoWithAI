@@ -43,7 +43,7 @@ import { fetchHistoricalOHLCV } from '../exchange/binanceClient.js';
 import {
   ADXStrategy, BollingerBandsStrategy, CCIStrategy,
   EMAStrategy, MACDStrategy, RSIStrategy, StochasticStrategy,
-  SupertrendStrategy,
+  SupertrendStrategy, MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
 } from '../strategies/index.js';
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
@@ -102,6 +102,10 @@ const BUILDERS = {
   ADX:        (s) => new ADXStrategy(getSymbolCfg(s, 'adx', config.adx)),
   CCI:        (s) => new CCIStrategy(getSymbolCfg(s, 'cci', config.cci)),
   Supertrend: (s) => new SupertrendStrategy(getSymbolCfg(s, 'supertrend', config.supertrend)),
+  MFI:        (s) => new MFIStrategy(getSymbolCfg(s, 'mfi', config.mfi)),
+  OBV:        (s) => new OBVStrategy(getSymbolCfg(s, 'obv', config.obv)),
+  PSAR:       (s) => new PSARStrategy(getSymbolCfg(s, 'psar', config.psar)),
+  WilliamsR:  (s) => new WilliamsRStrategy(getSymbolCfg(s, 'williamsR', config.williamsR)),
 };
 function buildStrategies(symbol) {
   const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];
