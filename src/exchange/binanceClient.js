@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import ccxt from 'ccxt';
+import logger from '../utils/logger.js';
 
 const apiKey = process.env.BINANCE_API_KEY;
 const secret = process.env.BINANCE_API_SECRET;
@@ -10,11 +11,42 @@ const client = new ccxt.binance({
   apiKey: paperMode ? undefined : apiKey,
   secret: paperMode ? undefined : secret,
   enableRateLimit: true,
+  timeout: 15000,
   options: {
     defaultType: 'spot',
     createMarketBuyOrderRequiresPrice: false,
   },
 });
+
+/**
+ * Retries an async function up to `maxAttempts` times on network/timeout errors.
+ * Only retries on transient failures (timeout, network error, 5xx).
+ * Does NOT retry on auth errors, rate-limits, or order-related calls.
+ *
+ * @param {() => Promise<T>} fn
+ * @param {{ maxAttempts?: number, baseDelayMs?: number, label?: string }} opts
+ * @returns {Promise<T>}
+ */
+async function withRetry(fn, { maxAttempts = 3, baseDelayMs = 1000, label = 'request' } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const msg = String(err?.message ?? err);
+      const isTransient = msg.includes('timed out') || msg.includes('ECONNRESET') ||
+                          msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND') ||
+                          msg.includes('socket hang up') || msg.includes('EAI_AGAIN') ||
+                          (err?.httpCode >= 500 && err?.httpCode < 600);
+      if (!isTransient || attempt === maxAttempts) throw err;
+      const delay = baseDelayMs * attempt;
+      logger.warn(`[exchange] ${label} timed out (attempt ${attempt}/${maxAttempts}), retrying in ${delay}ms…`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
 
 if (testnetMode) {
   // Override all URL groups so no request accidentally hits real Binance with testnet keys
@@ -73,7 +105,10 @@ async function ensureMarketsLoaded() {
 
 export async function fetchOHLCV(symbol, timeframe, limit = 100) {
   await ensureMarketsLoaded();
-  const candles = await client.fetchOHLCV(symbol, timeframe, undefined, limit);
+  const candles = await withRetry(
+    () => client.fetchOHLCV(symbol, timeframe, undefined, limit),
+    { label: `fetchOHLCV(${symbol})` },
+  );
 
   return candles.map(([timestamp, open, high, low, close, volume]) => ({
     timestamp,
@@ -109,7 +144,10 @@ export async function fetchHistoricalOHLCV(symbol, timeframe, totalCandles = 225
   let since = Date.now() - totalCandles * msPerCandle;
 
   while (allRaw.length < totalCandles) {
-    const batch = await client.fetchOHLCV(symbol, timeframe, since, batchSize);
+    const batch = await withRetry(
+        () => client.fetchOHLCV(symbol, timeframe, since, batchSize),
+        { label: `fetchHistoricalOHLCV(${symbol})` },
+      );
     if (!batch.length) break;
 
     allRaw.push(...batch);
@@ -144,7 +182,10 @@ export async function fetchHistoricalOHLCV(symbol, timeframe, totalCandles = 225
 
 export async function fetchTicker(symbol) {
   await ensureMarketsLoaded();
-  const ticker = await client.fetchTicker(symbol);
+  const ticker = await withRetry(
+    () => client.fetchTicker(symbol),
+    { label: `fetchTicker(${symbol})` },
+  );
 
   return {
     symbol,
@@ -167,7 +208,10 @@ export async function fetchBalance() {
   await ensureMarketsLoaded();
 
   if (testnetMode) {
-    const account = await client.privateGetAccount();
+    const account = await withRetry(
+      () => client.privateGetAccount(),
+      { label: 'fetchBalance(testnet)' },
+    );
     const balance = {
       info: account,
       free: {},
@@ -192,7 +236,7 @@ export async function fetchBalance() {
     return balance;
   }
 
-  return client.fetchBalance();
+  return withRetry(() => client.fetchBalance(), { label: 'fetchBalance(live)' });
 }
 
 export async function createOrder(symbol, type, side, amount, price = undefined) {
