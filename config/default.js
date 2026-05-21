@@ -14,6 +14,7 @@ export default {
   stochastic: { period: 14, signalPeriod: 3, oversold: 20, overbought: 80 },
   adx: { period: 14, threshold: 25 },
   cci: { period: 20, oversold: -100, overbought: 100 },
+  supertrend: { period: 10, multiplier: 3.0 },
   // ──────────────────────────────────────────────────────────────────
   // Default strategy (BTC/USDT, NEAR/USDT — mean-reversion, 12h holdout-validated)
   //   BTC:  RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +35.9%  Y1 +12.5%  Sharpe 1.35/0.53 ✅
@@ -75,7 +76,7 @@ export default {
     },
     'TRX/USDT': {
       // TREND:EMA+MACD+ADX  SL12/TP30  conf=0.55 → Y2 +36.4%  Y1 +129.9%  Sharpe 1.83/1.01 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ['Supertrend', 'MACD', 'ADX'],
       stopLossPct: 0.12,
       takeProfitPct: 0.30,
       minConfidence: 0.55,
@@ -112,7 +113,7 @@ export default {
     },
     'CHR/USDT': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +1.4%  Y1 +139.0%  Sharpe 0.23/2.40 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ['Supertrend', 'MACD', 'ADX'],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
@@ -134,7 +135,7 @@ export default {
     },
     'GLMR/USDT': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +26.7%  Y1 +42.5%  Sharpe 0.58/1.51 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ['Supertrend', 'MACD', 'ADX'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
@@ -198,7 +199,7 @@ export default {
     },
     'PAXG/USDT': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +39.7%  Y1 +13.8%  Sharpe 2.48/0.87 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ['Supertrend', 'MACD', 'ADX'],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
@@ -206,7 +207,7 @@ export default {
     },
     'PIXEL/USDT': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +103.8%  Y1 +117.6%  Sharpe 0.97/1.35 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ['Supertrend', 'MACD', 'ADX'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
@@ -256,7 +257,7 @@ export default {
     },
     'VANRY/USDT': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +53.1%  Y1 +62.9%  Sharpe 1.08/1.78 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ['Supertrend', 'MACD', 'ADX'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,

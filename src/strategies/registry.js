@@ -5,6 +5,7 @@ import { BollingerBandsStrategy } from './bollingerBands.js';
 import { StochasticStrategy } from './stochastic.js';
 import { ADXStrategy } from './adx.js';
 import { CCIStrategy } from './cci.js';
+import { SupertrendStrategy } from './supertrend.js';
 
 /**
  * Registry of all available strategies.
@@ -107,6 +108,19 @@ export const STRATEGY_REGISTRY = [
       { key: 'overbought', label: 'Overbought threshold', type: 'number', default: 100 },
     ],
     tags: ['momentum', 'oscillator'],
+  },
+  {
+    id: 'supertrend',
+    name: 'Supertrend',
+    fullName: 'Supertrend',
+    Class: SupertrendStrategy,
+    defaultConfig: { period: 10, multiplier: 3.0 },
+    description: 'Trend-following indicator based on ATR. Plots a line below price in uptrends (bullish) and above in downtrends (bearish). Signals on flip — complements mean-reversion strategies like RSI and BB.',
+    params: [
+      { key: 'period',     label: 'ATR period',   type: 'number', default: 10  },
+      { key: 'multiplier', label: 'Multiplier',   type: 'number', default: 3.0 },
+    ],
+    tags: ['trend', 'atr', 'trailing stop'],
   },
   {
     id: 'telegram',

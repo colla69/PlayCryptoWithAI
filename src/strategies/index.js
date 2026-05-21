@@ -5,4 +5,5 @@ export { BollingerBandsStrategy } from './bollingerBands.js';
 export { StochasticStrategy } from './stochastic.js';
 export { ADXStrategy } from './adx.js';
 export { CCIStrategy } from './cci.js';
+export { SupertrendStrategy } from './supertrend.js';
 export { STRATEGY_REGISTRY, getRegistryMeta } from './registry.js';

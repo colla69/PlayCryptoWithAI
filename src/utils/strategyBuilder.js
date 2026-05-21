@@ -7,6 +7,7 @@ import {
   MACDStrategy,
   RSIStrategy,
   StochasticStrategy,
+  SupertrendStrategy,
 } from '../strategies/index.js';
 
 const STRATEGY_REASON_PREFIX = {
@@ -17,6 +18,7 @@ const STRATEGY_REASON_PREFIX = {
   Stochastic:     'stoch',
   ADX:            'adx',
   CCI:            'cci',
+  Supertrend:     'supertrend',
 };
 
 const STRATEGY_TRIGGER_HINTS = {
@@ -26,7 +28,8 @@ const STRATEGY_TRIGGER_HINTS = {
   Stoch: 'Stochastic K crosses above D below 20 → BUY · above 80 → SELL',
   EMA:   'Fast EMA crosses above slow EMA → BUY · below → SELL',
   ADX:   'ADX > 25 confirms trend; direction from price vs EMA',
-  CCI:   'CCI crosses above −100 from oversold → BUY · below +100 from overbought → SELL',
+  CCI:        'CCI crosses above −100 from oversold → BUY · below +100 from overbought → SELL',
+  Supertrend: 'Supertrend flips bullish → BUY · flips bearish → SELL',
 };
 
 function getStrategyConfigForSymbol(symbol, key, defaults) {
@@ -43,7 +46,8 @@ const STRATEGY_BUILDERS = {
   BB:    (symbol) => new BollingerBandsStrategy(getStrategyConfigForSymbol(symbol, 'bollinger', config.bollinger)),
   Stoch: (symbol) => new StochasticStrategy(getStrategyConfigForSymbol(symbol, 'stochastic', config.stochastic)),
   ADX:   (symbol) => new ADXStrategy(getStrategyConfigForSymbol(symbol, 'adx', config.adx)),
-  CCI:   (symbol) => new CCIStrategy(getStrategyConfigForSymbol(symbol, 'cci', config.cci)),
+  CCI:        (symbol) => new CCIStrategy(getStrategyConfigForSymbol(symbol, 'cci', config.cci)),
+  Supertrend: (symbol) => new SupertrendStrategy(getStrategyConfigForSymbol(symbol, 'supertrend', config.supertrend)),
 };
 
 export function buildStrategiesForSymbol(symbol) {
