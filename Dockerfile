@@ -33,7 +33,7 @@ EXPOSE 3001
 
 # Healthcheck: dashboard API must respond
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD wget -qO- http://localhost:3001/api/summary > /dev/null || exit 1
+  CMD wget -qO- http://localhost:3001/api/health > /dev/null || exit 1
 
 CMD ["node", "src/main.js"]
 
