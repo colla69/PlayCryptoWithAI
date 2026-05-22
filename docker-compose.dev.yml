@@ -1,0 +1,32 @@
+# Development override — uses local directories instead of named volumes.
+# Files are readable/writable directly from your host machine.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This also runs in PAPER_MODE so no real orders are placed during dev.
+
+services:
+  bot:
+    env_file: .env             # local .env (PAPER_MODE=true recommended)
+    environment:
+      - PAPER_MODE=true
+    volumes:
+      - ./data/candles:/app/data/candles   # host candles → readable from container
+      - ./data:/app/data                   # full data dir (dashboard_persist, etc.)
+      - ./logs:/app/logs                   # logs on host for easy tail -f
+    # Rebuild on source changes when using watch mode:
+    # docker compose -f docker-compose.yml -f docker-compose.dev.yml watch
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: sync
+          path: ./config
+          target: /app/config
+        - action: sync
+          path: ./public
+          target: /app/public
+        - action: rebuild
+          path: package.json

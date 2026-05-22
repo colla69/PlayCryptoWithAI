@@ -4,6 +4,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.live
 
 # Runtime logs (not trade history)
 logs/*.log

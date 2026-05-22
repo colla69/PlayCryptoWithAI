@@ -1,0 +1,43 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: playcryptowithais:latest
+    container_name: playcrypto-bot
+    restart: unless-stopped
+
+    # ── Secrets & config ──────────────────────────────────────────────────────
+    # Copy .env.live (your real keys) to the server alongside docker-compose.yml
+    # It is NEVER committed to git.
+    env_file: .env.live
+
+    # ── Ports ────────────────────────────────────────────────────────────────
+    ports:
+      - "3001:3001"     # dashboard
+
+    # ── Persistence ──────────────────────────────────────────────────────────
+    # Named volumes: survive container restarts and image rebuilds.
+    # To move to a new server, back up these two Docker volumes
+    # (or use the bind-mount alternative in docker-compose.dev.yml).
+    volumes:
+      - candle-data:/app/data/candles    # ~500MB of OHLCV history
+      - runtime-data:/app/data           # dashboard_persist.json, fearGreed, etc.
+      - trade-logs:/app/logs             # trades.csv, app.log
+
+    # ── Logging ──────────────────────────────────────────────────────────────
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+# These are managed by Docker and persist independently of containers.
+# Inspect with:  docker volume inspect playcrypto_candle-data
+# Back up with:  docker run --rm -v playcrypto_candle-data:/data -v $(pwd):/backup \
+#                  alpine tar czf /backup/candles-backup.tar.gz -C /data .
+volumes:
+  candle-data:
+  runtime-data:
+  trade-logs:
