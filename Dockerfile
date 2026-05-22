@@ -1,13 +1,13 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:22-slim AS deps
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install -g npm@10 && npm ci --unsafe-perm --no-audit --no-fund
 
 # ── Runtime image ──────────────────────────────────────────────────────────────
-FROM node:22-alpine
+FROM node:22-slim
 
 WORKDIR /app
 
