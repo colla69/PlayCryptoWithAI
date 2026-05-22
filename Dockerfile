@@ -11,9 +11,6 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# curl needed for the healthcheck (wget is not in alpine by default)
-RUN apk add --no-cache curl
-
 # Non-root user for security
 RUN addgroup -S bot && adduser -S bot -G bot
 
@@ -36,7 +33,7 @@ EXPOSE 3001
 
 # Healthcheck: dashboard API must respond
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD curl -sf http://localhost:3001/api/summary > /dev/null || exit 1
+  CMD wget -qO- http://localhost:3001/api/summary > /dev/null || exit 1
 
 CMD ["node", "src/main.js"]
 
