@@ -1,4 +1,7 @@
 import 'dotenv/config';
+// ccxt and telegram-bot-api each attach multiple process signal listeners —
+// raise the limit to suppress the false-positive MaxListeners warning.
+process.setMaxListeners(50);
 import config from '../config/default.js';
 import { fetchOHLCV, fetchHistoricalOHLCV, fetchTicker, paperMode, testnetMode } from './exchange/binanceClient.js';
 import { loadCachedCandles, saveCachedCandles } from './exchange/candleCache.js';
