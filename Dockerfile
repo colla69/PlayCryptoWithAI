@@ -12,7 +12,7 @@ FROM node:22-slim
 WORKDIR /app
 
 # Non-root user for security
-RUN addgroup -S bot && adduser -S bot -G bot
+RUN groupadd -r bot && useradd -r -g bot bot
 
 # Copy app source
 COPY --chown=bot:bot src/        ./src/
