@@ -32,8 +32,9 @@
 import SignalAggregator from '../engine/signalAggregator.js';
 import { BacktestSimulator } from './backtestSimulator.js';
 import { calculateMetrics } from './metrics.js';
-import { calculateADX } from '../utils/indicators.js';
+import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
+import { buildMtfIndex, mtfAlignScore } from '../utils/mtfAlignment.js';
 import signalBus from '../signals/signalBus.js';
 
 const MIN_WARMUP = 50;
@@ -66,6 +67,35 @@ export class PortfolioBacktester {
     this.fearGreedFilter = Boolean(config.fearGreedFilter ?? false);
     this.fearGreedThreshold = Number(config.fearGreedThreshold ?? 50);
     this.fearGreedData = Array.isArray(config.fearGreedData) ? config.fearGreedData : null;
+    this.macroFilter = Boolean(config.macroFilter ?? false);
+    this.macroEMAPeriod = Number(config.macroEMAPeriod ?? 200);
+    this.macroSizeReduceFactor = Number(config.macroSizeReduceFactor ?? 0.5);
+    // MTF (multi-timeframe) entry alignment filter.
+    // When enabled, a 12h BUY entry is skipped when the last `mtfAlignBars` x 15m
+    // candles are predominantly bearish (green fraction < mtfMinScore).
+    // mtfSymbolCandles: { 'BTC/USDT': [...15m candles], ... } — symbols without
+    // 15m data are silently passed through (filter not applied for them).
+    this.mtfFilter = Boolean(config.mtfFilter ?? false);
+    this.mtfSymbolCandles = config.mtfSymbolCandles ?? {};
+    this.mtfAlignBars = Number(config.mtfAlignBars ?? 16); // 16 × 15m = 4h
+    this.mtfMinScore = Number(config.mtfMinScore ?? 0.5);  // 50% green = bullish
+    this.mtfReduceFactor = Number(config.mtfReduceFactor ?? 0); // 0 = skip; >0 = reduce
+    // Confidence-proportional position sizing.
+    // Position size is scaled by signal confidence relative to a neutral midpoint.
+    // conf=1.0 → confSizingMax×, conf=confSizingMid → 1.0×, low conf → confSizingMin×.
+    this.confSizing = Boolean(config.confSizing ?? false);
+    this.confSizingMid = Number(config.confSizingMid ?? 0.65);
+    this.confSizingMax = Number(config.confSizingMax ?? 1.5);
+    this.confSizingMin = Number(config.confSizingMin ?? 0.6);
+    // MTF early exit — use 15m candles to exit a losing position early when the
+    // short-term trend turns strongly bearish, freeing the slot for a better entry.
+    // Only fires when: unrealizedPnl < -mtfEarlyExitMinLoss AND 15m score < mtfEarlyExitScore.
+    this.mtfEarlyExit = Boolean(config.mtfEarlyExit ?? false);
+    this.mtfEarlyExitScore = Number(config.mtfEarlyExitScore ?? 0.35);
+    this.mtfEarlyExitMinLoss = Number(config.mtfEarlyExitMinLoss ?? 0.02);
+    // Cap candle slice length fed to strategies — avoids O(N²) on large datasets.
+    // 0 = no cap (default, safe for 12h). Set to e.g. 300 for 15m performance.
+    this.maxLookback = Number(config.maxLookback ?? 0);
 
     const symbolCount = Object.keys(symbolStrategies).length;
     signalBus.setMaxListeners(Math.max(signalBus.getMaxListeners(), symbolCount + 5));
@@ -97,6 +127,17 @@ export class PortfolioBacktester {
       ? this.#computeCorrelationMatrix(symbolCandles, symbols)
       : null;
 
+    // Build per-symbol 12h→15m index for MTF alignment filter AND early exit
+    const mtfIndex = {};
+    if (this.mtfFilter || this.mtfEarlyExit) {
+      for (const sym of symbols) {
+        const c15m = this.mtfSymbolCandles[sym];
+        if (c15m?.length) {
+          mtfIndex[sym] = buildMtfIndex(symbolCandles[sym], c15m);
+        }
+      }
+    }
+
     const maxLen = Math.max(...symbols.map((s) => symbolCandles[s].length));
     const positionOpenedStep = {};
     const filtersApplied = {
@@ -104,6 +145,7 @@ export class PortfolioBacktester {
       volume: 0,
       fearGreed: 0,
       correlation: 0,
+      mtfEarlyExit: 0,
     };
 
     for (let step = 0; step < maxLen - MIN_WARMUP; step++) {
@@ -114,6 +156,42 @@ export class PortfolioBacktester {
       if (this.atrPositionSizing) {
         const vals = symbols.map((s) => allData[s]?.[step]?.atrPct).filter((v) => v > 0);
         if (vals.length) medianATR = this.#median(vals);
+      }
+
+      // Macro bear filter: check BTC vs EMA(emaPeriod) using candles up to this step
+      let macroBull = true;
+      if (this.macroFilter && symbolCandles['BTC/USDT']) {
+        const btcCandles = symbolCandles['BTC/USDT'].slice(0, step + MIN_WARMUP + 1);
+        macroBull = isBullTrend(btcCandles, this.macroEMAPeriod);
+      }
+
+      // MTF early exit: for each open losing position, check if 15m trend is strongly
+      // bearish. If so, close immediately to free the slot for a better opportunity.
+      if (this.mtfEarlyExit) {
+        const openPositions = simulator.getStatus().positions;
+        for (const pos of openPositions) {
+          const sym = pos.symbol;
+          const c15m = this.mtfSymbolCandles[sym];
+          if (!c15m?.length || !mtfIndex[sym]) continue;
+
+          const candle12hIdx = step + MIN_WARMUP;
+          const last15mIdx = mtfIndex[sym][candle12hIdx];
+          if (last15mIdx < 0) continue;
+
+          const score = mtfAlignScore(c15m, last15mIdx, this.mtfAlignBars);
+          if (score >= this.mtfEarlyExitScore) continue; // trend ok, hold
+
+          const d = allData[sym]?.[step];
+          if (!d) continue;
+          const unrealizedPct = (d.price - pos.entryPrice) / pos.entryPrice;
+          if (unrealizedPct > -this.mtfEarlyExitMinLoss) continue; // not losing enough yet
+
+          // Both conditions met: losing position + strongly bearish 15m → early exit
+          simulator.setTimestamp(d.timestamp);
+          simulator.execute(sym, 'SELL', d.price);
+          delete positionOpenedStep[sym];
+          filtersApplied.mtfEarlyExit++;
+        }
       }
 
       for (const sym of symbols) {
@@ -172,12 +250,35 @@ export class PortfolioBacktester {
         }
 
         const openCount = status.positions.length;
-        const positionPct = this.#computePositionPct(
+        let positionPct = this.#computePositionPct(
           d,
           basePct,
           medianATR,
           simulator.getTrades(),
         );
+        // Macro bear filter: halve position size when BTC is below its EMA
+        if (this.macroFilter && !macroBull) {
+          positionPct *= this.macroSizeReduceFactor;
+        }
+
+        // MTF alignment filter: check if last 4h of 15m candles are constructive
+        if (this.mtfFilter && mtfIndex[sym]) {
+          const candle12hIdx = step + MIN_WARMUP;
+          const last15mIdx = mtfIndex[sym][candle12hIdx];
+          const score = mtfAlignScore(
+            this.mtfSymbolCandles[sym],
+            last15mIdx,
+            this.mtfAlignBars,
+          );
+          if (score < this.mtfMinScore) {
+            if (this.mtfReduceFactor > 0) {
+              positionPct *= this.mtfReduceFactor;
+            } else {
+              filtersApplied.mtf = (filtersApplied.mtf ?? 0) + 1;
+              continue;
+            }
+          }
+        }
         const entryOpts = { positionPct };
 
         if (this.atrSLTP && d.atrPct > 0) {
@@ -270,7 +371,8 @@ export class PortfolioBacktester {
       allData[sym] = [];
 
       for (let i = MIN_WARMUP; i < candles.length; i++) {
-        const slice = candles.slice(0, i + 1);
+        const start = this.maxLookback > 0 ? Math.max(0, i - this.maxLookback) : 0;
+        const slice = candles.slice(start, i + 1);
         const candle = slice.at(-1);
         const result = this.aggregators[sym].aggregate(slice, sym, this.config.signals ?? {});
 
@@ -417,6 +519,21 @@ export class PortfolioBacktester {
           pct = Math.max(pct * 0.5, Math.min(pct * 2.0, adj));
         }
       }
+    }
+
+    // Confidence-proportional sizing: scale position size linearly with signal strength.
+    // At confidence = confSizingMid → 1.0× (no change); above → up to confSizingMax×;
+    // below → down to confSizingMin×. Uses linear interpolation through the midpoint.
+    if (this.confSizing && Number.isFinite(d.confidence) && d.confidence > 0) {
+      const conf = d.confidence;
+      const mid  = this.confSizingMid;
+      let scale;
+      if (conf >= mid) {
+        scale = 1 + (conf - mid) / (1 - mid) * (this.confSizingMax - 1);
+      } else {
+        scale = this.confSizingMin + (conf / mid) * (1 - this.confSizingMin);
+      }
+      pct *= Math.max(this.confSizingMin, Math.min(this.confSizingMax, scale));
     }
 
     return pct;

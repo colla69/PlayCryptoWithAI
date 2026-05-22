@@ -211,6 +211,7 @@ class DashboardState {
       timeframe: config.timeframe ?? this.runtimeConfig.timeframe,
       pollIntervalMs: Number(config.pollIntervalMs ?? this.runtimeConfig.pollIntervalMs ?? 0),
       symbols: Array.isArray(config.symbols) ? [...config.symbols] : this.runtimeConfig.symbols,
+      maxOpenPositions: Number(config.maxOpenPositions ?? this.runtimeConfig.maxOpenPositions ?? 0),
     };
   }
 
@@ -304,6 +305,7 @@ class DashboardState {
         timeframe: this.runtimeConfig.timeframe,
         pollIntervalMs: this.runtimeConfig.pollIntervalMs,
         symbols: [...this.runtimeConfig.symbols],
+        maxOpenPositions: this.runtimeConfig.maxOpenPositions,
       },
       activeFilters: { ...this.activeFilters },
       blockedStats: { ...this.blockedStats },

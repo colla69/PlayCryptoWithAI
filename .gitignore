@@ -5,13 +5,19 @@ node_modules/
 .env.local
 .env.*.local
 
-# Runtime / generated data
-logs/
-data/candles/
-data/dashboard_persist.json
+# Runtime logs (not trade history)
+logs/*.log
+logs/*.json
 
-# Large backtest / scan artifacts (reproducible, not source)
-data/*.json
+# Large backtest / scan artifacts (reproducible, not source of truth)
+data/optimization_results*.json
+data/optimization_15m.json
+data/new_coins_*.json
+data/results_12h.json
+data/results_1d.json
+data/sweep_results.json
+data/holdout_15m.json
+data/persymbol_results.json
 
 # Editor / OS
 .idea/

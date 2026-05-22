@@ -44,6 +44,7 @@ import {
   ADXStrategy, BollingerBandsStrategy, CCIStrategy,
   EMAStrategy, MACDStrategy, RSIStrategy, StochasticStrategy,
   SupertrendStrategy, MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
+  StochRSIStrategy, HeikinAshiStrategy,
 } from '../strategies/index.js';
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
@@ -65,13 +66,37 @@ function parseArgs(argv) {
     kellyWindow: 20,
     kellyFrac:   0.25,
     // regime
-    regime:      false,
-    adxThresh:   20,
+    regime:      config.regime?.enabled ?? false,
+    adxThresh:   config.regime?.adxThreshold ?? 20,
     // trailing stop
     trailing:    0,
     // SL/TP override (overrides per-symbol config when set)
     sl:          null,
     tp:          null,
+    // break-even stop (move SL to entry once +X% profit)
+    breakEven:   config.risk?.breakEvenTriggerPct ?? 0,
+    // correlation filter (block correlated concurrent positions)
+    corrFilter:  config.correlation?.enabled ?? false,
+    corrThresh:  config.correlation?.threshold ?? 0.8,
+    corrPeriod:  config.correlation?.period ?? 60,
+    // macro bear filter (reduce position size when BTC below EMA200)
+    macro:       config.macroFilter?.enabled ?? false,
+    macroEMA:    config.macroFilter?.emaPeriod ?? 200,
+    macroReduce: config.macroFilter?.sizeReduceFactor ?? 0.5,
+    // multi-timeframe alignment filter (check 15m trend before 12h entry)
+    mtf:         config.mtfFilter?.enabled ?? false,
+    mtfBars:     config.mtfFilter?.alignBars ?? 16,
+    mtfScore:    config.mtfFilter?.minAlignScore ?? 0.50,
+    mtfReduce:   config.mtfFilter?.reduceFactor ?? 0,
+    // MTF early exit (close losing positions when 15m turns strongly bearish)
+    mtfExit:          config.mtfEarlyExit?.enabled ?? false,
+    mtfExitScore:     config.mtfEarlyExit?.exitScore ?? 0.35,
+    mtfExitMinLoss:   config.mtfEarlyExit?.minLossPct ?? 0.02,
+    // Confidence-proportional position sizing
+    confSizing:    config.confSizing?.enabled ?? false,
+    confSizingMid: config.confSizing?.mid ?? 0.65,
+    confSizingMax: config.confSizing?.max ?? 1.5,
+    confSizingMin: config.confSizing?.min ?? 0.6,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -89,10 +114,31 @@ function parseArgs(argv) {
     if (a === '--kellyWindow' && argv[i+1]) { args.kellyWindow = Number(argv[++i]); continue; }
     if (a === '--kellyFrac'   && argv[i+1]) { args.kellyFrac   = Number(argv[++i]); continue; }
     if (a === '--regime')                    { args.regime      = true;              continue; }
+    if (a === '--no-regime')                 { args.regime      = false;             continue; }
     if (a === '--adxThresh'   && argv[i+1]) { args.adxThresh   = Number(argv[++i]); continue; }
     if (a === '--trailing'    && argv[i+1]) { args.trailing    = Number(argv[++i]); continue; }
     if (a === '--sl'          && argv[i+1]) { args.sl          = Number(argv[++i]); continue; }
     if (a === '--tp'          && argv[i+1]) { args.tp          = Number(argv[++i]); continue; }
+    if (a === '--breakEven'   && argv[i+1]) { args.breakEven   = Number(argv[++i]); continue; }
+    if (a === '--no-corr')                   { args.corrFilter  = false;             continue; }
+    if (a === '--corrThresh'  && argv[i+1]) { args.corrThresh  = Number(argv[++i]); continue; }
+    if (a === '--macro')                     { args.macro       = true;              continue; }
+    if (a === '--no-macro')                  { args.macro       = false;             continue; }
+    if (a === '--macroReduce' && argv[i+1]) { args.macroReduce = Number(argv[++i]); continue; }
+    if (a === '--mtf')                       { args.mtf         = true;              continue; }
+    if (a === '--no-mtf')                    { args.mtf         = false;             continue; }
+    if (a === '--mtfBars'     && argv[i+1]) { args.mtfBars     = Number(argv[++i]); continue; }
+    if (a === '--mtfScore'    && argv[i+1]) { args.mtfScore    = Number(argv[++i]); continue; }
+    if (a === '--mtfReduce'   && argv[i+1]) { args.mtfReduce   = Number(argv[++i]); continue; }
+    if (a === '--mtfExit')                   { args.mtfExit     = true;              continue; }
+    if (a === '--no-mtfExit')                { args.mtfExit     = false;             continue; }
+    if (a === '--mtfExitScore'  && argv[i+1]) { args.mtfExitScore   = Number(argv[++i]); continue; }
+    if (a === '--mtfExitLoss'   && argv[i+1]) { args.mtfExitMinLoss = Number(argv[++i]); continue; }
+    if (a === '--confSizing')                { args.confSizing  = true;              continue; }
+    if (a === '--no-confSizing')             { args.confSizing  = false;             continue; }
+    if (a === '--confMax'     && argv[i+1]) { args.confSizingMax = Number(argv[++i]); continue; }
+    if (a === '--confMin'     && argv[i+1]) { args.confSizingMin = Number(argv[++i]); continue; }
+    if (a === '--confMid'     && argv[i+1]) { args.confSizingMid = Number(argv[++i]); continue; }
   }
   return args;
 }
@@ -114,6 +160,8 @@ const BUILDERS = {
   OBV:        (s) => new OBVStrategy(getSymbolCfg(s, 'obv', config.obv)),
   PSAR:       (s) => new PSARStrategy(getSymbolCfg(s, 'psar', config.psar)),
   WilliamsR:  (s) => new WilliamsRStrategy(getSymbolCfg(s, 'williamsR', config.williamsR)),
+  StochRSI:   (s) => new StochRSIStrategy(getSymbolCfg(s, 'stochRsi', config.stochRsi ?? {})),
+  HeikinAshi: (s) => new HeikinAshiStrategy(getSymbolCfg(s, 'heikinAshi', config.heikinAshi ?? {})),
 };
 function buildStrategies(symbol) {
   const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];
@@ -157,10 +205,16 @@ const args = parseArgs(process.argv.slice(2));
 const symbols = args.symbols ?? config.symbols;
 
 const featuresEnabled = [
-  args.atr     && `ATR sizing (period ${args.atrPeriod})`,
-  args.kelly   && `Kelly ×${args.kellyFrac} (window ${args.kellyWindow})`,
-  args.regime  && `Regime filter ADX>${args.adxThresh}`,
-  args.swap    && `Swap (conf≥${args.swapConf}, minHold=${args.minHold})`,
+  args.atr        && `ATR sizing (period ${args.atrPeriod})`,
+  args.kelly      && `Kelly ×${args.kellyFrac} (window ${args.kellyWindow})`,
+  args.regime     && `Regime filter ADX>${args.adxThresh}`,
+  args.swap       && `Swap (conf≥${args.swapConf}, minHold=${args.minHold})`,
+  args.breakEven  && `Break-even stop @+${(args.breakEven*100).toFixed(0)}%`,
+  args.corrFilter && `Correlation filter r>${args.corrThresh}`,
+  args.macro      && `Macro filter BTC EMA${args.macroEMA} (reduce×${args.macroReduce})`,
+  args.mtf        && `MTF filter 15m×${args.mtfBars} score≥${args.mtfScore}${args.mtfReduce > 0 ? ` reduce×${args.mtfReduce}` : ' (skip)'}`,
+  args.mtfExit    && `MTF early exit (score<${args.mtfExitScore}, loss>${(args.mtfExitMinLoss*100).toFixed(0)}%)`,
+  args.confSizing && `Conf sizing [${args.confSizingMin}×–${args.confSizingMax}×] mid@${args.confSizingMid}`,
 ].filter(Boolean);
 
 console.log('\n╔══════════════════════════════════════════════════════════╗');
@@ -188,6 +242,23 @@ for (const sym of symbols) {
 }
 console.log(`  ${loaded}/${symbols.length} symbols ready\n`);
 
+// Load 15m candles for MTF filter and/or early exit (graceful if missing)
+const mtfSymbolCandles = {};
+if (args.mtf || args.mtfExit) {
+  const label = [args.mtf && 'entry filter', args.mtfExit && 'early exit'].filter(Boolean).join(' + ');
+  console.log(`Loading 15m candles for MTF ${label}…`);
+  const { readFileSync, existsSync } = await import('fs');
+  for (const sym of symbols) {
+    const base = sym.replace('/', '_');
+    const path = `data/candles/${base}_15m.json`;
+    if (existsSync(path)) {
+      mtfSymbolCandles[sym] = JSON.parse(readFileSync(path, 'utf8'));
+    }
+  }
+  const mtfCount = Object.keys(mtfSymbolCandles).length;
+  console.log(`  ${mtfCount} symbols have 15m data (${Object.keys(mtfSymbolCandles).map(s => s.replace('/USDT','')).join(', ')})\n`);
+}
+
 // Build strategy map
 const symbolStrategies = Object.fromEntries(
   Object.keys(symbolCandles).map((sym) => [sym, buildStrategies(sym)])
@@ -210,7 +281,7 @@ console.log(`  Risk config: SL=${(portfolioRisk.stopLossPct*100).toFixed(0)}%${s
 
 // Build backtester
 const backtester = new PortfolioBacktester(symbolStrategies, {
-  risk:               portfolioRisk,
+  risk:               { ...portfolioRisk, breakEvenTriggerPct: args.breakEven },
   signals:            { minConfidence: median(symbols.map(s => getSignalConfig(s).minConfidence)) },
   maxOpenPositions:   args.slots,
   swapEnabled:        args.swap,
@@ -223,6 +294,24 @@ const backtester = new PortfolioBacktester(symbolStrategies, {
   kellyEnabled:       args.kelly,
   kellyWindow:        args.kellyWindow,
   kellyFraction:      args.kellyFrac,
+  correlationFilter:  args.corrFilter,
+  correlationThreshold: args.corrThresh,
+  correlationPeriod:  args.corrPeriod,
+  macroFilter:        args.macro,
+  macroEMAPeriod:     args.macroEMA,
+  macroSizeReduceFactor: args.macroReduce,
+  mtfFilter:          args.mtf,
+  mtfSymbolCandles,
+  mtfAlignBars:       args.mtfBars,
+  mtfMinScore:        args.mtfScore,
+  mtfReduceFactor:    args.mtfReduce,
+  mtfEarlyExit:       args.mtfExit,
+  mtfEarlyExitScore:  args.mtfExitScore,
+  mtfEarlyExitMinLoss: args.mtfExitMinLoss,
+  confSizing:         args.confSizing,
+  confSizingMid:      args.confSizingMid,
+  confSizingMax:      args.confSizingMax,
+  confSizingMin:      args.confSizingMin,
 });
 
 console.log('Running simulation…');
@@ -247,6 +336,12 @@ console.log(`  Max drawdown  : ${m.maxDrawdownPct}`);
 console.log(`  Avg win       : $${m.avgWin.toFixed(2)}   Avg loss: $${m.avgLoss.toFixed(2)}`);
 if (result.regimeFilteredCount > 0) {
   console.log(`  Regime skipped: ${result.regimeFilteredCount} BUY signals filtered by ADX<${args.adxThresh}`);
+}
+if (result.filtersApplied?.mtf > 0) {
+  console.log(`  MTF skipped   : ${result.filtersApplied.mtf} BUY signals blocked (15m bearish alignment)`);
+}
+if (result.filtersApplied?.mtfEarlyExit > 0) {
+  console.log(`  MTF early exit: ${result.filtersApplied.mtfEarlyExit} positions closed early (losing + 15m bearish)`);
 }
 console.log('');
 console.log('  Exit reasons:');

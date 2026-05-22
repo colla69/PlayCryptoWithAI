@@ -10,4 +10,6 @@ export { MFIStrategy } from './mfi.js';
 export { OBVStrategy } from './obv.js';
 export { PSARStrategy } from './psar.js';
 export { WilliamsRStrategy } from './williamsR.js';
+export { StochRSIStrategy } from './stochRsi.js';
+export { HeikinAshiStrategy } from './heikinAshi.js';
 export { STRATEGY_REGISTRY, getRegistryMeta } from './registry.js';

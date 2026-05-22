@@ -10,6 +10,8 @@ import { MFIStrategy } from './mfi.js';
 import { OBVStrategy } from './obv.js';
 import { PSARStrategy } from './psar.js';
 import { WilliamsRStrategy } from './williamsR.js';
+import { StochRSIStrategy } from './stochRsi.js';
+import { HeikinAshiStrategy } from './heikinAshi.js';
 
 /**
  * Registry of all available strategies.
@@ -178,6 +180,34 @@ export const STRATEGY_REGISTRY = [
       { key: 'overbought', label: 'Overbought threshold', type: 'number', default: -20 },
     ],
     tags: ['momentum', 'oscillator'],
+  },
+  {
+    id: 'stochRsi',
+    name: 'StochRSI',
+    fullName: 'Stochastic RSI',
+    Class: StochRSIStrategy,
+    defaultConfig: { rsiPeriod: 14, stochPeriod: 14, signalPeriod: 3, oversold: 20, overbought: 80 },
+    description: 'Applies the Stochastic formula to RSI values, creating a faster and more responsive oscillator. Especially effective on short timeframes (1h, 15m). Signals when %K crosses %D in oversold or overbought zones — gives 2–3× more signals than plain RSI without losing reversal confirmation.',
+    params: [
+      { key: 'rsiPeriod',    label: 'RSI period',           type: 'number', default: 14 },
+      { key: 'stochPeriod',  label: 'Stoch window',         type: 'number', default: 14 },
+      { key: 'signalPeriod', label: 'Signal (%D) period',   type: 'number', default: 3  },
+      { key: 'oversold',     label: 'Oversold threshold',   type: 'number', default: 20 },
+      { key: 'overbought',   label: 'Overbought threshold', type: 'number', default: 80 },
+    ],
+    tags: ['momentum', 'oscillator', 'short-tf'],
+  },
+  {
+    id: 'heikinAshi',
+    name: 'Heikin-Ashi',
+    fullName: 'Heikin-Ashi Trend',
+    Class: HeikinAshiStrategy,
+    defaultConfig: { warmup: 10 },
+    description: 'Converts OHLCV to synthetic Heikin-Ashi candles that filter wick noise on short timeframes. Signals only on trend flips (bear→bull or bull→bear). Confidence boosted when the signal candle has no shadow on the signal side (fully committed directional move). Pairs well with StochRSI for 15m and 1h.',
+    params: [
+      { key: 'warmup', label: 'HA warmup candles', type: 'number', default: 10 },
+    ],
+    tags: ['trend', 'noise-filter', 'short-tf'],
   },
   {
     id: 'telegram',

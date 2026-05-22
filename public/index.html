@@ -770,7 +770,7 @@
       <article class="stat-card">
         <div class="eyebrow">📊 Open Positions</div>
         <div class="stat-main" id="openPositionsCount">0 / 0</div>
-        <div class="stat-sub">How many coins the bot is currently holding.</div>
+        <div class="stat-sub">Concurrent positions / max slots configured.</div>
       </article>
     </section>
 
@@ -1298,8 +1298,14 @@
       const livePosns  = summary?.latestStatus?.positions || [];
       const allTrades  = state.trades.length ? state.trades : (state.summary?.trades || []);
       const histPosns  = getHistoryOpenPositions(allTrades, summary?.prices || {});
-      // Prefer live positions from running bot; fall back to history-derived positions
-      const positions  = livePosns.length ? livePosns : histPosns;
+      // Merge live + history: live positions are ground truth when bot is running.
+      // Supplement with any history-derived positions the live bot doesn't know about
+      // (e.g. a position that survived a restart but wasn't restored into memory).
+      // If a position was properly closed (SELL in history), it won't appear in histPosns.
+      const liveSymbols = new Set(livePosns.map((p) => p.symbol));
+      const histExtra   = histPosns.filter((p) => !liveSymbols.has(p.symbol));
+      const positions   = [...livePosns, ...histExtra];
+      const maxSlots    = summary?.runtimeConfig?.maxOpenPositions || 0;
       const cashBalance = Number(summary?.latestStatus?.balance ?? summary?.metrics?.balance ?? 0);
       const realizedPnl = Number(summary?.metrics?.totalPnL ?? 0);
       const openMarketValue = positions.reduce((total, position) => {
@@ -1320,6 +1326,7 @@
         pnlPct,
         unrealizedPnl,
         openCount: positions.length,
+        maxSlots,
         watchCount: getWatchCount(summary),
       };
     }
@@ -1361,20 +1368,25 @@
 
       el.winRate.textContent = `${Number(summary?.metrics?.winRate ?? 0).toFixed(0)}%`;
       el.winRateSub.textContent = `${closedTrades} closed trade${closedTrades === 1 ? '' : 's'} tracked`;
-      el.openPositionsCount.textContent = `${stats.openCount} / ${stats.watchCount || 0}`;
+      el.openPositionsCount.textContent = `${stats.openCount} / ${stats.maxSlots || stats.watchCount || 0}`;
     }
 
     function renderPositions(summary) {
       const livePosns = summary?.latestStatus?.positions || [];
       const allTrades = state.trades.length ? state.trades : (state.summary?.trades || []);
       const histPosns = getHistoryOpenPositions(allTrades, summary?.prices || {});
-      const positions = livePosns.length ? livePosns : histPosns;
-      const botOnline  = summary?.latestStatus != null;
-      const isStale    = !livePosns.length && histPosns.length > 0 && !botOnline;
+      const botOnline = summary?.latestStatus != null;
+      // Merge: live positions are ground truth; supplement with history entries
+      // the live bot doesn't know about (restart didn't restore them).
+      const liveSymbols = new Set(livePosns.map((p) => p.symbol));
+      const histExtra   = histPosns.filter((p) => !liveSymbols.has(p.symbol));
+      const positions   = [...livePosns, ...histExtra];
+      const isStale     = !livePosns.length && histPosns.length > 0 && !botOnline;
+      const hasHistExtra = histExtra.length > 0 && botOnline;
 
       el.positionsPanel.hidden = positions.length === 0;
       el.positionsCountLabel.textContent = positions.length
-        ? `${positions.length} open position${positions.length === 1 ? '' : 's'}${isStale ? ' · ⚠️ from history (bot offline)' : ''}`
+        ? `${positions.length} open position${positions.length === 1 ? '' : 's'}${isStale ? ' · ⚠️ from history (bot offline)' : ''}${hasHistExtra ? ` · ⚠️ ${histExtra.length} from history (not in live bot)` : ''}`
         : '';
 
       if (!positions.length) {

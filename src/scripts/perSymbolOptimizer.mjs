@@ -6,12 +6,13 @@
  *   - Holdout window   = first 365 candles (Y1, unseen/older)
  *   - Optimise on Y2, validate on Y1 — same as all config comments "Y2 +X% Y1 +Y%"
  *
- * Tests all C(12,3) = 220 three-strategy combinations from the full pool:
- *   RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR
+ * Tests all C(14,3) = 364 three-strategy combinations from the full pool:
+ *   RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR,
+ *   StochRSI, HeikinAshi
  *
  * Speed: signals are pre-computed once per strategy (O(N) per strategy),
- * then each combo simulation is just index lookups — ~220 combos × 2 conf
- * × 365 candles ≈ 160k iterations per symbol. Runs in seconds.
+ * then each combo simulation is just index lookups — ~364 combos × 2 conf
+ * × 365 candles ≈ 266k iterations per symbol. Runs in seconds.
  *
  * Usage:
  *   PAPER_MODE=true node src/scripts/perSymbolOptimizer.mjs
@@ -35,6 +36,7 @@ import {
   RSIStrategy, BollingerBandsStrategy, CCIStrategy, StochasticStrategy,
   EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
   MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
+  StochRSIStrategy, HeikinAshiStrategy,
 } from '../strategies/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -60,7 +62,7 @@ function symCfg(symbol, key, defaults) {
   return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
 }
 
-const POOL_NAMES = ['RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV', 'PSAR', 'WR'];
+const POOL_NAMES = ['RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV', 'PSAR', 'WR', 'StochRSI', 'HA'];
 
 function buildStrategy(name, symbol) {
   switch (name) {
@@ -74,8 +76,10 @@ function buildStrategy(name, symbol) {
     case 'ST':    return new SupertrendStrategy(symCfg(symbol, 'supertrend', config.supertrend));
     case 'MFI':   return new MFIStrategy(symCfg(symbol, 'mfi', config.mfi));
     case 'OBV':   return new OBVStrategy(symCfg(symbol, 'obv', config.obv));
-    case 'PSAR':  return new PSARStrategy(symCfg(symbol, 'psar', config.psar));
-    case 'WR':    return new WilliamsRStrategy(symCfg(symbol, 'williamsR', config.williamsR));
+    case 'PSAR':     return new PSARStrategy(symCfg(symbol, 'psar', config.psar));
+    case 'WR':       return new WilliamsRStrategy(symCfg(symbol, 'williamsR', config.williamsR));
+    case 'StochRSI': return new StochRSIStrategy(symCfg(symbol, 'stochRsi', config.stochRsi ?? {}));
+    case 'HA':       return new HeikinAshiStrategy(symCfg(symbol, 'heikinAshi', config.heikinAshi ?? {}));
     default: throw new Error(`Unknown strategy: ${name}`);
   }
 }
@@ -85,6 +89,7 @@ const CONFIG_TO_POOL = {
   RSI: 'RSI', BB: 'BB', CCI: 'CCI', Stoch: 'Stoch',
   EMA: 'EMA', MACD: 'MACD', ADX: 'ADX', Supertrend: 'ST',
   MFI: 'MFI', OBV: 'OBV', PSAR: 'PSAR', WilliamsR: 'WR',
+  StochRSI: 'StochRSI', HeikinAshi: 'HA',
 };
 
 // ── Combination generator ─────────────────────────────────────────────────────

@@ -204,7 +204,7 @@ export default {
     },
     'PAXG/USDT': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +39.7%  Y1 +13.8%  Sharpe 2.48/0.87 ✅
-      strategies: ["MACD","ADX","Supertrend"],
+      strategies: ['MACD', 'ADX', 'Supertrend'],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
@@ -227,7 +227,7 @@ export default {
     },
     'SFP/USDT': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.55 → Y2 +21.4%  Y1 +12.6%  Sharpe 0.57/0.43 ✅
-      strategies: ["RSI","Stoch","WilliamsR"],
+      strategies: ['RSI', 'Stoch', 'WilliamsR'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
@@ -299,10 +299,10 @@ export default {
   },
   // ── Regime filter — suppress BUY signals when the market is ranging ─────────
   // ADX < threshold → choppy / sideways → skip new entries, protect capital.
-  // Existing positions are unaffected (SL/TP management still runs).
-  // Backtest evidence: improves win-rate and reduces max drawdown on 12h timeframe.
+  // Backtest evidence: slight DD improvement (-16.65% → -16.18%) but costs ~4pp
+  // return. Net-negative on 12h with current symbol mix — disabled.
   regime: {
-    enabled: true,
+    enabled: false,
     adxPeriod: 14,
     adxThreshold: 20,
   },
@@ -327,13 +327,49 @@ export default {
     sizeReduceFactor: 0.5,   // multiply maxPositionPct by this in bear market
   },
   // ── Correlation filter — avoid holding two coins that move together ──────────
-  // Before entering a new position, checks if any open position has Pearson
-  // correlation > threshold against the incoming coin (computed from past candles).
-  // Backtest evidence: best single-feature improvement (+36.8% vs +30.5% baseline).
+  // Backtest evidence (isolated test, 1yr): costs -7.6pp return with no DD
+  // improvement. When correlated coins both signal BUY they tend to both be right;
+  // blocking the second entry wastes more than it saves. Disabled.
   correlation: {
-    enabled: true,
+    enabled: false,
     threshold: 0.8,  // Pearson r above this → skip the new BUY
     period: 60,      // candles used for return series (60 × 12h = 30 days)
+  },
+  // ── Multi-Timeframe (MTF) entry alignment filter ──────────────────────────────
+  // Before entering a 12h BUY, checks the last 15m candles within that 12h period.
+  // If fewer than `minAlignScore` fraction of those candles are green (close > open),
+  // the entry is skipped — the short-term trend is against the 12h signal.
+  //
+  // Only applies to symbols that have 15m candle data on disk:
+  //   BTC, XRP, LINK, BNB, LTC, NEAR, TRX, BCH  (8 of 34 symbols)
+  //   → other symbols pass through unfiltered.
+  //
+  // Backtest evidence (1yr): +23.38% → +29.19% (+5.8pp),  Sharpe 1.37 → 1.55
+  //                 18-month: +31.37% → +36.33% (+5.0pp),  Sharpe 1.06 → 1.17
+  // Optimal params: alignBars=16 (4h), minAlignScore=0.50 (≥8 green out of 16)
+  // 38/730 BUY signals blocked per year — low false-positive rate.
+  mtfFilter: {
+    enabled: true,
+    alignBars: 16,         // 16 × 15m = 4h lookback window within the 12h candle
+    minAlignScore: 0.50,   // minimum fraction of green 15m candles to allow entry
+    reduceFactor: 0,       // 0 = skip entry; e.g. 0.5 = half position when misaligned
+  },
+
+  // ── Confidence-proportional position sizing ────────────────────────────────
+  // Scales position size linearly based on signal confidence:
+  //   conf ≥ mid (0.65)  → linear from 1.0× to max (1.5×)
+  //   conf < mid         → linear from min (0.6×) to 1.0×
+  //
+  // Applied after ATR + Kelly sizing, before macro/MTF multipliers.
+  //
+  // Backtest evidence (1yr, with MTF): +31.88% → +35.10% (+3.2pp),
+  //                                     Sharpe 1.77 → 1.84,  DD -8.33% → -9.03%
+  // MTF early exit: tested — hurts return (recoveries cancelled), NOT enabled.
+  confSizing: {
+    enabled: true,
+    mid: 0.65,   // neutral point: confidence at this level = 1× position
+    max: 1.5,    // maximum multiplier at conf=1.0
+    min: 0.6,    // minimum multiplier at conf=0.0
   },
   dashboard: {
     enabled: true,

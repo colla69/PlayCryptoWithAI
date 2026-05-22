@@ -11,6 +11,7 @@ import { getRegistryMeta } from './strategies/index.js';
 import logger from './utils/logger.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
+import { mtfAlignScore } from './utils/mtfAlignment.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -57,6 +58,7 @@ dashboardState.setRuntimeConfig({
   timeframe: config.timeframe,
   pollIntervalMs: config.pollIntervalMs,
   symbols: config.symbols,
+  maxOpenPositions: config.risk?.maxOpenPositions ?? 5,
 });
 const webhookPort = Number(process.env.WEBHOOK_PORT ?? signalConfig.webhook.port);
 const dashboardPort = Number(process.env.DASHBOARD_PORT ?? config.dashboard?.port ?? 3001);
@@ -151,6 +153,36 @@ async function runCycle(symbol) {
       }
     }
 
+    // ── MTF alignment filter: check 15m short-term trend before entering ─────
+    // Fetches the last ~20 × 15m candles and checks if the last `alignBars` are
+    // predominantly green. If not, the 12h BUY is blocked or position is reduced.
+    let mtfSizeFactor = 1.0;
+    if (!blockReason && result.decision === 'BUY' && config.mtfFilter?.enabled) {
+      try {
+        const mtfCfg = config.mtfFilter;
+        const fetchBars = Math.max(20, (mtfCfg.alignBars ?? 16) + 4);
+        const bars15m = await fetchOHLCV(symbol, '15m', fetchBars);
+        if (bars15m.length >= (mtfCfg.alignBars ?? 16)) {
+          const score = mtfAlignScore(bars15m, bars15m.length - 1, mtfCfg.alignBars ?? 16);
+          const threshold = mtfCfg.minAlignScore ?? 0.5;
+          if (score < threshold) {
+            const pct = (score * 100).toFixed(0);
+            const reduce = mtfCfg.reduceFactor ?? 0;
+            if (reduce > 0) {
+              mtfSizeFactor = reduce;
+              logger.info(`${symbol}: MTF misaligned (${pct}% green) — position reduced to ${(reduce * 100).toFixed(0)}%`);
+            } else {
+              blockReason = `MTF misaligned (15m: ${pct}% green < ${(threshold * 100).toFixed(0)}% required)`;
+              logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal — if 15m fetch fails, proceed without the filter
+        logger.warn(`${symbol}: MTF filter fetch failed — ${err.message}`);
+      }
+    }
+
     // Track filter-level blocks for the dashboard counter
     if (blockReason) dashboardState.pushBlockedSignal(blockReason);
 
@@ -174,6 +206,22 @@ async function runCycle(symbol) {
     if (config.macroFilter?.enabled && !btcMacroBull) {
       positionPct *= config.macroFilter.sizeReduceFactor ?? 0.5;
     }
+    // ── Confidence-proportional sizing ───────────────────────────────────────────
+    if (config.confSizing?.enabled) {
+      const conf = result.confidence ?? 0.65;
+      const mid  = config.confSizing.mid ?? 0.65;
+      const max  = config.confSizing.max ?? 1.5;
+      const min  = config.confSizing.min ?? 0.6;
+      let scale;
+      if (conf >= mid) {
+        scale = 1 + (conf - mid) / (1 - mid) * (max - 1);
+      } else {
+        scale = min + (conf / mid) * (1 - min);
+      }
+      positionPct *= Math.min(max, Math.max(min, scale));
+    }
+    // ── MTF reduce: apply if filter chose to reduce rather than block ────────────
+    if (mtfSizeFactor < 1.0) positionPct *= mtfSizeFactor;
 
     const effectiveRisk = { ...symRisk, maxPositionPct: positionPct };
 
@@ -327,6 +375,10 @@ function logStartup() {
   const cc = config.correlation;
   logger.info(
     `Correlation filter: ${cc?.enabled ? `ON — r > ${cc.threshold} (${cc.period ?? 60} candle window) blocks BUY signals` : 'OFF'}`,
+  );
+  const mtf = config.mtfFilter;
+  logger.info(
+    `MTF filter: ${mtf?.enabled ? `ON — 15m×${mtf.alignBars ?? 16} bars, min ${((mtf.minAlignScore ?? 0.5) * 100).toFixed(0)}% green to allow BUY${(mtf.reduceFactor ?? 0) > 0 ? ` (misaligned → ${(mtf.reduceFactor * 100).toFixed(0)}% size)` : ' (misaligned → skip)'}` : 'OFF'}`,
   );
 
   if (config.dashboard?.enabled) {
