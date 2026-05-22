@@ -1,0 +1,128 @@
+name: Docs Sync Check
+
+# Trigger whenever source code, config, or infrastructure changes are pushed
+# to master or arrive via pull request.
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - 'package.json'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - 'package.json'
+
+jobs:
+  docs-sync:
+    name: Check docs are in sync
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write   # allow posting a PR comment if docs need updating
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2     # need parent commit to diff changed files
+
+      - name: Detect code changes that need doc updates
+        id: detect
+        run: |
+          # List files changed in this push/PR
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only origin/${{ github.base_ref }} HEAD 2>/dev/null || echo "")
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          NEEDS_DOC_UPDATE=false
+
+          # New strategy file → README strategy count + copilot-instructions may be stale
+          if echo "$CHANGED" | grep -q "^src/strategies/"; then
+            echo "strategy_changed=true" >> $GITHUB_OUTPUT
+            NEEDS_DOC_UPDATE=true
+          fi
+
+          # Config change → README feature table + config comments may be stale
+          if echo "$CHANGED" | grep -q "^config/"; then
+            echo "config_changed=true" >> $GITHUB_OUTPUT
+            NEEDS_DOC_UPDATE=true
+          fi
+
+          # Docker/infra change → README Docker section may be stale
+          if echo "$CHANGED" | grep -q -E "^(Dockerfile|docker-compose|package\.json)"; then
+            echo "infra_changed=true" >> $GITHUB_OUTPUT
+            NEEDS_DOC_UPDATE=true
+          fi
+
+          # Main bot or risk logic changed → copilot-instructions may be stale
+          if echo "$CHANGED" | grep -q -E "^src/(main|risk|backtester)/"; then
+            echo "core_changed=true" >> $GITHUB_OUTPUT
+            NEEDS_DOC_UPDATE=true
+          fi
+
+          echo "needs_doc_update=$NEEDS_DOC_UPDATE" >> $GITHUB_OUTPUT
+
+      - name: Check README was updated alongside code
+        if: steps.detect.outputs.needs_doc_update == 'true'
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only origin/${{ github.base_ref }} HEAD 2>/dev/null || echo "")
+
+          if echo "$CHANGED" | grep -q "README.md"; then
+            echo "✅ README.md was updated in this commit — docs look in sync."
+          else
+            echo "⚠️  Code changed but README.md was not updated."
+            echo ""
+            echo "Consider running the docs-updater agent:"
+            echo "  @docs-updater  The following changed: $CHANGED"
+            echo ""
+            echo "Docs checklist:"
+
+            if [ "${{ steps.detect.outputs.strategy_changed }}" = "true" ]; then
+              echo "  - src/strategies/ changed → check strategy count in README"
+            fi
+            if [ "${{ steps.detect.outputs.config_changed }}" = "true" ]; then
+              echo "  - config/ changed → check feature flags table and config comments"
+            fi
+            if [ "${{ steps.detect.outputs.infra_changed }}" = "true" ]; then
+              echo "  - Infrastructure changed → check Docker section in README"
+            fi
+            if [ "${{ steps.detect.outputs.core_changed }}" = "true" ]; then
+              echo "  - Core logic changed → check .github/copilot-instructions.md"
+            fi
+
+            # Warn but do not fail the build — docs lag is advisory, not blocking
+            exit 0
+          fi
+
+      - name: Validate README has required sections
+        run: |
+          MISSING=false
+
+          check_section() {
+            if ! grep -q "$1" README.md; then
+              echo "⚠️  README is missing section: $1"
+              MISSING=true
+            fi
+          }
+
+          check_section "## Features"
+          check_section "## Quick Start"
+          check_section "## Environment Variables"
+          check_section "## Docker"
+          check_section "Disclaimer"
+
+          if [ "$MISSING" = "true" ]; then
+            echo ""
+            echo "Some README sections are missing. Run the docs-updater agent to fix."
+          else
+            echo "✅ README has all required sections."
+          fi

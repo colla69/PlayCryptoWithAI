@@ -3,11 +3,15 @@ name: developer
 description: 'Implement approved changes to the playAIStocks trading bot: strategies, risk logic, exchange integration, dashboard, or config. Use when the design is clear and the change is concrete enough to build.'
 argument-hint: Describe the exact implementation slice — affected module, expected behaviour change, and any constraints.
 tools: ["read", "search", "edit", "execute", "agent", "todo"]
-agents: ["pre-commit-reviewer"]
+agents: ["pre-commit-reviewer", "docs-updater"]
 handoffs:
   - label: Review Changes
     agent: pre-commit-reviewer
     prompt: Review the staged changes for correctness, regression risk, and meaningful gaps before commit.
+    send: false
+  - label: Update Docs
+    agent: docs-updater
+    prompt: Code changes were just committed. Check README.md, .github/copilot-instructions.md, and config/default.js comments for anything that is now out of date.
     send: false
 ---
 
