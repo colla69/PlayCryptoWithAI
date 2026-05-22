@@ -1,0 +1,32 @@
+# Build context exclusions — keep the context small and fast
+# Without this, Docker sends node_modules + data/candles (~500MB) before building
+
+node_modules/
+
+# Candle data and runtime files are mounted via Docker volumes at runtime —
+# they are NOT baked into the image
+data/
+logs/
+
+# Secrets — never in the image
+.env
+.env.live
+.env.*.local
+
+# Dev / OS noise
+.git/
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# Docker files themselves (no need to copy into image)
+Dockerfile
+docker-compose*.yml
+seed-volumes.sh
+
+# Docs
+README.md
+WORKFLOW.md
+TESTNET.md
+*.md
