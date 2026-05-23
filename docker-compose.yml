@@ -10,9 +10,9 @@ services:
     network_mode: host
 
     # ── Secrets & config ──────────────────────────────────────────────────────
-    # Copy .env.live (your real keys) to the server alongside docker-compose.yml
+    # Copy .env (your real keys) to the server alongside docker-compose.yml
     # It is NEVER committed to git.
-    env_file: ./.env.live
+    env_file: ./.env
 
     # ── Persistence ──────────────────────────────────────────────────────────
     # Named volumes: survive container restarts and image rebuilds.
