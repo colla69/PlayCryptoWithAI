@@ -905,6 +905,7 @@
                 <th>Time</th>
                 <th>Coin</th>
                 <th>Action</th>
+                <th>Size</th>
                 <th>Entry</th>
                 <th>Exit</th>
                 <th>P&amp;L</th>
@@ -912,7 +913,7 @@
               </tr>
             </thead>
             <tbody id="tradesBody">
-              <tr><td colspan="7" class="loading">Loading trade history…</td></tr>
+              <tr><td colspan="8" class="loading">Loading trade history…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1539,7 +1540,7 @@
       const trades = allTrades.slice(0, 20);
 
       if (!trades.length) {
-        el.tradesBody.innerHTML = '<tr><td colspan="7" class="empty-state">No trades yet. Closed positions and new entries will show up here.</td></tr>';
+        el.tradesBody.innerHTML = '<tr><td colspan="8" class="empty-state">No trades yet. Closed positions and new entries will show up here.</td></tr>';
         return;
       }
 
@@ -1547,12 +1548,17 @@
         const side = String(trade.side || 'SELL').toUpperCase();
         const sideClass = side === 'BUY' ? 'buy' : side === 'SELL' ? 'sell' : 'hold';
         const pnl = Number(trade.pnl ?? 0);
-        const tradeCost = (trade.entryPrice ?? trade.price ?? 0) * (trade.qty ?? 0);
+        const price = Number(trade.entryPrice ?? trade.price ?? 0);
+        const qty   = Number(trade.qty ?? 0);
+        const tradeCost = price * qty;
+        const tradeSize = side === 'SELL'
+          ? Number(trade.exitPrice ?? price) * qty
+          : tradeCost;
         const tradePnlPct = tradeCost > 0 ? (pnl / tradeCost) * 100 : null;
         const pnlDisplay = side === 'BUY'
           ? `<span class="neutral">–${formatMoney(tradeCost)}</span>`
           : tradePnlPct !== null
-            ? `<span title="${formatSignedMoney(pnl)}" style="cursor:default">${pnl >= 0 ? '+' : ''}${formatPercent(tradePnlPct)}</span>`
+            ? `<span title="${formatSignedMoney(pnl)}" style="cursor:default">${formatPercent(tradePnlPct)}</span>`
             : formatSignedMoney(pnl);
         const base = getBaseSymbol(trade.symbol);
         const isSmoke = String(trade.note || '').includes('smoke-test');
@@ -1569,6 +1575,7 @@
               </div>
             </td>
             <td><span class="signal-tag ${sideClass}">${escapeHtml(side)}</span></td>
+            <td title="${qty > 0 ? formatQty(qty) + ' ' + escapeHtml(getBaseSymbol(trade.symbol)) : ''}">${tradeSize > 0 ? formatMoney(tradeSize) : '—'}</td>
             <td>${trade.entryPrice ? formatPrice(trade.entryPrice, trade.symbol) : trade.price ? formatPrice(trade.price, trade.symbol) : '—'}</td>
             <td>${trade.exitPrice ? formatPrice(trade.exitPrice, trade.symbol) : '—'}</td>
             <td class="${classForValue(pnl)}">${pnlDisplay}</td>

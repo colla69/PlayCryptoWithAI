@@ -1,7 +1,7 @@
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 
-const MIN_NOTIONAL = 10;
+const MIN_NOTIONAL = 1;
 const roundMoney = (value) => Number(Number(value ?? 0).toFixed(2));
 const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
