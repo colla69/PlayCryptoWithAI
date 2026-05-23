@@ -224,6 +224,13 @@ class DashboardState {
     this.#touch();
   }
 
+  clearHistory() {
+    this.trades = [];
+    this.signalFeed = [];
+    scheduleSave(this.trades, this.signalFeed);
+    this.#touch();
+  }
+
   pushBlockedSignal(reason = '') {
     this.blockedStats.total++;
     const lower = String(reason).toLowerCase();

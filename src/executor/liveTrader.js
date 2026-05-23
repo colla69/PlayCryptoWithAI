@@ -118,6 +118,80 @@ export class LiveTrader {
     }
   }
 
+  async restorePositionsFromExchange(symbols, fetchTickerFn, getRiskForSymbol, tradeHistory = []) {
+    let restored = 0;
+    try {
+      const balance = await fetchBalance();
+      for (const symbol of symbols) {
+        try {
+          // Skip symbols already tracked in memory
+          if (this.positions.has(symbol)) continue;
+
+          const base = symbol.split('/')[0];
+          const qty = Number(balance.free?.[base] ?? 0);
+          if (qty <= 0) continue;
+
+          // Fetch current price
+          const ticker = await fetchTickerFn(symbol);
+          const currentPrice = roundPrice(Number(ticker?.last ?? ticker?.close ?? 0));
+          if (!currentPrice || currentPrice <= 0) continue;
+
+          const notional = qty * currentPrice;
+          if (notional < MIN_NOTIONAL) continue;
+
+          // Find entry price from trade history: walk newest-first
+          // Stop at first SELL (no open position) or first BUY (entry price found)
+          let entryPrice = currentPrice; // fallback
+          let foundEntry = false;
+          for (let i = 0; i < tradeHistory.length; i++) {
+            const t = tradeHistory[i];
+            if (t.symbol !== symbol) continue;
+            if (t.side === 'SELL') break; // a SELL before BUY means no open position from history
+            if (t.side === 'BUY') {
+              entryPrice = roundPrice(Number(t.price ?? currentPrice));
+              foundEntry = true;
+              break;
+            }
+          }
+
+          const risk = getRiskForSymbol(symbol);
+          const stopLossPct = Number(risk?.stopLossPct ?? this.config.stopLossPct ?? 0);
+          const takeProfitPct = Number(risk?.takeProfitPct ?? this.config.takeProfitPct ?? 0);
+          const breakEvenTriggerPct = Number(risk?.breakEvenTriggerPct ?? this.config.breakEvenTriggerPct ?? 0);
+
+          const position = {
+            symbol,
+            qty: roundQty(qty),
+            entryPrice: roundPrice(entryPrice),
+            currentPrice: roundPrice(currentPrice),
+            stopLoss: roundPrice(entryPrice * (1 - stopLossPct)),
+            takeProfit: roundPrice(entryPrice * (1 + takeProfitPct)),
+            breakEvenTriggerPct,
+            pnl: roundMoney((currentPrice - entryPrice) * roundQty(qty)),
+            pnlPct: roundMoney(((currentPrice - entryPrice) / entryPrice) * 100),
+            entryTime: Date.now(),
+            // Internal fields expected by checkRisk / trailing stop
+            initialStopLoss: roundPrice(entryPrice * (1 - stopLossPct)),
+            highWaterMark: roundPrice(currentPrice),
+            trailingStopPct: Number.isFinite(this.config.trailingStopPct) && this.config.trailingStopPct > 0
+              ? this.config.trailingStopPct
+              : undefined,
+            openedAt: foundEntry ? new Date().toISOString() : new Date().toISOString(),
+          };
+
+          this.positions.set(symbol, position);
+          restored++;
+          logger.info(`[LIVE] Restored position from exchange: ${symbol} qty=${qty} entry=${entryPrice} notional=$${notional.toFixed(2)}`);
+        } catch (symErr) {
+          logger.warn(`[LIVE] restorePositionsFromExchange: skipped ${symbol} - ${symErr.message}`);
+        }
+      }
+    } catch (err) {
+      logger.error(`[LIVE] restorePositionsFromExchange failed: ${err.message}`);
+    }
+    return restored;
+  }
+
   async syncPositions() {
     try {
       const openOrders = await fetchOpenOrders();

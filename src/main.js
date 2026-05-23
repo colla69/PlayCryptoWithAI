@@ -664,7 +664,14 @@ if (config.dashboard?.enabled) {
     }
     return result;
   };
-  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV, closePosition });
+  const resetHistory = async () => {
+    dashboardState.clearHistory();
+    const { writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    writeFileSync(join(process.cwd(), 'logs', 'trades.csv'), 'timestamp,symbol,side,price,qty,pnl,balance\n', 'utf8');
+    logger.info('[dashboard] Trade history reset');
+  };
+  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV, closePosition, resetHistory });
 }
 
 logStartup();
@@ -678,6 +685,18 @@ dashboardState.setActiveFilters({
 await initializeHistoricalData();
 // Seed daily P&L from persisted history so the loss limit survives restarts
 riskManager.seedFromHistory(dashboardState.getSummary().trades);
+
+// ── Restore in-memory live positions from Binance exchange ───────────────────
+if (!paperMode) {
+  const tradeHistory = dashboardState.getSummary().trades;
+  const restored = await trader.restorePositionsFromExchange(
+    config.symbols, fetchTicker, getRiskForSymbol, tradeHistory
+  );
+  if (restored > 0) {
+    const status = await trader.getStatus();
+    dashboardState.updateStatus(status, riskManager.getDailyStats());
+  }
+}
 
 // ── Restore in-memory paper positions from persisted trade history ────────────
 // paperTrader.positions is volatile (in-memory Map). On restart it resets to
@@ -748,6 +767,10 @@ let balancePollId = null;
 if (!paperMode) {
   async function refreshBalance() {
     try {
+      // Sync positions FIRST so balance reflects actual holdings
+      await trader.restorePositionsFromExchange(
+        config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades
+      );
       const status = await trader.getStatus();
       dashboardState.updateStatus(status, riskManager.getDailyStats());
       pushEvent('status', { balance: status.balance });

@@ -762,6 +762,7 @@
       <div class="topbar-meta">
         <span id="modeBadge" class="badge mode-paper">PAPER</span>
         <button id="smokeTestBtn" onclick="triggerSmokeTest()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer" title="Run a minimal buy+sell smoke test (45s hold)">🔬 Smoke Test</button>
+        <button onclick="resetHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer" title="Permanently erase all trade history and signal feed">🗑️ Reset History</button>
         <button onclick="document.getElementById('logsPanel').scrollIntoView({behavior:'smooth'})" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer">📜 Logs</button>
         <span class="connection"><span id="connectionDot" class="ticker-dot"></span><span id="connectionLabel">Disconnected</span></span>
         <span class="clock" id="liveClock">--:--:--</span>
@@ -1813,6 +1814,19 @@
       }
     }
     window.triggerSmokeTest = triggerSmokeTest;
+
+    async function resetHistory() {
+      if (!confirm('⚠️ This will permanently erase ALL trade history and signal feed.\n\nContinue?')) return;
+      try {
+        const r = await fetch(`${API_BASE}/api/reset-history`, { method: 'POST' });
+        if (!r.ok) { alert('Reset failed'); return; }
+        alert('History cleared. Reloading…');
+        window.location.reload();
+      } catch (e) {
+        alert(`Error: ${e.message}`);
+      }
+    }
+    window.resetHistory = resetHistory;
 
     // ── Manual close position ──────────────────────────────────────────────
     async function confirmClosePosition(symbol) {

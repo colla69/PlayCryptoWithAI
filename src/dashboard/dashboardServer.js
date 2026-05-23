@@ -68,7 +68,7 @@ export function pushEvent(eventName, data) {
   }
 }
 
-export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, closePosition } = {}) {
+export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, closePosition, resetHistory } = {}) {
   if (serverInstance) {
     return serverInstance;
   }
@@ -240,6 +240,17 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     }
   });
 
+
+  // ── Reset trade history ─────────────────────────────────────────────────────
+  app.post('/api/reset-history', async (_req, res) => {
+    if (!resetHistory) return res.status(503).json({ error: 'resetHistory not available' });
+    try {
+      await resetHistory();
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   app.get(['/api/logs', '/logs-data'], (req, res) => {
     const lines  = Math.min(parseInt(req.query.lines ?? 500, 10), 5000);
