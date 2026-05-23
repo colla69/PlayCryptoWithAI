@@ -1491,7 +1491,7 @@
         return `
           <article class="signal-item ${decisionClass}">
             <span class="signal-time">${escapeHtml(relativeTime(signal.timestamp))}</span>
-            <strong style="font-size:13px;white-space:nowrap">${escapeHtml((signal.symbol || 'Unknown').replace('/USDT',''))}</strong>
+            <strong style="font-size:13px;white-space:nowrap">${escapeHtml((signal.symbol || 'Unknown').split('/')[0])}</strong>
             <span class="signal-tag ${decisionClass}">${icon} ${escapeHtml(decision)}</span>
             ${confText ? `<span class="signal-time">${confText}</span>` : ''}
             <span class="signal-details" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</span>

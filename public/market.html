@@ -441,13 +441,13 @@
   </main>
 
   <script>
-    const DEFAULT_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT'];
+    const DEFAULT_SYMBOLS = ['BTC/USDC', 'BNB/USDC', 'XRP/USDC', 'LTC/USDC', 'LINK/USDC'];
     const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
     const state = {
       symbols: [],
       summary: null,
-      activeSymbol: 'BTC/USDT',
+      activeSymbol: 'BTC/USDC',
       selectedTimeframe: '15m',
       baseTimeframe: '15m',
       rawCandles: [],
@@ -529,7 +529,7 @@
         applySummary(summary || {});
         state.symbols = Array.isArray(symbols) && symbols.length ? symbols : DEFAULT_SYMBOLS;
         if (!state.symbols.includes(state.activeSymbol)) {
-          state.activeSymbol = state.symbols[0] || 'BTC/USDT';
+          state.activeSymbol = state.symbols[0] || 'BTC/USDC';
         }
         renderSymbolTabs();
         renderTimeframeTabs();

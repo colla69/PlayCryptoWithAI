@@ -127,7 +127,7 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles }
   });
 
   app.post('/api/backtest', async (req, res) => {
-    const { symbol = 'BTC/USDT', timeframe = '1h', limit = 300, trailing = false, strategies: strategyIds } = req.body ?? {};
+    const { symbol = 'BTC/USDC', timeframe = '1h', limit = 300, trailing = false, strategies: strategyIds } = req.body ?? {};
 
     try {
       if (!symbol || typeof symbol !== 'string') {
@@ -192,12 +192,12 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles }
   });
 
   app.get(['/api/candles', '/candles'], (req, res) => {
-    const symbol = String(req.query.symbol || 'BTC/USDT');
+    const symbol = String(req.query.symbol || 'BTC/USDC');
     sendCandles(symbol, res);
   });
 
   app.get('/candles/:symbol', (req, res) => {
-    sendCandles(String(req.params.symbol || 'BTC/USDT'), res);
+    sendCandles(String(req.params.symbol || 'BTC/USDC'), res);
   });
 
   // ── Smoke-test trigger ──────────────────────────────────────────────────────
