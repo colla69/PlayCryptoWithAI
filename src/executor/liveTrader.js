@@ -236,9 +236,26 @@ export class LiveTrader {
         return null;
       }
 
-      const order = await createOrder(symbol, 'market', 'sell', position.qty);
+      // Use the actual free balance for the base asset rather than the stored qty.
+      // Binance deducts trading fees from the base asset on a BUY, so the real
+      // holding is slightly less than what order.filled reported.  Selling the
+      // stored qty would cause an "insufficient balance" rejection.
+      const base = symbol.split('/')[0];
+      let sellQty = position.qty;
+      try {
+        const bal = await fetchBalance();
+        const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
+        if (freeBase > 0 && freeBase < sellQty) {
+          logger.info(`[LIVE] ${symbol}: adjusting sell qty ${sellQty.toFixed(8)} → ${freeBase.toFixed(8)} (fee deduction)`);
+          sellQty = roundQty(freeBase);
+        }
+      } catch {
+        // fetchBalance failed — fall back to stored qty and let Binance decide
+      }
+
+      const order = await createOrder(symbol, 'market', 'sell', sellQty);
       const exitPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
-      const proceeds = roundMoney(position.qty * exitPrice);
+      const proceeds = roundMoney(sellQty * exitPrice);
       const costBasis = roundMoney(position.qty * position.entryPrice);
       const pnl = roundMoney(proceeds - costBasis);
       const timestamp = new Date().toISOString();
@@ -248,7 +265,7 @@ export class LiveTrader {
       this.positions.delete(symbol);
 
       logger.info(
-        `[LIVE] SELL ${symbol} qty=${position.qty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} reason=${reason} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
+        `[LIVE] SELL ${symbol} qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} reason=${reason} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
       );
 
       appendTrade({
@@ -256,7 +273,7 @@ export class LiveTrader {
         symbol,
         side: 'SELL',
         price: exitPrice,
-        qty: position.qty,
+        qty: sellQty,
         pnl,
         balance: balanceAfter,
       });
@@ -266,7 +283,7 @@ export class LiveTrader {
         side: 'SELL',
         entryPrice: roundPrice(position.entryPrice),
         exitPrice,
-        qty: roundQty(position.qty),
+        qty: roundQty(sellQty),
         pnl,
         reason,
         timestamp,
