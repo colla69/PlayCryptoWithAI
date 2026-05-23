@@ -215,7 +215,7 @@ export const STRATEGY_REGISTRY = [
     fullName: 'Telegram Channel Signals',
     Class: null,
     defaultConfig: { channelIds: [], weight: 0.6 },
-    description: 'Monitors Telegram channels/groups for BUY/SELL text signals. Parses messages like "buy BTC", "LONG ETH/USDT". Requires TELEGRAM_TOKEN env var.',
+    description: 'Monitors Telegram channels/groups for BUY/SELL text signals. Parses messages like "buy BTC", "LONG ETH/USDT". Requires TELEGRAM_TOKEN .env var.',
     params: [
       { key: 'channelIds', label: 'Channel IDs', type: 'array', default: [] },
       { key: 'weight', label: 'Signal weight', type: 'number', default: 0.6 },
@@ -246,7 +246,7 @@ export const STRATEGY_REGISTRY = [
     fullName: 'Copy Trading',
     Class: null,
     defaultConfig: { intervalMs: 30000, sizeRatio: 1.0 },
-    description: 'Monitors a leader Binance account\'s trades and mirrors them as signals. Requires separate LEADER_API_KEY and LEADER_API_SECRET env vars.',
+    description: 'Monitors a leader Binance account\'s trades and mirrors them as signals. Requires separate LEADER_API_KEY and LEADER_API_SECRET .env vars.',
     params: [
       { key: 'intervalMs', label: 'Poll interval (ms)', type: 'number', default: 30000 },
       { key: 'sizeRatio', label: 'Position size ratio', type: 'number', default: 1.0 },

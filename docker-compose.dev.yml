@@ -8,7 +8,7 @@
 
 services:
   bot:
-    env_file: .env             # local .env (PAPER_MODE=true recommended)
+    env_file: ..env             # local ..env (PAPER_MODE=true recommended)
     environment:
       - PAPER_MODE=true
     volumes:

@@ -47,7 +47,7 @@ Trades a 34-coin portfolio on a 12h timeframe using a voting signal engine, ATR-
 git clone git@github.com:colla69/PlayCryptoWithAI.git
 cd PlayCryptoWithAI
 npm install
-cp .env.example .env          # fill in Binance API keys (read-only is fine for paper mode)
+cp ..env.example ..env          # fill in Binance API keys (read-only is fine for paper mode)
 npm run paper                 # starts bot in paper mode, dashboard on port 3001
 ```
 
@@ -55,7 +55,7 @@ npm run paper                 # starts bot in paper mode, dashboard on port 3001
 ```bash
 git clone git@github.com:colla69/PlayCryptoWithAI.git
 cd PlayCryptoWithAI
-cp .env.live.example .env.live   # fill in your Binance keys + set PAPER_MODE
+cp ..env.live.example ..env.live   # fill in your Binance keys + set PAPER_MODE
 ./seed-volumes.sh                # copies candle history into Docker named volumes
 docker compose up -d             # starts bot; dashboard on http://<host>:3001
 ```

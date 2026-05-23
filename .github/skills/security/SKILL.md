@@ -54,6 +54,6 @@ logger.debug(`Auth: ${config.apiKey}`);
 
 Run before every commit:
 ```bash
-git diff --cached --name-only | grep -E '\.(env|key|pem|secret)$'
+git diff --cached --name-only | grep -E '\.(.env|key|pem|secret)$'
 ```
 If any file matches, abort the commit.

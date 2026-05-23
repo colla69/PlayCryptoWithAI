@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/.env sh
 # seed-volumes.sh — copy local candle data & runtime files into Docker named volumes.
 # Run ONCE after first `docker compose build` on a new server, or after pulling
 # a fresh clone that has candle data committed to git.

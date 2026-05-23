@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/.env node
 import 'dotenv/config';
 import { testConnection, testnetMode, paperMode } from '../exchange/binanceClient.js';
 import logger from '../utils/logger.js';
@@ -52,7 +52,7 @@ async function main() {
     } else if (result.error?.includes('ENOTFOUND') || result.error?.includes('network')) {
       console.log('\n  ⚠️  Network error — check your internet connection.');
     } else {
-      console.log('\n  Check your .env configuration and try again.');
+      console.log('\n  Check your ..env configuration and try again.');
     }
 
     logger.error(`Connection test failed: ${result.error}`);

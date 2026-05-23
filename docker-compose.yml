@@ -10,7 +10,7 @@ services:
     # ── Secrets & config ──────────────────────────────────────────────────────
     # Copy .env.live (your real keys) to the server alongside docker-compose.yml
     # It is NEVER committed to git.
-    env_file: .env.live
+    env_file: ./.env.live
 
     # ── Ports ────────────────────────────────────────────────────────────────
     ports:
