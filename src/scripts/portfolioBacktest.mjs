@@ -184,11 +184,16 @@ function getRiskConfig(symbol) {
 async function loadCandles(symbol, timeframe, count) {
   let cached = await loadCachedCandles(symbol, timeframe);
   if (cached.length >= count) return cached.slice(-count);
+  if (cached.length > 0) return cached; // use whatever we have (short history)
   console.log(`  Fetching ${count} ${timeframe} candles for ${symbol}…`);
-  const fresh = await fetchHistoricalOHLCV(symbol, timeframe, count);
-  if (fresh.length) {
-    await saveCachedCandles(symbol, timeframe, fresh);
-    return fresh.slice(-count);
+  try {
+    const fresh = await fetchHistoricalOHLCV(symbol, timeframe, count);
+    if (fresh.length) {
+      await saveCachedCandles(symbol, timeframe, fresh);
+      return fresh.slice(-count);
+    }
+  } catch (err) {
+    console.log(`  ⚠️  ${symbol}: fetch failed (${err.constructor?.name ?? err.message}) — skipping`);
   }
   return cached;
 }
@@ -256,7 +261,7 @@ if (args.mtf || args.mtfExit) {
     }
   }
   const mtfCount = Object.keys(mtfSymbolCandles).length;
-  console.log(`  ${mtfCount} symbols have 15m data (${Object.keys(mtfSymbolCandles).map(s => s.replace('/USDT','')).join(', ')})\n`);
+  console.log(`  ${mtfCount} symbols have 15m data (${Object.keys(mtfSymbolCandles).map(s => s.replace('/USDC','').replace('/USDC','').replace('/USDT','')).join(', ')})\n`);
 }
 
 // Build strategy map
@@ -359,10 +364,10 @@ const maxShow = Math.min(sorted.length, 15);
 for (const [sym, s] of sorted.slice(0, maxShow)) {
   const pnlStr = `${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}`;
   const wr = s.trades ? `${((s.wins / s.trades) * 100).toFixed(0)}% WR` : '';
-  console.log(`    ${sym.replace('/USDT','').padEnd(8)}: ${pnlStr.padStart(9)}   ${s.trades} trades  ${wr}`);
+  console.log(`    ${sym.replace('/USDC','').replace('/USDT','').padEnd(8)}: ${pnlStr.padStart(9)}   ${s.trades} trades  ${wr}`);
 }
 if (sorted.length > maxShow) console.log(`    … and ${sorted.length - maxShow} more`);
 
 const inactive = Object.entries(result.symbolStats).filter(([, s]) => s.trades === 0);
-if (inactive.length) console.log(`\n  No trades: ${inactive.map(([s]) => s.replace('/USDT','')).join(', ')}`);
+if (inactive.length) console.log(`\n  No trades: ${inactive.map(([s]) => s.replace('/USDC','').replace('/USDT','')).join(', ')}`);
 console.log('');

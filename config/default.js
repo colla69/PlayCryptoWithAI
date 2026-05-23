@@ -1,8 +1,9 @@
 export default {
-  // ─── Symbols — 12h holdout-validated set (34 symbols) ─────────────────────
-  // Validated methodology: optimised on Year 2, held out on Year 1 (unseen data)
-  // Full Binance USDT spot sweep complete; only passing holdout coins are included
-  symbols: ['BTC/USDT', 'XRP/USDT', 'LINK/USDT', 'BNB/USDT', 'LTC/USDT', 'NEAR/USDT', 'TRX/USDT', 'BCH/USDT', 'ACH/USDT', 'ANKR/USDT', 'AVA/USDT', 'CHR/USDT', 'CRV/USDT', 'ENS/USDT', 'GLMR/USDT', 'GMX/USDT', 'ICX/USDT', 'JTO/USDT', 'LDO/USDT', 'LSK/USDT', 'MANTA/USDT', 'MTL/USDT', 'ONG/USDT', 'PAXG/USDT', 'PIXEL/USDT', 'RAD/USDT', 'SFP/USDT', 'SPELL/USDT', 'SUI/USDT', 'THETA/USDT', 'TIA/USDT', 'VANRY/USDT', 'XEC/USDT', 'YFI/USDT'],
+  // ─── Symbols — 12h holdout-validated set (22 symbols, USDC pairs) ────────────
+  // 11 coins dropped: AVA, CHR, GLMR, ICX, MTL, ONG, RAD, SFP, SPELL, XEC, YFI
+  // — no USDC spot pair available on Binance (EU USDT restriction)
+  // ANKR also dropped: listed in Binance markets but has no USDC candle data
+  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC'],
   timeframe: '12h',
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
@@ -20,7 +21,7 @@ export default {
   psar:       { step: 0.02, max: 0.2 },
   williamsR:  { period: 14, oversold: -80, overbought: -20 },
   // ──────────────────────────────────────────────────────────────────
-  // Default strategy (BTC/USDT, NEAR/USDT — mean-reversion, 12h holdout-validated)
+  // Default strategy (BTC/USDC, NEAR/USDC — mean-reversion, 12h holdout-validated)
   //   BTC:  RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +35.9%  Y1 +12.5%  Sharpe 1.35/0.53 ✅
   //   NEAR: RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +53.8%  Y1 +17.2%  Sharpe 1.17/0.52 ✅
   // ──────────────────────────────────────────────────────────────────
@@ -49,14 +50,14 @@ export default {
   //   NEAR → default (RSI+BB+Stoch SL5/TP12 conf=0.70) — no entry needed
   // ──────────────────────────────────────────────────────────────────
   perSymbol: {
-    'XRP/USDT': {
+    'XRP/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +31.7%  Y1 +46.8%  Sharpe 1.10/1.16 ✅
       strategies: ["BB","Stoch","EMA"],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
-    'LINK/USDT': {
+    'LINK/USDC': {
       // MOM:MACD+Stoch+RSI  SL5/TP12  conf=0.55 → Y2 +85.6%  Y1 +78.8%  Sharpe 1.51/1.35 ✅
       strategies: ["RSI","CCI","Stoch"],
       stopLossPct: 0.05,
@@ -64,14 +65,14 @@ export default {
       minConfidence: 0.55,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
-    'BNB/USDT': {
+    'BNB/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +12.0%  Y1 +6.7%  Sharpe 0.49/0.34 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'LTC/USDT': {
+    'LTC/USDC': {
       // MOM:MACD+Stoch+RSI  SL5/TP12  conf=0.55 → Y2 +42.6%  Y1 +37.5%  Sharpe 0.98/0.82 ✅
       strategies: ["BB","EMA","WilliamsR"],
       stopLossPct: 0.05,
@@ -79,7 +80,7 @@ export default {
       minConfidence: 0.55,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
-    'TRX/USDT': {
+    'TRX/USDC': {
       // TREND:EMA+MACD+ADX  SL12/TP30  conf=0.55 → Y2 +36.4%  Y1 +129.9%  Sharpe 1.83/1.01 ✅
       strategies: ['EMA', 'MACD', 'ADX'],
       stopLossPct: 0.12,
@@ -87,7 +88,7 @@ export default {
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
-    'BCH/USDT': {
+    'BCH/USDC': {
       // MOM:MACD+Stoch+RSI  SL7/TP18  conf=0.55 → Y2 +32.4%  Y1 +31.1%  Sharpe 0.74/0.68 ✅
       strategies: ["BB","OBV","WilliamsR"],
       stopLossPct: 0.07,
@@ -95,50 +96,52 @@ export default {
       minConfidence: 0.55,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
-    'ACH/USDT': {
+    'ACH/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +30.4%  Y1 +72.3%  Sharpe 1.10/1.50 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'ANKR/USDT': {
+    'ANKR/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +51.4%  Y1 +58.3%  Sharpe 1.07/1.31 ✅
       strategies: ["RSI","BB","CCI"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'AVA/USDT': {
+    'AVA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +26.8%  Y1 +59.2%  Sharpe 0.83/1.51 ✅
+      // NOTE: No USDC pair — kept as config reference but not in symbols list
       strategies: ["BB","Stoch","WilliamsR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'CHR/USDT': {
+    'CHR/USDC': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +1.4%  Y1 +139.0%  Sharpe 0.23/2.40 ✅
+      // NOTE: No USDC pair — kept as config reference but not in symbols list
       strategies: ['EMA', 'MACD', 'ADX'],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
-    'CRV/USDT': {
+    'CRV/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +48.5%  Y1 +91.5%  Sharpe 1.20/1.82 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'ENS/USDT': {
+    'ENS/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +13.4%  Y1 +63.7%  Sharpe 0.47/1.55 ✅
       strategies: ["RSI","BB","OBV"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'GLMR/USDT': {
+    'GLMR/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +26.7%  Y1 +42.5%  Sharpe 0.58/1.51 ✅
       strategies: ['EMA', 'MACD', 'ADX'],
       stopLossPct: 0.05,
@@ -146,63 +149,63 @@ export default {
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
-    'GMX/USDT': {
+    'GMX/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +23.3%  Y1 +19.1%  Sharpe 0.80/0.58 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'ICX/USDT': {
+    'ICX/USDC': {
       // MR:RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +24.6%  Y1 +12.1%  Sharpe 0.78/0.45 ✅
       strategies: ['RSI', 'BB', 'Stoch'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'JTO/USDT': {
+    'JTO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +6.0%  Y1 +111.0%  Sharpe 0.30/1.92 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'LDO/USDT': {
+    'LDO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +22.7%  Y1 +38.7%  Sharpe 0.62/1.05 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'LSK/USDT': {
+    'LSK/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +138.7%  Y1 +66.9%  Sharpe 1.38/1.33 ✅
       strategies: ["MACD","MFI","PSAR"],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
-    'MANTA/USDT': {
+    'MANTA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +76.4%  Y1 +28.8%  Sharpe 1.81/0.76 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'MTL/USDT': {
+    'MTL/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +22.6%  Y1 +25.2%  Sharpe 0.72/0.91 ✅
       strategies: ["EMA","MFI","WilliamsR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'ONG/USDT': {
+    'ONG/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +32.9%  Y1 +38.8%  Sharpe 0.79/1.00 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'PAXG/USDT': {
+    'PAXG/USDC': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +39.7%  Y1 +13.8%  Sharpe 2.48/0.87 ✅
       strategies: ['MACD', 'ADX', 'Supertrend'],
       stopLossPct: 0.07,
@@ -210,7 +213,7 @@ export default {
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
-    'PIXEL/USDT': {
+    'PIXEL/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +103.8%  Y1 +117.6%  Sharpe 0.97/1.35 ✅
       strategies: ['EMA', 'MACD', 'ADX'],
       stopLossPct: 0.05,
@@ -218,49 +221,49 @@ export default {
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
-    'RAD/USDT': {
+    'RAD/USDC': {
       // MR:RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +34.1%  Y1 +28.6%  Sharpe 0.74/1.06 ✅
       strategies: ['RSI', 'BB', 'Stoch'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'SFP/USDT': {
+    'SFP/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.55 → Y2 +21.4%  Y1 +12.6%  Sharpe 0.57/0.43 ✅
       strategies: ['RSI', 'Stoch', 'WilliamsR'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'SPELL/USDT': {
+    'SPELL/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +26.7%  Y1 +34.3%  Sharpe 0.66/0.87 ✅
       strategies: ["RSI","EMA","PSAR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'SUI/USDT': {
+    'SUI/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +12.0%  Y1 +48.3%  Sharpe 0.43/1.37 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'THETA/USDT': {
+    'THETA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +54.5%  Y1 +4.8%  Sharpe 1.04/0.27 ✅
       strategies: ["RSI","CCI","OBV"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'TIA/USDT': {
+    'TIA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +89.9%  Y1 +15.8%  Sharpe 1.41/0.51 ✅
       strategies: ['RSI', 'BB', 'CCI'],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
     },
-    'VANRY/USDT': {
+    'VANRY/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +53.1%  Y1 +62.9%  Sharpe 1.08/1.78 ✅
       strategies: ['EMA', 'MACD', 'ADX'],
       stopLossPct: 0.05,
@@ -268,14 +271,14 @@ export default {
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
-    'XEC/USDT': {
+    'XEC/USDC': {
       // MR:RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +85.7%  Y1 +3.1%  Sharpe 1.70/0.21 ✅
       strategies: ["RSI","Supertrend","OBV"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
-    'YFI/USDT': {
+    'YFI/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +74.1%  Y1 +40.0%  Sharpe 1.68/0.95 ✅
       strategies: ['RSI', 'BB', 'Stoch'],
       stopLossPct: 0.07,

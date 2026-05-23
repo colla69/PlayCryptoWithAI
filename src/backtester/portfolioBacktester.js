@@ -160,8 +160,8 @@ export class PortfolioBacktester {
 
       // Macro bear filter: check BTC vs EMA(emaPeriod) using candles up to this step
       let macroBull = true;
-      if (this.macroFilter && symbolCandles['BTC/USDT']) {
-        const btcCandles = symbolCandles['BTC/USDT'].slice(0, step + MIN_WARMUP + 1);
+      if (this.macroFilter && (symbolCandles['BTC/USDC'] ?? symbolCandles['BTC/USDT'])) {
+        const btcCandles = (symbolCandles['BTC/USDC'] ?? symbolCandles['BTC/USDT']).slice(0, step + MIN_WARMUP + 1);
         macroBull = isBullTrend(btcCandles, this.macroEMAPeriod);
       }
 

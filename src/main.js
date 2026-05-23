@@ -151,7 +151,7 @@ async function runCycle(symbol) {
       });
       if (correlated) {
         const r = (correlationMatrix[symbol]?.[correlated.symbol] ?? 0).toFixed(2);
-        blockReason = `Correlated with open ${correlated.symbol.replace('/USDT', '')} (r=${r})`;
+        blockReason = `Correlated with open ${correlated.symbol.replace('/USDC', '').replace('/USDT', '')} (r=${r})`;
         logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
       }
     }
@@ -309,7 +309,7 @@ async function runAllSymbols() {
     // Macro filter: check BTC vs EMA(200) to determine portfolio-level bear phase
     if (config.macroFilter?.enabled) {
       const prevBull = btcMacroBull;
-      btcMacroBull = isBullTrend(dashboardState.getCandles('BTC/USDT'), config.macroFilter.emaPeriod ?? 200);
+      btcMacroBull = isBullTrend(dashboardState.getCandles('BTC/USDC'), config.macroFilter.emaPeriod ?? 200);
       if (btcMacroBull !== prevBull) {
         const factor = (config.macroFilter.sizeReduceFactor ?? 0.5) * 100;
         logger.warn(
