@@ -244,6 +244,21 @@ export async function createOrder(symbol, type, side, amount, price = undefined)
   return client.createOrder(symbol, type, side, amount, price);
 }
 
+/**
+ * Truncates `amount` to the exchange's lot-size step for `symbol`.
+ * This is what Binance/ccxt silently applies before submitting any order —
+ * calling it explicitly lets us know the exact quantity that will be filled
+ * and calculate the dust remainder up front.
+ */
+export async function amountToPrecision(symbol, amount) {
+  await ensureMarketsLoaded();
+  try {
+    return Number(client.amountToPrecision(symbol, Number(amount)));
+  } catch {
+    return Number(Number(amount).toFixed(8));
+  }
+}
+
 export async function cancelOrder(orderId, symbol) {
   await ensureMarketsLoaded();
   return client.cancelOrder(orderId, symbol);
@@ -295,6 +310,7 @@ export default {
   fetchTicker,
   fetchBalance,
   createOrder,
+  amountToPrecision,
   cancelOrder,
   fetchOpenOrders,
   fetchOrderStatus,

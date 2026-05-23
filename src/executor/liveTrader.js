@@ -1,4 +1,4 @@
-import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker } from '../exchange/binanceClient.js';
+import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 
 const MIN_NOTIONAL = 1;
@@ -310,21 +310,31 @@ export class LiveTrader {
         return null;
       }
 
-      // Use the actual free balance for the base asset rather than the stored qty.
-      // Binance deducts trading fees from the base asset on a BUY, so the real
-      // holding is slightly less than what order.filled reported.  Selling the
-      // stored qty would cause an "insufficient balance" rejection.
+      // Use the actual free balance and apply Binance's lot-size step truncation.
+      // On a BUY, Binance deducts fees from the base asset, so the wallet holds
+      // slightly less than order.filled reported.  Additionally, ccxt silently
+      // truncates qty to the market's stepSize before submission — doing it
+      // ourselves first means we sell the maximum the exchange will accept and
+      // can log any unavoidable dust up front.
       const base = symbol.split('/')[0];
       let sellQty = position.qty;
       try {
         const bal = await fetchBalance();
         const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
-        if (freeBase > 0 && freeBase < sellQty) {
-          logger.info(`[LIVE] ${symbol}: adjusting sell qty ${sellQty.toFixed(8)} → ${freeBase.toFixed(8)} (fee deduction)`);
-          sellQty = roundQty(freeBase);
+        if (freeBase > 0) {
+          // Truncate to exchange step size — this is the true maximum sellable qty
+          const maxSellable = await amountToPrecision(symbol, freeBase);
+          const dust = roundQty(freeBase - maxSellable);
+          if (dust > 0) {
+            logger.info(`[LIVE] ${symbol}: dust after step-size truncation: ${dust} ${base} (≈ ${(dust * referencePrice).toFixed(4)} ${this.quoteCurrency})`);
+          }
+          if (maxSellable < sellQty || freeBase < sellQty) {
+            logger.info(`[LIVE] ${symbol}: adjusting sell qty ${sellQty.toFixed(8)} → ${maxSellable.toFixed(8)}`);
+            sellQty = maxSellable;
+          }
         }
       } catch {
-        // fetchBalance failed — fall back to stored qty and let Binance decide
+        // fetchBalance/amountToPrecision failed — fall back to stored qty
       }
 
       const order = await createOrder(symbol, 'market', 'sell', sellQty);
