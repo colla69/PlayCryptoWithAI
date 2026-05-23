@@ -387,6 +387,14 @@ function logStartup() {
   if (config.dashboard?.enabled) {
     logger.info(`Dashboard: http://localhost:${dashboardPort}`);
   }
+
+  // Warn clearly when running in PAPER mode (missing Binance keys or explicit PAPER_MODE)
+  if (paperMode) {
+    logger.warn('Running in PAPER mode: BINANCE_API_KEY and/or BINANCE_API_SECRET not set or PAPER_MODE=true.\n' +
+      '  • Dashboard balance uses config.risk.initialBalance (simulated).\n' +
+      "  • To enable live/testnet trading, provide keys via environment variables and restart the container.\n" +
+      "    Example: docker run --env BINANCE_API_KEY=... --env BINANCE_API_SECRET=... --network host playcryptowithais:latest");
+  }
 }
 
 async function logShutdown() {
