@@ -7,15 +7,12 @@ services:
     image: playcryptowithais:latest
     container_name: playcrypto-bot
     restart: unless-stopped
+    network_mode: host
 
     # ── Secrets & config ──────────────────────────────────────────────────────
     # Copy .env.live (your real keys) to the server alongside docker-compose.yml
     # It is NEVER committed to git.
     env_file: ./.env.live
-
-    # ── Ports ────────────────────────────────────────────────────────────────
-    ports:
-      - "3001:3001"     # dashboard
 
     # ── Persistence ──────────────────────────────────────────────────────────
     # Named volumes: survive container restarts and image rebuilds.
