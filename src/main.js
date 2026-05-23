@@ -35,9 +35,12 @@ const symbolAggregators = Object.fromEntries(
 // Default aggregator (for dashboard display — uses default strategy set)
 const defaultStrategies = buildStrategiesForSymbol(config.symbols[0]);
 
+// Derive quote currency from config symbols (e.g. 'BTC/USDC' → 'USDC')
+const quoteCurrency = (config.symbols[0] ?? 'BTC/USDC').split('/')[1] ?? 'USDC';
+
 const trader = paperMode
   ? new PaperTrader(config.risk)
-  : new LiveTrader(config.risk);
+  : new LiveTrader({ ...config.risk, quoteCurrency });
 const riskManager = new RiskManager(config.risk);
 
 // ── Correlation filter state ───────────────────────────────────────────────────
@@ -723,6 +726,24 @@ async function refreshOpenPositionPrices() {
 }
 pricePollId = setInterval(() => void refreshOpenPositionPrices(), PRICE_POLL_MS);
 
+// Refresh the balance from the exchange every 5 minutes so that deposits or
+// withdrawals are reflected on the dashboard without waiting for the next trade.
+// Paper mode skips this — its balance is already tracked in memory.
+const BALANCE_POLL_MS = 5 * 60_000;
+let balancePollId = null;
+if (!paperMode) {
+  async function refreshBalance() {
+    try {
+      const status = await trader.getStatus();
+      dashboardState.updateStatus(status, riskManager.getDailyStats());
+      pushEvent('status', { balance: status.balance });
+    } catch (err) {
+      logger.debug(`Balance poll error: ${err.message}`);
+    }
+  }
+  balancePollId = setInterval(() => void refreshBalance(), BALANCE_POLL_MS);
+}
+
 function scheduleNextCycle() {
   const nextClose = nextCandleClose(config.timeframe);
   const delay     = nextClose - Date.now();
@@ -751,6 +772,7 @@ process.on('SIGINT', () => {
   clearTimeout(alignTimeoutId);
   clearInterval(cycleIntervalId);
   clearInterval(pricePollId);
+  clearInterval(balancePollId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });

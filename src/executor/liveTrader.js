@@ -1,7 +1,7 @@
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 
-const MIN_NOTIONAL_USDT = 10;
+const MIN_NOTIONAL = 10;
 const roundMoney = (value) => Number(Number(value ?? 0).toFixed(2));
 const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
@@ -16,6 +16,8 @@ export class LiveTrader {
       trailingStopPct: Number(config.trailingStopPct ?? 0),
       maxOpenPositions: Number(config.maxOpenPositions ?? Number.POSITIVE_INFINITY),
     };
+    // Derive quote currency from the first symbol in config, e.g. BTC/USDC → 'USDC'
+    this.quoteCurrency = config.quoteCurrency ?? 'USDC';
     this.positions = new Map();
     this.initialBalance = null;
     this.totalPnL = 0;
@@ -84,11 +86,9 @@ export class LiveTrader {
 
   async getStatus() {
     try {
-      const balance = await fetchBalance();
-      const usdtBalance = roundMoney(balance.free?.USDT ?? balance.total?.USDT ?? 0);
-
+      const quoteBalance = await this.#fetchQuoteBalance();
       return {
-        balance: usdtBalance,
+        balance: quoteBalance,
         positions: Array.from(this.positions.entries()).map(([symbol, position]) => ({
           symbol,
           qty: roundQty(position.qty),
@@ -149,13 +149,13 @@ export class LiveTrader {
       // Merge per-symbol risk override on top of global config for this trade
       const risk = riskOverride ? { ...this.config, ...riskOverride } : this.config;
       const balance = await fetchBalance();
-      const freeUsdt = Number(balance.free?.USDT ?? balance.total?.USDT ?? 0);
+      const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
 
       if (this.initialBalance === null) {
-        this.initialBalance = roundMoney(balance.total?.USDT ?? freeUsdt);
+        this.initialBalance = roundMoney(balance.total?.[this.quoteCurrency] ?? freeQuote);
       }
 
-      const allocation = roundMoney(freeUsdt * risk.maxPositionPct);
+      const allocation = roundMoney(freeQuote * risk.maxPositionPct);
       const qty = roundQty(allocation / referencePrice);
       const notional = roundMoney(qty * referencePrice);
 
@@ -164,8 +164,8 @@ export class LiveTrader {
         return null;
       }
 
-      if (notional < MIN_NOTIONAL_USDT) {
-        logger.warn(`[LIVE] ${symbol}: BUY skipped, order value ${notional.toFixed(2)} below ${MIN_NOTIONAL_USDT} USDT minimum`);
+      if (notional < MIN_NOTIONAL) {
+        logger.warn(`[LIVE] ${symbol}: BUY skipped, order value ${notional.toFixed(2)} below ${MIN_NOTIONAL} ${this.quoteCurrency} minimum`);
         return null;
       }
 
@@ -192,7 +192,7 @@ export class LiveTrader {
       };
 
       this.positions.set(symbol, position);
-      const balanceAfter = await this.#fetchUsdtBalance();
+      const balanceAfter = await this.#fetchQuoteBalance();
 
       logger.info(
         `[LIVE] BUY ${symbol} qty=${filledQty.toFixed(8)} price=${entryPrice.toFixed(8)} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
@@ -242,7 +242,7 @@ export class LiveTrader {
       const costBasis = roundMoney(position.qty * position.entryPrice);
       const pnl = roundMoney(proceeds - costBasis);
       const timestamp = new Date().toISOString();
-      const balanceAfter = await this.#fetchUsdtBalance();
+      const balanceAfter = await this.#fetchQuoteBalance();
 
       this.totalPnL = roundMoney(this.totalPnL + pnl);
       this.positions.delete(symbol);
@@ -298,9 +298,9 @@ export class LiveTrader {
     return roundPrice(fallbackPrice);
   }
 
-  async #fetchUsdtBalance() {
+  async #fetchQuoteBalance() {
     const balance = await fetchBalance();
-    return roundMoney(balance.free?.USDT ?? balance.total?.USDT ?? 0);
+    return roundMoney(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
   }
 
   async #updateTrailingStop(symbol, currentPrice) {
