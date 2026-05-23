@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     image: playcryptowithais:latest
     container_name: playcrypto-bot
     restart: unless-stopped
