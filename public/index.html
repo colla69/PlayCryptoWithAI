@@ -926,7 +926,7 @@
           <div class="panel-subtitle">Live view of the bot's log output. Newest entries first.</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <input id="logFilter" type="text" placeholder="Filter…" oninput="loadLogs()" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:4px 10px;border-radius:6px;font-size:12px;width:160px">
+          <input id="logFilter" type="text" placeholder="Filter…" oninput="loadLogsDebounced()" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:4px 10px;border-radius:6px;font-size:12px;width:160px">
           <select id="logLines" onchange="loadLogs()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
             <option value="200">200 lines</option>
             <option value="500" selected>500 lines</option>
@@ -955,7 +955,7 @@
   <div id="hintTooltip"></div>
 
   <script>
-    const API_BASE = 'http://localhost:3001';
+    const API_BASE = window.location.origin;
     const REASON_MAP = {
       rsi_buy: 'RSI oversold',
       rsi_sell: 'RSI overbought',
@@ -1851,23 +1851,47 @@
       if (line.includes('SELL '))                           return '#f472b6';
       return '#94a3b8';
     }
+    let _logsAbort = null;
+    let _logsDebounce = null;
+
     async function loadLogs() {
       const body   = document.getElementById('logsBody');
       const lines  = document.getElementById('logLines')?.value || 500;
-      const filter = encodeURIComponent(document.getElementById('logFilter')?.value || '');
+      const filterRaw = document.getElementById('logFilter')?.value?.trim() || '';
+      const filter = encodeURIComponent(filterRaw);
       if (!body) return;
+
+      // Cancel any in-flight request so stale responses can't overwrite newer ones
+      if (_logsAbort) { _logsAbort.abort(); }
+      _logsAbort = new AbortController();
+      const signal = _logsAbort.signal;
+
       try {
-        const r = await fetch(`${API_BASE}/api/logs?lines=${lines}&filter=${filter}`, { cache: 'no-store' });
+        const r = await fetch(`${API_BASE}/api/logs?lines=${lines}&filter=${filter}`, { cache: 'no-store', signal });
         const data = await r.json();
-        if (!data.lines?.length) { body.innerHTML = '<div style="color:#475569">No log entries found.</div>'; return; }
+        if (!data.lines?.length) {
+          body.innerHTML = filterRaw
+            ? `<div style="color:#475569">No log entries match <strong style="color:#94a3b8">${escapeHtml(filterRaw)}</strong>.</div>`
+            : '<div style="color:#475569">No log entries found.</div>';
+          return;
+        }
         body.innerHTML = data.lines.map(line =>
           `<div style="color:${logLevelColor(line)};border-bottom:1px solid #1e293b;padding:1px 0">${escapeHtml(line)}</div>`
         ).join('');
       } catch (e) {
+        if (e.name === 'AbortError') return; // superseded by newer request — ignore
         body.innerHTML = `<div style="color:#f87171">Failed to load logs: ${escapeHtml(e.message)}</div>`;
       }
     }
     window.loadLogs = loadLogs;
+
+    // Debounced version for the filter input — waits 300 ms after last keystroke
+    function loadLogsDebounced() {
+      clearTimeout(_logsDebounce);
+      _logsDebounce = setTimeout(loadLogs, 300);
+    }
+    window.loadLogsDebounced = loadLogsDebounced;
+
     // Auto-refresh logs every 15s if panel is visible
     setInterval(() => {
       const panel = document.getElementById('logsPanel');
