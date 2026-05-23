@@ -68,7 +68,7 @@ export function pushEvent(eventName, data) {
   }
 }
 
-export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles } = {}) {
+export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, closePosition } = {}) {
   if (serverInstance) {
     return serverInstance;
   }
@@ -218,7 +218,29 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles }
     res.json({ running: smokeTestRunning });
   });
 
-  // ── Log streaming ───────────────────────────────────────────────────────────
+  // ── Manual position close ───────────────────────────────────────────────────
+  app.post('/api/close-position/:symbol', async (req, res) => {
+    if (!closePosition) {
+      return res.status(503).json({ error: 'closePosition not available' });
+    }
+    // Symbol arrives URL-encoded: BTC%2FUSDC → BTC/USDC
+    const symbol = decodeURIComponent(req.params.symbol);
+    if (!symbol || typeof symbol !== 'string') {
+      return res.status(400).json({ error: 'Invalid symbol' });
+    }
+    try {
+      const result = await closePosition(symbol);
+      if (!result) {
+        return res.status(404).json({ error: `No open position for ${symbol}` });
+      }
+      res.json({ ok: true, symbol, pnl: result.pnl, exitPrice: result.exitPrice });
+    } catch (err) {
+      logger.error(`[dashboard] manual close ${symbol} failed: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   app.get(['/api/logs', '/logs-data'], (req, res) => {
     const lines  = Math.min(parseInt(req.query.lines ?? 500, 10), 5000);
     const filter = String(req.query.filter ?? '').toLowerCase();

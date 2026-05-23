@@ -650,7 +650,21 @@ async function runInitialSignals() {
 
 
 if (config.dashboard?.enabled) {
-  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV });
+  // Manual position close: fetch current price then execute a SELL
+  const closePosition = async (symbol) => {
+    const ticker = await fetchTicker(symbol);
+    const price = Number(ticker?.last ?? ticker?.close ?? 0);
+    if (!price) throw new Error(`Could not fetch price for ${symbol}`);
+    const result = await trader.execute(symbol, 'SELL', price, undefined);
+    if (result) {
+      const status = await trader.getStatus();
+      dashboardState.updateStatus(status, riskManager.getDailyStats());
+      dashboardState.pushTrade({ ...result, note: '🖱️ manual close' });
+      pushEvent('status', { balance: status.balance });
+    }
+    return result;
+  };
+  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV, closePosition });
 }
 
 logStartup();

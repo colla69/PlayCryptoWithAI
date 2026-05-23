@@ -553,6 +553,28 @@
       border-color: rgba(110, 118, 129, 0.25);
     }
 
+    /* ── Manual close button ─────────────────────────────────────────────────── */
+    .close-pos-btn {
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid rgba(248, 81, 73, 0.5);
+      color: #f85149;
+      background: rgba(248, 81, 73, 0.1);
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .close-pos-btn:hover {
+      background: rgba(248, 81, 73, 0.25);
+      border-color: rgba(248, 81, 73, 0.8);
+    }
+    .close-pos-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     /* ── Legend panel ────────────────────────────────────────────────────────── */
     .legend-toggle {
       display: inline-flex;
@@ -843,10 +865,11 @@
               <th>Take Profit</th>
               <th>Protection</th>
               <th>Held For</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="positionsBody">
-            <tr><td colspan="9" class="loading">Loading positions…</td></tr>
+            <tr><td colspan="10" class="loading">Loading positions…</td></tr>
           </tbody>
         </table>
       </div>
@@ -1446,6 +1469,13 @@
             </td>
             <td>${protectionHtml}</td>
             <td title="${escapeHtml(position.openedAt || '')}">${escapeHtml(heldFor)}</td>
+            <td>
+              <button class="close-pos-btn" data-symbol="${escapeHtml(position.symbol)}"
+                title="Manually close this position at market price"
+                onclick="confirmClosePosition('${escapeHtml(position.symbol)}')">
+                Close
+              </button>
+            </td>
           </tr>
         `;
       }).join('');
@@ -1784,7 +1814,35 @@
     }
     window.triggerSmokeTest = triggerSmokeTest;
 
-    // ── Logs ───────────────────────────────────────────────────────────────
+    // ── Manual close position ──────────────────────────────────────────────
+    async function confirmClosePosition(symbol) {
+      if (!confirm(`Close position: ${symbol} at market price?\n\nThis will place a market SELL order immediately.`)) return;
+      const btn = document.querySelector(`.close-pos-btn[data-symbol="${symbol}"]`);
+      if (btn) { btn.disabled = true; btn.textContent = 'Closing…'; }
+      try {
+        const encoded = encodeURIComponent(symbol);
+        const r = await fetch(`${API_BASE}/api/close-position/${encoded}`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) {
+          alert(`Failed to close ${symbol}: ${data.error ?? r.statusText}`);
+          if (btn) { btn.disabled = false; btn.textContent = 'Close'; }
+          return;
+        }
+        const pnlStr = typeof data.pnl === 'number'
+          ? ` · P&L: ${data.pnl >= 0 ? '+' : ''}$${data.pnl.toFixed(2)}`
+          : '';
+        alert(`✅ ${symbol} closed at $${data.exitPrice?.toFixed?.(4) ?? '?'}${pnlStr}`);
+        // Dashboard will refresh via SSE; remove row immediately as feedback
+        const row = document.querySelector(`#positionsBody tr[data-symbol="${symbol}"]`);
+        if (row) row.remove();
+      } catch (e) {
+        alert(`Error closing ${symbol}: ${e.message}`);
+        if (btn) { btn.disabled = false; btn.textContent = 'Close'; }
+      }
+    }
+    window.confirmClosePosition = confirmClosePosition;
+
+
     function logLevelColor(line) {
       if (line.includes(' error:') || line.includes('❌')) return '#f87171';
       if (line.includes(' warn:')  || line.includes('⚠️')) return '#fb923c';
