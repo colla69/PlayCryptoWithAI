@@ -524,12 +524,15 @@ async function runSmokeTest(holdSeconds = 10) {
     // ── 2. Build a minimal risk config for this test trade ───────────────────
     // Compute safePct so the notional is exactly testBudget, no percentage cap —
     // the cap (Math.min with 0.02) could produce <$10 on low-balance accounts.
+    // Use real config SL/TP — the hold loop never calls checkRisk(), so there's
+    // no risk of premature exit during the 10-second hold window.
     const { balance: currentBalance } = await trader.getStatus();
     const safePct = currentBalance > 0 ? testBudget / currentBalance : 0.02;
+    const symRiskForSmoke = getRiskForSymbol(symbol);
     const smokeRisk = {
-      maxPositionPct:  safePct,   // at most testBudget/$, never more than 2% of balance
-      stopLossPct:     0.50,
-      takeProfitPct:  10.00,
+      maxPositionPct:  safePct,
+      stopLossPct:     symRiskForSmoke.stopLossPct,
+      takeProfitPct:   symRiskForSmoke.takeProfitPct,
       trailingStopPct: 0,
     };
 

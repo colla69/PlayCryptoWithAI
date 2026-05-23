@@ -15,13 +15,13 @@ services:
     env_file: ./.env
 
     # ── Persistence ──────────────────────────────────────────────────────────
-    # Named volumes: survive container restarts and image rebuilds.
-    # To move to a new server, back up these two Docker volumes
-    # (or use the bind-mount alternative in docker-compose.dev.yml).
+    # Bind mounts: data/ and logs/ live on the host (and in git).
+    # trades.csv and dashboard_persist.json are committed to the repo so
+    # trade history survives server moves and is git-tracked.
+    # Candle files (~300 MB) are also committed; no named volumes needed.
     volumes:
-      - candle-data:/app/data/candles    # ~500MB of OHLCV history
-      - runtime-data:/app/data           # dashboard_persist.json, fearGreed, etc.
-      - trade-logs:/app/logs             # trades.csv, app.log
+      - ./data:/app/data     # candles, dashboard_persist.json, fearGreed, etc.
+      - ./logs:/app/logs     # trades.csv (git-tracked), app.log (gitignored)
 
     # ── Logging ──────────────────────────────────────────────────────────────
     logging:
@@ -30,12 +30,3 @@ services:
         max-size: "20m"
         max-file: "5"
 
-# ── Named volumes ─────────────────────────────────────────────────────────────
-# These are managed by Docker and persist independently of containers.
-# Inspect with:  docker volume inspect playcrypto_candle-data
-# Back up with:  docker run --rm -v playcrypto_candle-data:/data -v $(pwd):/backup \
-#                  alpine tar czf /backup/candles-backup.tar.gz -C /data .
-volumes:
-  candle-data:
-  runtime-data:
-  trade-logs:

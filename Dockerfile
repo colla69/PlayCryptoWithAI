@@ -11,23 +11,22 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Non-root user for security
-RUN groupadd -r bot && useradd -r -g bot bot
+# Use the built-in `node` user (UID 1000) — matches typical Linux deploy-user UID
+# so bind-mounted ./data and ./logs are readable/writable without extra chmod steps.
 
 # Copy app source
-COPY --chown=bot:bot src/        ./src/
-COPY --chown=bot:bot config/     ./config/
-COPY --chown=bot:bot public/     ./public/
-COPY --chown=bot:bot package.json ./
+COPY --chown=node:node src/        ./src/
+COPY --chown=node:node config/     ./config/
+COPY --chown=node:node public/     ./public/
+COPY --chown=node:node package.json ./
 
 # Copy installed dependencies from deps stage
-COPY --chown=bot:bot --from=deps /app/node_modules ./node_modules
+COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 
-# Create volume mount points with correct ownership
-# data/ and logs/ are mounted from Docker named volumes at runtime
-RUN mkdir -p data/candles logs && chown -R bot:bot data logs
+# Create fallback dirs in case the bind mounts don't exist on host yet
+RUN mkdir -p data/candles logs && chown -R node:node data logs
 
-USER bot
+USER node
 
 EXPOSE 3001
 
