@@ -301,6 +301,23 @@ const SLIPPAGE_TIERS = {
   'PAXG/USDC':  MICRO_CAP_SLIP,
   'THETA/USDC': MICRO_CAP_SLIP,
   'VANRY/USDC': MICRO_CAP_SLIP,
+  // ── New additions ──────────────────────────────────────────────────────
+  'ZEC/USDC':    LARGE_CAP_SLIP,
+  'FTM/USDC':    LARGE_CAP_SLIP,
+  'XLM/USDC':    LARGE_CAP_SLIP,
+  'FET/USDC':    MID_CAP_SLIP,
+  'WLD/USDC':    MID_CAP_SLIP,
+  'PEPE/USDC':   MID_CAP_SLIP,
+  'TON/USDC':    MID_CAP_SLIP,
+  'RENDER/USDC': MID_CAP_SLIP,
+  'ENA/USDC':    MID_CAP_SLIP,
+  'ICP/USDC':    MID_CAP_SLIP,
+  'DOT/USDC':    MID_CAP_SLIP,
+  'AAVE/USDC':   MID_CAP_SLIP,
+  'MATIC/USDC':  MID_CAP_SLIP,
+  'APT/USDC':    MID_CAP_SLIP,
+  'ARB/USDC':    MID_CAP_SLIP,
+  'JUP/USDC':    MID_CAP_SLIP,
 };
 
 // Build strategy map

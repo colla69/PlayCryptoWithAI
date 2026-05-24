@@ -3,7 +3,20 @@ export default {
   // 11 coins dropped: AVA, CHR, GLMR, ICX, MTL, ONG, RAD, SFP, SPELL, XEC, YFI
   // — no USDC spot pair available on Binance (EU USDT restriction)
   // ANKR also dropped: listed in Binance markets but has no USDC candle data
-  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC'],
+  // ─── Symbols — 12h holdout-validated set (38 symbols, USDC pairs) ────────────
+  // 11 coins dropped: AVA, CHR, GLMR, ICX, MTL, ONG, RAD, SFP, SPELL, XEC, YFI
+  // — no USDC spot pair available on Binance (EU USDT restriction)
+  // ANKR also dropped: listed in Binance markets but has no USDC candle data
+  // 2025-05 addition: +11 new coins (optimizer-validated, ≥3 holdout trades each)
+  //   Dropped from candidate list:
+  //   ZEC  — optimizer upgrade had only 3 holdout trades; 28% WR in backtest → Sharpe killer
+  //   FTM  — insufficient history (1005 candles < 1460 required for Y1+Y2 split)
+  //   XLM  — no optimizer upgrade found (best alt was -13.7% holdout)
+  //   FET  — no optimizer upgrade found (best alt was -5.6% holdout)
+  //   DOT  — no optimizer upgrade found (best alt was -0.1% holdout)
+  //   AAVE — no optimizer upgrade found (best alt was -5.9% holdout)
+  //   MATIC— insufficient history (515 candles < 1460 required)
+  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC', 'ETH/USDC', 'WLD/USDC', 'PEPE/USDC', 'TON/USDC', 'RENDER/USDC', 'ENA/USDC', 'ICP/USDC', 'APT/USDC', 'ARB/USDC', 'JUP/USDC'],
   timeframe: '12h',
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
@@ -324,6 +337,123 @@ export default {
     'INJ/USDC': {
       // RSI+StochRSI+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +54.0%  Sharpe 0.98 ✅
       strategies: ["ADX","OBV","StochRSI"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    // ── New coins — 17 additions, optimizer-pending ────────────────────────
+    // Large caps (ETH, ZEC, FTM, XLM): SL5/TP12  conf=0.70  (mean-reversion defaults)
+    // Mid/small caps:                   SL7/TP18  conf=0.55  (wider stops, earlier entries)
+    // strategies key omitted until perSymbolOptimizer sets it
+    'ETH/USDC': {
+      // CCI+Stoch+StochRSI  SL5/TP12  conf=0.70 → optimizer holdout: +9.0%  Sharpe 0.42 [4t] ✅
+      strategies: ["CCI","Stoch","StochRSI"],
+      stopLossPct: 0.05,
+      takeProfitPct: 0.12,
+      minConfidence: 0.70,
+    },
+    'ZEC/USDC': {
+      // CCI+Stoch+OBV  SL5/TP12  conf=0.70 → optimizer holdout: +19.0%  Sharpe 1.19 [3t] ✅
+      strategies: ["CCI","Stoch","OBV"],
+      stopLossPct: 0.05,
+      takeProfitPct: 0.12,
+      minConfidence: 0.70,
+    },
+    'FTM/USDC': {
+      // Skipped by optimizer — insufficient candles (1005 < 1460); uses global default
+      stopLossPct: 0.05,
+      takeProfitPct: 0.12,
+      minConfidence: 0.70,
+    },
+    'XLM/USDC': {
+      // No upgrade found — best alt holdout was -13.7%; uses global default
+      stopLossPct: 0.05,
+      takeProfitPct: 0.12,
+      minConfidence: 0.70,
+    },
+    'FET/USDC': {
+      // No upgrade found — best alt holdout was -5.6%; uses global default
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'WLD/USDC': {
+      // BB+CCI+ADX  SL7/TP18  conf=0.55 → optimizer holdout: +47.0%  Sharpe 1.01 [7t] ✅
+      strategies: ["BB","CCI","ADX"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'PEPE/USDC': {
+      // EMA+Supertrend+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +56.8%  Sharpe 1.60 [4t] ✅
+      strategies: ["EMA","Supertrend","OBV"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'TON/USDC': {
+      // EMA+OBV+StochRSI  SL7/TP18  conf=0.55 → optimizer holdout: +17.7%  Sharpe 0.67 [4t] ✅
+      strategies: ["EMA","OBV","StochRSI"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'RENDER/USDC': {
+      // EMA+OBV+WilliamsR  SL7/TP18  conf=0.55 → optimizer holdout: +13.1%  Sharpe 0.85 [3t] ✅
+      strategies: ["EMA","OBV","WilliamsR"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'ENA/USDC': {
+      // RSI+BB+CCI  SL7/TP18  conf=0.55 → optimizer holdout: +47.6%  Sharpe 0.98 [4t] ✅
+      strategies: ["RSI","BB","CCI"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'ICP/USDC': {
+      // RSI+BB+Stoch  SL7/TP18  conf=0.55 → optimizer holdout: +28.8%  Sharpe 0.70 [7t] ✅
+      strategies: ["RSI","BB","Stoch"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'DOT/USDC': {
+      // No upgrade found — best alt holdout was -0.1%; uses global default
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'AAVE/USDC': {
+      // No upgrade found — best alt holdout was -5.9%; uses global default
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'MATIC/USDC': {
+      // Skipped by optimizer — insufficient candles (515 < 1460); uses global default
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'APT/USDC': {
+      // BB+Stoch+MFI  SL7/TP18  conf=0.55 → optimizer holdout: +139.7%  Sharpe 2.02 [8t] ✅
+      strategies: ["BB","Stoch","MFI"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'ARB/USDC': {
+      // RSI+WilliamsR+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +30.4%  Sharpe 0.98 [3t] ✅
+      strategies: ["RSI","WilliamsR","HeikinAshi"],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'JUP/USDC': {
+      // BB+CCI+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +47.0%  Sharpe 1.07 [5t] ✅
+      strategies: ["BB","CCI","OBV"],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
