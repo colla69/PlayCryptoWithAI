@@ -12,6 +12,7 @@ import { PSARStrategy } from './psar.js';
 import { WilliamsRStrategy } from './williamsR.js';
 import { StochRSIStrategy } from './stochRsi.js';
 import { HeikinAshiStrategy } from './heikinAshi.js';
+import { SupportResistanceStrategy } from './supportResistance.js';
 
 /**
  * Registry of all available strategies.
@@ -208,6 +209,22 @@ export const STRATEGY_REGISTRY = [
       { key: 'warmup', label: 'HA warmup candles', type: 'number', default: 10 },
     ],
     tags: ['trend', 'noise-filter', 'short-tf'],
+  },
+  {
+    id: 'supportResistance',
+    name: 'S&R',
+    fullName: 'Support & Resistance Zones',
+    Class: SupportResistanceStrategy,
+    defaultConfig: { lookback: 2000, swingWindow: 5, zoneTolerance: 0.005, minTouches: 2, nearZonePct: 0.015 },
+    description: 'Identifies swing-high resistance and swing-low support zones over long history, clusters nearby pivots, and signals when price is near a well-tested level. BUY near support, SELL near resistance. Confidence scales with zone touch count and proximity.',
+    params: [
+      { key: 'lookback',      label: 'Lookback candles',      type: 'number', default: 2000  },
+      { key: 'swingWindow',   label: 'Swing pivot window',    type: 'number', default: 5     },
+      { key: 'zoneTolerance', label: 'Zone cluster tolerance', type: 'number', default: 0.005 },
+      { key: 'minTouches',    label: 'Min zone touches',       type: 'number', default: 2     },
+      { key: 'nearZonePct',   label: 'Near-zone distance',     type: 'number', default: 0.015 },
+    ],
+    tags: ['structure', 'price-action', 'mean reversion'],
   },
   {
     id: 'telegram',

@@ -44,7 +44,7 @@ import {
   ADXStrategy, BollingerBandsStrategy, CCIStrategy,
   EMAStrategy, MACDStrategy, RSIStrategy, StochasticStrategy,
   SupertrendStrategy, MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
-  StochRSIStrategy, HeikinAshiStrategy,
+  StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
 } from '../strategies/index.js';
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
@@ -162,6 +162,7 @@ const BUILDERS = {
   WilliamsR:  (s) => new WilliamsRStrategy(getSymbolCfg(s, 'williamsR', config.williamsR)),
   StochRSI:   (s) => new StochRSIStrategy(getSymbolCfg(s, 'stochRsi', config.stochRsi ?? {})),
   HeikinAshi: (s) => new HeikinAshiStrategy(getSymbolCfg(s, 'heikinAshi', config.heikinAshi ?? {})),
+  SR:         (s) => new SupportResistanceStrategy(getSymbolCfg(s, 'supportResistance', config.supportResistance ?? {})),
 };
 function buildStrategies(symbol) {
   const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];

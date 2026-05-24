@@ -20,12 +20,13 @@ export default {
   obv:        { emaPeriod: 20 },
   psar:       { step: 0.02, max: 0.2 },
   williamsR:  { period: 14, oversold: -80, overbought: -20 },
+  supportResistance: { lookback: 2000, swingWindow: 5, zoneTolerance: 0.005, minTouches: 2, nearZonePct: 0.015 },
   // ──────────────────────────────────────────────────────────────────
   // Default strategy (BTC/USDC, NEAR/USDC — mean-reversion, 12h holdout-validated)
   //   BTC:  RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +35.9%  Y1 +12.5%  Sharpe 1.35/0.53 ✅
   //   NEAR: RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +53.8%  Y1 +17.2%  Sharpe 1.17/0.52 ✅
   // ──────────────────────────────────────────────────────────────────
-  strategies: ['RSI', 'BB', 'Stoch'],
+  strategies: ['RSI', 'BB', 'Stoch', 'SR'],
   risk: {
     initialBalance: 1000,
     maxPositionPct: 0.15,
