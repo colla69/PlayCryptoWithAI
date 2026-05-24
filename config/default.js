@@ -48,7 +48,9 @@ export default {
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
     breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
     maxDailyLossPct: 0.05,
-    maxOpenPositions: 5,     // 5 slots → ~20% per position; best risk-adjusted result (Sharpe 1.29, +30%)
+    maxOpenPositions: 4,     // 4 slots → ~25% per position; sweep validated: Sharpe 1.75 Y1+Y2, +324% 4yr, Max DD -23.5%
+                              // slots=3 gives +473% but Sharpe 1.44 (below 1.5 floor) and -26.6% DD
+                              // slots=5 gives +269% Sharpe 1.70; 4 is optimal risk-adjusted sweet spot
                               // slots=3 gives +47% but -20% DD; slots=34 gives +9.6% tiny positions
     // minConfidence threshold vs 3-strategy vote math:
     //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
