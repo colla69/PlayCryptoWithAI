@@ -82,3 +82,39 @@ export function computeSignal(candles, { fastPeriod = 9, slowPeriod = 21 } = {})
 - [ ] Registered in `src/strategies/index.js`
 - [ ] Enabled and weighted in `config/default.js`
 - [ ] `node --check src/strategies/<file>.js` passes
+
+---
+
+## Backtest Integrity Rules
+
+These rules apply whenever a strategy change triggers a backtest or optimizer run.
+
+### Fill model (execution lookahead)
+BUY entries in `portfolioBacktester.js` must fill at `d.nextOpen` (next candle's open), not `d.price` (signal candle's close). The signal is generated when candle `i-1` closes — the earliest you can fill is the open of candle `i`.
+
+```js
+// ✅ correct
+entryOpts.fillPrice = d.nextOpen;
+
+// ❌ execution lookahead — fills at a price you couldn't have known
+simulator.execute(sym, 'BUY', d.price, entryOpts);
+```
+
+### Slippage tiers
+Do not apply uniform 0.1% slippage to all coins. A $200 position in ACH or VANRY moves the market; it doesn't in BTC. Use the `SLIPPAGE_TIERS` map in `portfolioBacktest.mjs`:
+- Large cap: 0.10%  |  Mid cap: 0.20%  |  Micro cap: 0.35%
+
+### Optimizer — minimum holdout trades
+`MIN_TRADES` in `perSymbolOptimizer.mjs` must be ≥ 3. Validating an upgrade on 0–2 holdout trades is statistically meaningless — it is coincidence, not evidence.
+
+### Reported results — always two windows
+Never quote a single backtest result as the headline. Always show:
+
+```
+Y2 only  (730 candles, in-sample):    +XX%  Sharpe X.XX  Max DD -X.X%  WR XX%
+Y1+Y2    (1460 candles, OOS included): +XX%  Sharpe X.XX  Max DD -X.X%  WR XX%
+```
+
+Win-rate gap > 10pp between windows = warning (possible overfitting).  
+Win-rate gap > 15pp = blocker.  
+Sharpe < 1.0 on full OOS window = strategy needs more evidence before going live.

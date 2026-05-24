@@ -28,6 +28,19 @@ You are the last gate before a commit. Your job is fast and decisive: confirm th
 - If risk parameters changed: confirm they are within safe bounds (see `config/default.js`).
 - If dashboard changed: inline JS/CSS still in `public/index.html`.
 
+## Backtest / Optimizer Checklist
+
+Apply these checks whenever `portfolioBacktest.mjs`, `portfolioBacktester.js`, `backtestSimulator.js`, `perSymbolOptimizer.mjs`, or `config/default.js` strategies are in the diff.
+
+- **Fill model**: `portfolioBacktester.js` BUY entries must use `entryOpts.fillPrice = d.nextOpen`. Filling at `d.price` (signal candle close) is a blocker.
+- **Slippage tiers**: `portfolioBacktest.mjs` must have a `SLIPPAGE_TIERS` map. A single flat `slippagePct: 0.001` applied to all symbols is a blocker.
+- **Optimizer MIN_TRADES**: `perSymbolOptimizer.mjs` `MIN_TRADES` must be ≥ 3. Values of 1 or 2 are a blocker.
+- **Optimizer upgrade gate**: any upgrade showing `[0t]`, `[1t]`, or `[2t]` holdout trades in the optimizer output must not be applied to config. If the diff adds such a change, block it.
+- **Two-window reporting**: if backtest results are quoted in a commit message or comment, both windows must be present:
+  - `Y2 only (in-sample)` — the training window
+  - `Y1+Y2 (OOS included)` — the full window
+  Quoting only the in-sample result is a blocker.
+
 ## Output Contract
 
 - Pass: "✅ Safe to commit — no blockers found."
