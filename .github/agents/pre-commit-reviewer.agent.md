@@ -28,7 +28,19 @@ You are the last gate before a commit. Your job is fast and decisive: confirm th
 - If risk parameters changed: confirm they are within safe bounds (see `config/default.js`).
 - If dashboard changed: inline JS/CSS still in `public/index.html`.
 
-## Backtest / Optimizer Checklist
+## Strategy Registration Checklist
+
+Apply these checks whenever a new strategy is added OR `perSymbolOptimizer.mjs` / `config/default.js` gains a new strategy key name.
+
+- **`strategyBuilder.js` import**: new strategy class must be imported from `../strategies/index.js`.
+- **`STRATEGY_BUILDERS` entry**: new strategy key must have a builder function in the `STRATEGY_BUILDERS` map.
+- **`STRATEGY_REASON_PREFIX` entry**: new strategy key must map to a short string for signal reason labels.
+- **`STRATEGY_TRIGGER_HINTS` entry**: new strategy key should have a human-readable hint (dashboard display).
+- **Boot test**: run `node src/main.js` (or the npm start equivalent) and confirm it reaches `"Initialising candle history"` with no `Unknown strategy:` error.
+
+Blocker: any strategy name referenced in `config/default.js` `.strategies` arrays that is NOT present in `STRATEGY_BUILDERS` will crash the bot on startup.
+
+
 
 Apply these checks whenever `portfolioBacktest.mjs`, `portfolioBacktester.js`, `backtestSimulator.js`, `perSymbolOptimizer.mjs`, or `config/default.js` strategies are in the diff.
 

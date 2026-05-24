@@ -86,6 +86,26 @@ Reporting only the in-sample (Y2, training) window as the headline metric is mis
 
 ---
 
+## 5. Strategy Registration — Bot Startup Integrity
+
+When a new strategy is added to `src/strategies/` or a new optimizer pool key is used, it must be wired into `strategyBuilder.js` before it can appear in any `config/default.js` `.strategies` array. Failure to do so causes an `Unknown strategy: <name>` crash at startup — the bot won't run at all.
+
+**Required for every new strategy name:**
+- `src/strategies/index.js`: exports the strategy class
+- `src/utils/strategyBuilder.js` imports: new class imported at the top
+- `src/utils/strategyBuilder.js` `STRATEGY_BUILDERS`: builder function keyed on the exact name used in config
+- `src/utils/strategyBuilder.js` `STRATEGY_REASON_PREFIX`: short signal label
+- `src/utils/strategyBuilder.js` `STRATEGY_TRIGGER_HINTS`: human-readable description
+- `perSymbolOptimizer.mjs` `POOL_NAMES` + `CONFIG_TO_POOL`: the optimizer key must map to the exact same string as in `STRATEGY_BUILDERS`
+
+**Check:**
+- After any new strategy is added or after an optimizer run that may introduce new strategy names: run `node src/main.js` and confirm startup completes without `Unknown strategy:` error
+- Cross-reference: every string in every `.strategies` array in `config/default.js` must exist as a key in `STRATEGY_BUILDERS`
+
+**Blocker if:** Any strategy name appears in `config/default.js` that is not a key in `STRATEGY_BUILDERS`. This is a hard crash.
+
+---
+
 ## Output Contract
 
 For each area, report: ✅ Pass, ⚠️ Warning (explain why), or 🔴 Blocker (exact fix required).

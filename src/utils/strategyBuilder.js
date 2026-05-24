@@ -12,6 +12,9 @@ import {
   OBVStrategy,
   PSARStrategy,
   WilliamsRStrategy,
+  StochRSIStrategy,
+  HeikinAshiStrategy,
+  SupportResistanceStrategy,
 } from '../strategies/index.js';
 
 const STRATEGY_REASON_PREFIX = {
@@ -27,6 +30,9 @@ const STRATEGY_REASON_PREFIX = {
   OBV:            'obv',
   PSAR:           'psar',
   WilliamsR:      'williamsR',
+  StochRSI:       'stochRsi',
+  HeikinAshi:     'heikinAshi',
+  SR:             'sr',
 };
 
 const STRATEGY_TRIGGER_HINTS = {
@@ -42,6 +48,9 @@ const STRATEGY_TRIGGER_HINTS = {
   OBV:        'OBV crosses above EMA-20 → BUY (volume buyers) · crosses below → SELL',
   PSAR:       'Parabolic SAR flips below price → BUY · flips above price → SELL',
   WilliamsR:  '%R < −80 + turning up → BUY (oversold) · %R > −20 + turning down → SELL',
+  StochRSI:   'StochRSI K < 20 crossing up → BUY · K > 80 crossing down → SELL',
+  HeikinAshi: 'HA bullish candle (close>open, no lower wick) → BUY · bearish (no upper wick) → SELL',
+  SR:         'Price near support zone ≥2 touches → BUY · near resistance zone ≥2 touches → SELL',
 };
 
 function getStrategyConfigForSymbol(symbol, key, defaults) {
@@ -64,6 +73,9 @@ const STRATEGY_BUILDERS = {
   OBV:        (symbol) => new OBVStrategy(getStrategyConfigForSymbol(symbol, 'obv', config.obv)),
   PSAR:       (symbol) => new PSARStrategy(getStrategyConfigForSymbol(symbol, 'psar', config.psar)),
   WilliamsR:  (symbol) => new WilliamsRStrategy(getStrategyConfigForSymbol(symbol, 'williamsR', config.williamsR)),
+  StochRSI:   (symbol) => new StochRSIStrategy(getStrategyConfigForSymbol(symbol, 'stochRsi', config.stochRsi ?? {})),
+  HeikinAshi: (symbol) => new HeikinAshiStrategy(getStrategyConfigForSymbol(symbol, 'heikinAshi', config.heikinAshi ?? {})),
+  SR:         (symbol) => new SupportResistanceStrategy(getStrategyConfigForSymbol(symbol, 'supportResistance', config.supportResistance)),
 };
 
 export function buildStrategiesForSymbol(symbol) {

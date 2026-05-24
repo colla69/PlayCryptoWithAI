@@ -32,6 +32,20 @@ You are the strategy designer for the playAIStocks trading bot. You design, impl
 - All strategy functions receive closed candle history (`candles` array, each `{ timestamp, open, high, low, close, volume }`). Only past candles — never the current forming candle.
 - Vote return: `{ signal: 'BUY' | 'SELL' | 'HOLD', confidence: 0–1, reason: string }`.
 - Register the new strategy in `src/strategies/index.js` and update `config/default.js` to enable/weight it.
+- **Wire into `strategyBuilder.js`** — this is mandatory for the bot to start. See "Strategy Registration" section below.
+
+## Strategy Registration (mandatory for every new strategy)
+
+After creating a strategy file and registering it in `src/strategies/index.js`, you **must** update `src/utils/strategyBuilder.js`:
+
+1. Add the class to the import block at the top.
+2. Add a `KEY: (symbol) => new StrategyClass(...)` entry in `STRATEGY_BUILDERS`.
+3. Add a `KEY: 'short_label'` entry in `STRATEGY_REASON_PREFIX`.
+4. Add a `KEY: 'human readable hint'` entry in `STRATEGY_TRIGGER_HINTS`.
+
+The `KEY` must exactly match the string used in `config/default.js` `.strategies` arrays and in `perSymbolOptimizer.mjs` `POOL_NAMES` / `CONFIG_TO_POOL`.
+
+**Verify:** Run `node src/main.js` and confirm it logs `"Initialising candle history"` without an `Unknown strategy:` crash before committing.
 
 ## Quality Gates
 
