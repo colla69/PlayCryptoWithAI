@@ -1,21 +1,22 @@
 # PlayCryptoWithAI
 
 A multi-strategy crypto trading bot for Binance spot markets.  
-Trades a **22-coin USDC portfolio** on a 12h timeframe using a voting signal engine, ATR-based position sizing, multi-timeframe alignment filters, and a live dashboard.
+Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal engine, ATR-based position sizing, multi-timeframe alignment filters, and a live dashboard.
 
 > **EU compliance note:** All pairs trade against USDC (not USDT). USDT is not tradeable from most EU countries.
 
-**Backtested performance (18 months, 22 USDC coins, MTF + confSizing):**  
-`+42.69% return · Sharpe 2.17 · Max drawdown −9.79%`
+**Backtested performance (4 years, 37 USDC coins, next-open fills, tiered slippage):**  
+`Y2 in-sample: +90.9% · Sharpe 3.09 · Max DD −8.1%`  
+`Y1+Y2 full OOS: +324.7% · Sharpe 1.75 · Max DD −23.5% · WR 53%`
 
 ---
 
 ## Features
 
 ### Signal Engine
-- **14 strategies** vote on every candle: RSI, Bollinger Bands, CCI, EMA, MACD, ADX, Stochastic, StochRSI, MFI, OBV, PSAR, WilliamsR, Supertrend, HeikinAshi
+- **15 strategies** vote on every candle: RSI, Bollinger Bands, CCI, EMA, MACD, ADX, Stochastic, StochRSI, MFI, OBV, PSAR, WilliamsR, Supertrend, HeikinAshi, Support & Resistance
 - Weighted confidence aggregation — entry only when score exceeds per-symbol threshold
-- Per-symbol strategy combinations optimised via backtesting
+- Per-symbol strategy combinations optimised via holdout-validated backtesting
 
 ### Risk Management
 - **ATR position sizing** — volatile coins get smaller allocations automatically
@@ -28,8 +29,7 @@ Trades a **22-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 ### Multi-Timeframe (MTF) Alignment Filter
 - Before entering a 12h BUY, checks last 16 × 15m candles (4h window)
 - Blocks entry when short-term trend is bearish (< 50% green candles)
-- Covers all 22 portfolio coins — blocks ~167 bad entries per year
-- +5pp return improvement vs no filter
+- Covers all 37 portfolio coins — blocks ~127 bad entries per year
 
 ### Confidence-Proportional Sizing
 - High-confidence signals (conf ≥ 0.65) get up to **1.5× position size**
@@ -111,7 +111,7 @@ Copy `.env.live.example` → `..env` for the server (never committed).
 |---|---|
 | `npm start` | Start bot (honours `PAPER_MODE` env var) |
 | `npm run paper` | Force paper mode |
-| `npm run backtest:portfolio` | Run full 22-coin portfolio backtest |
+| `npm run backtest:portfolio` | Run full 37-coin portfolio backtest |
 | `npm run download-history` | Download OHLCV candle history from Binance |
 | `npm run optimize` | Per-symbol strategy optimiser |
 | `npm test` | Unit tests |
@@ -123,11 +123,14 @@ PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
   --mtf          # enable MTF alignment filter (uses 15m candles on disk)
   --confSizing   # enable confidence-proportional position sizing
   --mtfExit      # enable 15m early exit for losing positions (experimental)
-  --slots 5      # max concurrent open positions
+  --slots 4      # max concurrent open positions
+  --candles 730  # candle window (730=Y2 in-sample, 1460=Y1+Y2 full OOS)
   --budget 1000  # starting capital in USD
   --sl 0.08      # stop-loss override (8%)
   --tp 0.20      # take-profit override (20%)
 ```
+
+> **Backtest integrity:** BUY fills use next-candle open (no execution lookahead). Slippage is tiered: large caps 0.10%, mid caps 0.20%, micro caps 0.35%. Optimizer uses holdout validation with MIN_TRADES ≥ 3. Always report both `--candles 730` (in-sample) and `--candles 1460` (OOS included) results.
 
 ---
 
@@ -138,11 +141,12 @@ config/
   default.js          ← all strategy params, risk config, feature flags
 src/
   main.js             ← bot entry point, main trading loop
-  strategies/         ← 14 signal strategies (one file each)
+  strategies/         ← 15 signal strategies (one file each)
   engine/
     signalAggregator.js  ← weighted voting, confidence scoring
   backtester/
     portfolioBacktester.js  ← shared-balance multi-symbol backtester
+    backtestSimulator.js    ← per-trade execution (next-open fills, tiered slippage)
   risk/               ← position sizing, daily loss limit
   executor/
     paperTrader.js    ← simulated order execution
@@ -155,13 +159,13 @@ src/
     mtfAlignment.js   ← MTF index builder + alignment score
     indicators.js     ← shared indicator helpers (EMA, ATR, etc.)
   scripts/
-    portfolioBacktest.mjs   ← CLI research tool
+    portfolioBacktest.mjs   ← CLI research tool (SLIPPAGE_TIERS, two-window reporting)
     downloadHistory.js      ← fetch & cache OHLCV from Binance
-    perSymbolOptimizer.mjs  ← exhaustive strategy combo search
+    perSymbolOptimizer.mjs  ← exhaustive strategy combo search (MIN_TRADES ≥ 3)
 public/
   index.html          ← dashboard frontend (vanilla JS, SSE-driven)
 data/
-  candles/            ← cached OHLCV (12h + 15m for all 22 USDC coins, git-tracked)
+  candles/            ← cached OHLCV (12h + 15m for all 37 USDC coins, git-tracked)
   dashboard_persist.json   ← dashboard state across restarts (git-tracked)
 logs/
   trades.csv          ← full trade journal (git-tracked)
@@ -172,9 +176,11 @@ logs/
 
 ## Portfolio
 
-22 Binance spot USDC pairs: BTC, ETH, BNB, XRP, LINK, LTC, TRX, BCH, NEAR, PAXG, DOT, ATOM, CRV, ENS, GMX, JTO, LDO, LSK, MANTA, PIXEL, SUI, THETA, TIA, VANRY
+37 Binance spot USDC pairs:  
+BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, TON, RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
 
-Max 5 concurrent open positions. Each position sized individually by ATR and confidence.
+Max **4** concurrent open positions (~25% capital each), sized by ATR and confidence.  
+Per-symbol strategies and risk params are holdout-validated (Y1 OOS, MIN_TRADES ≥ 3).
 
 ---
 
@@ -184,7 +190,7 @@ Trade history and candle data are stored directly in the repo via bind mounts:
 
 | Path | Contents | Git-tracked |
 |---|---|---|
-| `./data/candles/` | All OHLCV candle files (~300 MB) | ✅ |
+| `./data/candles/` | All OHLCV candle files (12h + 15m, ~300 MB) | ✅ |
 | `./data/dashboard_persist.json` | Dashboard state, open positions | ✅ |
 | `./logs/trades.csv` | Full trade journal | ✅ |
 | `./logs/app.log` | Runtime log | ❌ (gitignored) |
