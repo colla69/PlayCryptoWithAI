@@ -724,7 +724,7 @@ if (paperMode) {
 }
 correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation); // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
-await runSmokeTest();
+if (process.env.SMOKE_TEST !== 'false') await runSmokeTest();
 await runAllSymbols();  // immediate run on startup (SL/TP check + fresh signals)
 
 // ── Align all subsequent cycles to candle-close boundaries ───────────────────
