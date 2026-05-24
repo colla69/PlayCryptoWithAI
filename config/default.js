@@ -3,7 +3,7 @@ export default {
   // 11 coins dropped: AVA, CHR, GLMR, ICX, MTL, ONG, RAD, SFP, SPELL, XEC, YFI
   // — no USDC spot pair available on Binance (EU USDT restriction)
   // ANKR also dropped: listed in Binance markets but has no USDC candle data
-  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC'],
+  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC'],
   timeframe: '12h',
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
@@ -51,6 +51,13 @@ export default {
   //   NEAR → default (RSI+BB+Stoch SL5/TP12 conf=0.70) — no entry needed
   // ──────────────────────────────────────────────────────────────────
   perSymbol: {
+    'BTC/USDC': {
+      // ADX+PSAR+HeikinAshi  SL5/TP12  conf=0.55 → optimizer holdout: +7.7%  Sharpe 0.34 ✅
+      strategies: ['ADX', 'PSAR', 'HeikinAshi'],
+      stopLossPct: 0.05,
+      takeProfitPct: 0.12,
+      minConfidence: 0.55,
+    },
     'XRP/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +31.7%  Y1 +46.8%  Sharpe 1.10/1.16 ✅
       strategies: ["BB","Stoch","EMA"],
@@ -68,10 +75,10 @@ export default {
     },
     'BNB/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +12.0%  Y1 +6.7%  Sharpe 0.49/0.34 ✅
-      strategies: ['RSI', 'BB', 'CCI'],
+      strategies: ["WilliamsR","HeikinAshi","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'LTC/USDC': {
       // MOM:MACD+Stoch+RSI  SL5/TP12  conf=0.55 → Y2 +42.6%  Y1 +37.5%  Sharpe 0.98/0.82 ✅
@@ -173,7 +180,7 @@ export default {
     },
     'LDO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +22.7%  Y1 +38.7%  Sharpe 0.62/1.05 ✅
-      strategies: ['RSI', 'BB', 'CCI'],
+      strategies: ["MACD","ADX","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
@@ -245,7 +252,7 @@ export default {
     },
     'SUI/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +12.0%  Y1 +48.3%  Sharpe 0.43/1.37 ✅
-      strategies: ['RSI', 'BB', 'CCI'],
+      strategies: ["RSI","Stoch","MFI"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.70,
@@ -259,10 +266,10 @@ export default {
     },
     'TIA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +89.9%  Y1 +15.8%  Sharpe 1.41/0.51 ✅
-      strategies: ['RSI', 'BB', 'CCI'],
+      strategies: ["RSI","EMA","OBV"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'VANRY/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +53.1%  Y1 +62.9%  Sharpe 1.08/1.78 ✅
@@ -285,6 +292,41 @@ export default {
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.70,
+    },
+    'SOL/USDC': {
+      // BB+WilliamsR+StochRSI  SL7/TP18  conf=0.55 → optimizer holdout: +34.2%  Sharpe 0.75 ✅
+      strategies: ['BB', 'WilliamsR', 'StochRSI'],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'ADA/USDC': {
+      // CCI+Stoch+MFI  SL5/TP12  conf=0.55 → optimizer holdout: +16.7%  Sharpe 0.42 ✅
+      strategies: ['CCI', 'Stoch', 'MFI'],
+      stopLossPct: 0.05,
+      takeProfitPct: 0.12,
+      minConfidence: 0.55,
+    },
+    'AVAX/USDC': {
+      // CCI+MFI+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +47.1%  Sharpe 1.15 ✅
+      strategies: ['CCI', 'MFI', 'OBV'],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'DOGE/USDC': {
+      // EMA+PSAR+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +11.6%  Sharpe 0.41 ✅
+      strategies: ['EMA', 'PSAR', 'HeikinAshi'],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
+    },
+    'INJ/USDC': {
+      // RSI+StochRSI+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +54.0%  Sharpe 0.98 ✅
+      strategies: ['RSI', 'StochRSI', 'HeikinAshi'],
+      stopLossPct: 0.07,
+      takeProfitPct: 0.18,
+      minConfidence: 0.55,
     },
   },
   signals: {

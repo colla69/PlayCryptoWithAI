@@ -36,7 +36,7 @@ import {
   RSIStrategy, BollingerBandsStrategy, CCIStrategy, StochasticStrategy,
   EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
   MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
-  StochRSIStrategy, HeikinAshiStrategy,
+  StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
 } from '../strategies/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -62,7 +62,7 @@ function symCfg(symbol, key, defaults) {
   return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
 }
 
-const POOL_NAMES = ['RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV', 'PSAR', 'WR', 'StochRSI', 'HA'];
+const POOL_NAMES = ['RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV', 'PSAR', 'WR', 'StochRSI', 'HA', 'SR'];
 
 function buildStrategy(name, symbol) {
   switch (name) {
@@ -80,6 +80,7 @@ function buildStrategy(name, symbol) {
     case 'WR':       return new WilliamsRStrategy(symCfg(symbol, 'williamsR', config.williamsR));
     case 'StochRSI': return new StochRSIStrategy(symCfg(symbol, 'stochRsi', config.stochRsi ?? {}));
     case 'HA':       return new HeikinAshiStrategy(symCfg(symbol, 'heikinAshi', config.heikinAshi ?? {}));
+    case 'SR':       return new SupportResistanceStrategy(symCfg(symbol, 'supportResistance', config.supportResistance ?? {}));
     default: throw new Error(`Unknown strategy: ${name}`);
   }
 }
@@ -89,7 +90,7 @@ const CONFIG_TO_POOL = {
   RSI: 'RSI', BB: 'BB', CCI: 'CCI', Stoch: 'Stoch',
   EMA: 'EMA', MACD: 'MACD', ADX: 'ADX', Supertrend: 'ST',
   MFI: 'MFI', OBV: 'OBV', PSAR: 'PSAR', WilliamsR: 'WR',
-  StochRSI: 'StochRSI', HeikinAshi: 'HA',
+  StochRSI: 'StochRSI', HeikinAshi: 'HA', SR: 'SR',
 };
 
 // ── Combination generator ─────────────────────────────────────────────────────
