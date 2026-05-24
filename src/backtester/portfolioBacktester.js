@@ -96,6 +96,10 @@ export class PortfolioBacktester {
     // Cap candle slice length fed to strategies — avoids O(N²) on large datasets.
     // 0 = no cap (default, safe for 12h). Set to e.g. 300 for 15m performance.
     this.maxLookback = Number(config.maxLookback ?? 0);
+    // Per-symbol slippage overrides — higher for low-liquidity alts.
+    // Defined as a Map: symbol → slippagePct (e.g. 'ACH/USDC' → 0.003).
+    // Falls back to the global risk.slippagePct when not set.
+    this.symbolSlippage = config.symbolSlippage ?? {};
 
     const symbolCount = Object.keys(symbolStrategies).length;
     signalBus.setMaxListeners(Math.max(signalBus.getMaxListeners(), symbolCount + 5));
@@ -279,12 +283,19 @@ export class PortfolioBacktester {
             }
           }
         }
-        const entryOpts = { positionPct };
+        const entryOpts = {
+          positionPct,
+          // Fill new BUY orders at the next candle's open (not the signal close)
+          // to eliminate execution lookahead.
+          fillPrice: d.nextOpen,
+          // Per-symbol slippage: higher for low-liquidity alts.
+          slippagePct: this.symbolSlippage[sym],
+        };
 
         if (this.atrSLTP && d.atrPct > 0) {
-          const atrValue = d.atrPct * d.price;
-          entryOpts.stopLossPrice = d.price - this.atrSLMultiplier * atrValue;
-          entryOpts.takeProfitPrice = d.price + this.atrTPMultiplier * atrValue;
+          const atrValue = d.atrPct * d.nextOpen;
+          entryOpts.stopLossPrice = d.nextOpen - this.atrSLMultiplier * atrValue;
+          entryOpts.takeProfitPrice = d.nextOpen + this.atrTPMultiplier * atrValue;
         }
 
         simulator.setTimestamp(d.timestamp);
@@ -380,6 +391,9 @@ export class PortfolioBacktester {
           decision: result.decision,
           confidence: result.confidence,
           price: Number(candle.close),
+          // nextOpen: realistic entry fill — next candle's open price.
+          // If we're at the last candle, fall back to the current close.
+          nextOpen: candles[i + 1] != null ? Number(candles[i + 1].open) : Number(candle.close),
           timestamp: Number(candle.timestamp),
           atrPct: this.#computeATRpct(slice),
           isTrending: this.#computeIsTrending(slice),

@@ -53,10 +53,10 @@ export default {
   perSymbol: {
     'BTC/USDC': {
       // ADX+PSAR+HeikinAshi  SL5/TP12  conf=0.55 → optimizer holdout: +7.7%  Sharpe 0.34 ✅
-      strategies: ['ADX', 'PSAR', 'HeikinAshi'],
+      strategies: ["BB","Stoch","WilliamsR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.55,
+      minConfidence: 0.70,
     },
     'XRP/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +31.7%  Y1 +46.8%  Sharpe 1.10/1.16 ✅
@@ -90,10 +90,10 @@ export default {
     },
     'TRX/USDC': {
       // TREND:EMA+MACD+ADX  SL12/TP30  conf=0.55 → Y2 +36.4%  Y1 +129.9%  Sharpe 1.83/1.01 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ["CCI","Stoch","StochRSI"],
       stopLossPct: 0.12,
       takeProfitPct: 0.30,
-      minConfidence: 0.55,
+      minConfidence: 0.70,
       adx: { period: 14, threshold: 20 },
     },
     'BCH/USDC': {
@@ -137,14 +137,14 @@ export default {
     },
     'CRV/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +48.5%  Y1 +91.5%  Sharpe 1.20/1.82 ✅
-      strategies: ['RSI', 'BB', 'CCI'],
+      strategies: ["ADX","StochRSI","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'ENS/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +13.4%  Y1 +63.7%  Sharpe 0.47/1.55 ✅
-      strategies: ["RSI","BB","OBV"],
+      strategies: ["BB","PSAR","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
@@ -223,7 +223,7 @@ export default {
     },
     'PIXEL/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +103.8%  Y1 +117.6%  Sharpe 0.97/1.35 ✅
-      strategies: ['EMA', 'MACD', 'ADX'],
+      strategies: ["EMA","ADX","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
@@ -266,7 +266,7 @@ export default {
     },
     'TIA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +89.9%  Y1 +15.8%  Sharpe 1.41/0.51 ✅
-      strategies: ["RSI","EMA","OBV"],
+      strategies: ["CCI","MACD","HeikinAshi"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
@@ -302,14 +302,14 @@ export default {
     },
     'ADA/USDC': {
       // CCI+Stoch+MFI  SL5/TP12  conf=0.55 → optimizer holdout: +16.7%  Sharpe 0.42 ✅
-      strategies: ['CCI', 'Stoch', 'MFI'],
+      strategies: ["RSI","BB","CCI"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
       minConfidence: 0.55,
     },
     'AVAX/USDC': {
       // CCI+MFI+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +47.1%  Sharpe 1.15 ✅
-      strategies: ['CCI', 'MFI', 'OBV'],
+      strategies: ["RSI","MACD","PSAR"],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,
@@ -323,7 +323,7 @@ export default {
     },
     'INJ/USDC': {
       // RSI+StochRSI+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +54.0%  Sharpe 0.98 ✅
-      strategies: ['RSI', 'StochRSI', 'HeikinAshi'],
+      strategies: ["ADX","OBV","StochRSI"],
       stopLossPct: 0.07,
       takeProfitPct: 0.18,
       minConfidence: 0.55,

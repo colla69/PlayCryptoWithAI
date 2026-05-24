@@ -24,6 +24,9 @@ export class BacktestSimulator {
   execute(symbol, decision, price, opts = {}) {
     const normalizedSymbol = String(symbol);
     const currentPrice = roundPrice(Number(price));
+    // fillPrice separates risk-check price (current candle close) from entry fill price
+    // (typically next candle open). Falls back to currentPrice when not provided.
+    const fillPrice = opts.fillPrice != null ? roundPrice(Number(opts.fillPrice)) : currentPrice;
     const riskResult = this.#checkRisk(normalizedSymbol, currentPrice);
 
     if (riskResult) {
@@ -34,9 +37,9 @@ export class BacktestSimulator {
     let tradeResult = null;
 
     if (decision === 'BUY') {
-      tradeResult = this.#openPosition(normalizedSymbol, currentPrice, opts.positionPct, opts);
+      tradeResult = this.#openPosition(normalizedSymbol, fillPrice, opts.positionPct, opts);
     } else if (decision === 'SELL') {
-      tradeResult = this.#closePosition(normalizedSymbol, currentPrice, 'strategy_sell');
+      tradeResult = this.#closePosition(normalizedSymbol, fillPrice, 'strategy_sell', opts);
     }
 
     this.#recordEquitySnapshot(normalizedSymbol, currentPrice);
@@ -133,7 +136,8 @@ export class BacktestSimulator {
       return null;
     }
 
-    const fillPrice = roundPrice(price * (1 + this.feePct + this.slippagePct));
+    const slip = opts.slippagePct != null ? Number(opts.slippagePct) : this.slippagePct;
+    const fillPrice = roundPrice(price * (1 + this.feePct + slip));
     const qty = roundQty(allocation / fillPrice);
     const cost = roundMoney(qty * fillPrice);
 
@@ -175,14 +179,15 @@ export class BacktestSimulator {
     return { ...position, symbol, side: 'BUY' };
   }
 
-  #closePosition(symbol, price, reason) {
+  #closePosition(symbol, price, reason, opts = {}) {
     const position = this.positions.get(symbol);
 
     if (!position) {
       return null;
     }
 
-    const fillPrice = roundPrice(price * (1 - this.feePct - this.slippagePct));
+    const slip = opts?.slippagePct != null ? Number(opts.slippagePct) : this.slippagePct;
+    const fillPrice = roundPrice(price * (1 - this.feePct - slip));
     const proceeds = roundMoney(position.qty * fillPrice);
     const costBasis = roundMoney(position.costBasis ?? position.qty * position.entryPrice);
     const feeAmount = roundMoney(position.qty * price * this.feePct);

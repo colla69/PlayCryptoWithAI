@@ -265,6 +265,44 @@ if (args.mtf || args.mtfExit) {
   console.log(`  ${mtfCount} symbols have 15m data (${Object.keys(mtfSymbolCandles).map(s => s.replace('/USDC','').replace('/USDC','').replace('/USDT','')).join(', ')})\n`);
 }
 
+// Per-symbol slippage tiers — realistic cost model for different liquidity classes.
+// Large caps (>$500M daily volume): 0.10%  — tight spreads, deep books
+// Mid caps  ($50M–$500M):           0.20%  — moderate spread
+// Micro caps (<$50M):               0.35%  — wide spreads; $200 order moves the market
+const LARGE_CAP_SLIP = 0.0010;
+const MID_CAP_SLIP   = 0.0020;
+const MICRO_CAP_SLIP = 0.0035;
+const SLIPPAGE_TIERS = {
+  'BTC/USDC':   LARGE_CAP_SLIP,
+  'ETH/USDC':   LARGE_CAP_SLIP,
+  'BNB/USDC':   LARGE_CAP_SLIP,
+  'SOL/USDC':   LARGE_CAP_SLIP,
+  'XRP/USDC':   LARGE_CAP_SLIP,
+  'DOGE/USDC':  LARGE_CAP_SLIP,
+  'ADA/USDC':   LARGE_CAP_SLIP,
+  'AVAX/USDC':  LARGE_CAP_SLIP,
+  'LTC/USDC':   MID_CAP_SLIP,
+  'LINK/USDC':  MID_CAP_SLIP,
+  'BCH/USDC':   MID_CAP_SLIP,
+  'TRX/USDC':   MID_CAP_SLIP,
+  'NEAR/USDC':  MID_CAP_SLIP,
+  'INJ/USDC':   MID_CAP_SLIP,
+  'CRV/USDC':   MID_CAP_SLIP,
+  'LDO/USDC':   MID_CAP_SLIP,
+  'ENS/USDC':   MID_CAP_SLIP,
+  'TIA/USDC':   MID_CAP_SLIP,
+  'SUI/USDC':   MID_CAP_SLIP,
+  'MANTA/USDC': MID_CAP_SLIP,
+  'JTO/USDC':   MID_CAP_SLIP,
+  'PIXEL/USDC': MID_CAP_SLIP,
+  'ACH/USDC':   MICRO_CAP_SLIP,
+  'GMX/USDC':   MICRO_CAP_SLIP,
+  'LSK/USDC':   MICRO_CAP_SLIP,
+  'PAXG/USDC':  MICRO_CAP_SLIP,
+  'THETA/USDC': MICRO_CAP_SLIP,
+  'VANRY/USDC': MICRO_CAP_SLIP,
+};
+
 // Build strategy map
 const symbolStrategies = Object.fromEntries(
   Object.keys(symbolCandles).map((sym) => [sym, buildStrategies(sym)])
@@ -318,6 +356,7 @@ const backtester = new PortfolioBacktester(symbolStrategies, {
   confSizingMid:      args.confSizingMid,
   confSizingMax:      args.confSizingMax,
   confSizingMin:      args.confSizingMin,
+  symbolSlippage:     SLIPPAGE_TIERS,
 });
 
 console.log('Running simulation…');

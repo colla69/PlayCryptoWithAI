@@ -165,7 +165,7 @@ function runWindow(candles, signalCache, comboNames, minConf, riskConfig) {
 }
 
 // ── Composite score (same formula as optimizeStrategies.js) ──────────────────
-const MIN_TRADES = 1; // 12h strategies fire infrequently — even 1 trade is valid data
+const MIN_TRADES = 3; // require ≥3 holdout trades to trust the out-of-sample result
 
 function compositeScore(m) {
   if (!m || m.totalTrades < MIN_TRADES) return -1000;
