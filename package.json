@@ -16,6 +16,7 @@
     "compare": "PAPER_MODE=true node src/scripts/strategyComparison.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1057.0",
     "ccxt": "latest",
     "dotenv": "latest",
     "express": "^5.2.1",

@@ -28,3 +28,6 @@ data/persymbol_results.json
 .vscode/
 .DS_Store
 *.iml
+
+# AWS SAM build artifacts
+.aws-sam/
