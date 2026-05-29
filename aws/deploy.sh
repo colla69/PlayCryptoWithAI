@@ -31,7 +31,7 @@ echo ""
 
 # Build
 echo "🔨 Building Lambda package..."
-sam build --template-file "$TEMPLATE" --use-container --region "$REGION"
+sam build --template-file "$TEMPLATE" --region "$REGION"
 
 # Deploy
 echo "🚀 Deploying stack: ${STACK_NAME}..."
@@ -43,8 +43,6 @@ sam deploy \
   --parameter-overrides \
     "BinanceApiKey=${BINANCE_API_KEY}" \
     "BinanceApiSecret=${BINANCE_API_SECRET}" \
-    "TelegramBotToken=${TELEGRAM_BOT_TOKEN:-}" \
-    "TelegramChatId=${TELEGRAM_CHAT_ID:-}" \
     "Environment=${ENV}" \
   --no-confirm-changeset
 
