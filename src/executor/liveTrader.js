@@ -1,8 +1,11 @@
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 
-// Fallback floor — exchange-specific minNotional takes precedence when available
+// Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
 const FALLBACK_MIN_NOTIONAL = 11;
+// Minimum notional to recognise an existing balance as an open position on restore
+// Lower than the order minimum because fees reduce the holding slightly below entry cost
+const MIN_RESTORE_NOTIONAL = 5;
 const roundMoney = (value) => Number(Number(value ?? 0).toFixed(2));
 const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
@@ -138,7 +141,7 @@ export class LiveTrader {
           if (!currentPrice || currentPrice <= 0) continue;
 
           const notional = qty * currentPrice;
-          if (notional < FALLBACK_MIN_NOTIONAL) continue;
+          if (notional < MIN_RESTORE_NOTIONAL) continue;
 
           // Find entry price from trade history: walk newest-first
           // Stop at first SELL (no open position) or first BUY (entry price found)
