@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: playAIStocks - Serverless crypto trading bot
+
+Parameters:
+  BinanceApiKey:
+    Type: String
+    NoEcho: true
+  BinanceApiSecret:
+    Type: String
+    NoEcho: true
+  TelegramBotToken:
+    Type: String
+    NoEcho: true
+    Default: ''
+  TelegramChatId:
+    Type: String
+    Default: ''
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [production, testnet, paper]
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures: [arm64]
+    Timeout: 60
+    MemorySize: 256
+    Environment:
+      Variables:
+        STATE_BUCKET: !Ref StateBucket
+        BINANCE_API_KEY: !Ref BinanceApiKey
+        BINANCE_API_SECRET: !Ref BinanceApiSecret
+        TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+        TELEGRAM_CHAT_ID: !Ref TelegramChatId
+        PAPER_MODE: !If [IsPaper, 'true', 'false']
+        BINANCE_TESTNET: !If [IsTestnet, 'true', 'false']
+        NODE_OPTIONS: '--enable-source-maps'
+
+Conditions:
+  IsPaper: !Equals [!Ref Environment, paper]
+  IsTestnet: !Equals [!Ref Environment, testnet]
+
+Resources:
+  # ── S3 Bucket for state persistence ─────────────────────────────────────────
+  StateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'playaistocks-state-${AWS::AccountId}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireLogs
+            Prefix: logs/
+            Status: Enabled
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ── Trading bot Lambda (runs every 15 min) ─────────────────────────────────
+  TradingBotFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/lambda/tradingHandler.handler
+      CodeUri: ../
+      Timeout: 90
+      MemorySize: 512
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref StateBucket
+      Events:
+        ScheduledTrade:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Enabled: true
+
+  # ── Dashboard API Lambda ────────────────────────────────────────────────────
+  DashboardApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/lambda/dashboardHandler.handler
+      CodeUri: ../
+      Timeout: 15
+      MemorySize: 256
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref StateBucket
+        - S3CrudPolicy:
+            BucketName: !Ref StateBucket
+      Events:
+        GetStatus:
+          Type: HttpApi
+          Properties:
+            Path: /api/status
+            Method: GET
+        GetTrades:
+          Type: HttpApi
+          Properties:
+            Path: /api/trades
+            Method: GET
+        GetDeposits:
+          Type: HttpApi
+          Properties:
+            Path: /api/deposits
+            Method: GET
+        PostDeposit:
+          Type: HttpApi
+          Properties:
+            Path: /api/deposits
+            Method: POST
+        DeleteDeposit:
+          Type: HttpApi
+          Properties:
+            Path: /api/deposits/{id}
+            Method: DELETE
+
+  # ── S3 bucket for static dashboard hosting ──────────────────────────────────
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'playaistocks-dashboard-${AWS::AccountId}'
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicRead
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${DashboardBucket.Arn}/*'
+
+  # ── CloudWatch alarm: bot failures ──────────────────────────────────────────
+  BotErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: playaistocks-bot-errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref TradingBotFunction
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 2
+      Threshold: 2
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  DashboardUrl:
+    Description: Static dashboard URL
+    Value: !GetAtt DashboardBucket.WebsiteURL
+  ApiUrl:
+    Description: Dashboard API endpoint
+    Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+  StateBucketName:
+    Description: S3 bucket for bot state
+    Value: !Ref StateBucket
+  TradingBotFunctionArn:
+    Description: Trading bot Lambda ARN
+    Value: !GetAtt TradingBotFunction.Arn
