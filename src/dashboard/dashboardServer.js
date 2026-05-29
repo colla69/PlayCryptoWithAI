@@ -252,6 +252,52 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     }
   });
 
+  // ── Deposit tracking ────────────────────────────────────────────────────────
+  const depositsFile = path.resolve(process.cwd(), 'data', 'deposits.json');
+
+  function loadDeposits() {
+    if (!fs.existsSync(depositsFile)) return [];
+    try { return JSON.parse(fs.readFileSync(depositsFile, 'utf8')); }
+    catch { return []; }
+  }
+
+  function saveDeposits(deposits) {
+    fs.mkdirSync(path.dirname(depositsFile), { recursive: true });
+    fs.writeFileSync(depositsFile, JSON.stringify(deposits, null, 2));
+  }
+
+  app.get('/api/deposits', (_req, res) => {
+    res.json(loadDeposits());
+  });
+
+  app.post('/api/deposits', express.json(), (req, res) => {
+    const { amount, note } = req.body ?? {};
+    if (!amount || isNaN(Number(amount)) || Number(amount) === 0) {
+      return res.status(400).json({ error: 'amount required (non-zero number)' });
+    }
+    const deposits = loadDeposits();
+    const entry = {
+      id: Date.now(),
+      timestamp: new Date().toISOString(),
+      amount: Number(amount),
+      note: note || '',
+    };
+    deposits.push(entry);
+    saveDeposits(deposits);
+    logger.info(`Deposit recorded: ${amount >= 0 ? '+' : ''}$${Number(amount).toFixed(2)}${note ? ' — ' + note : ''}`);
+    res.json(entry);
+  });
+
+  app.delete('/api/deposits/:id', (req, res) => {
+    const deposits = loadDeposits();
+    const idx = deposits.findIndex(d => d.id === Number(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'deposit not found' });
+    const removed = deposits.splice(idx, 1)[0];
+    saveDeposits(deposits);
+    logger.info(`Deposit removed: $${removed.amount.toFixed(2)}`);
+    res.json({ ok: true });
+  });
+
   app.get(['/api/logs', '/logs-data'], (req, res) => {
     const lines  = Math.min(parseInt(req.query.lines ?? 500, 10), 5000);
     const filter = String(req.query.filter ?? '').toLowerCase();

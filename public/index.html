@@ -1026,6 +1026,26 @@
         <canvas id="pnlCanvas"></canvas>
         <div class="pnl-chart-tooltip" id="pnlTooltip"></div>
       </div>
+
+      <!-- Deposit Tracker -->
+      <section class="panel" style="margin-top:24px">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">💰 Deposit Tracker</div>
+            <div class="panel-subtitle">Track capital injections/withdrawals. Used to calculate true ROI.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="depositAmount" type="number" step="any" placeholder="Amount ($)" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:6px 10px;border-radius:6px;font-size:13px;width:120px">
+            <input id="depositNote" type="text" placeholder="Note (optional)" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:6px 10px;border-radius:6px;font-size:13px;width:160px">
+            <button onclick="addDeposit()" style="background:var(--green);border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">+ Add</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:24px;align-items:baseline;flex-wrap:wrap">
+          <div style="font-size:14px;color:var(--muted)">Total deposited: <strong id="depositTotal" style="color:var(--text);font-size:16px">$0.00</strong></div>
+          <div style="font-size:14px;color:var(--muted)">True ROI: <strong id="depositROI" style="font-size:16px">—</strong></div>
+        </div>
+        <div id="depositList" style="margin-top:12px;max-height:200px;overflow-y:auto"></div>
+      </section>
     </div><!-- /tab-tools -->
 
     <div id="tab-logs" class="tab-content">
@@ -1047,7 +1067,7 @@
           <button onclick="loadLogs()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer">↺ Refresh</button>
         </div>
       </div>
-      <div id="logsBody" style="font-family:monospace;font-size:11px;line-height:1.6;max-height:500px;overflow-y:auto;padding:12px 16px;background:#0f172a;border-radius:8px;color:#94a3b8">
+      <div id="logsBody" style="font-family:monospace;font-size:11px;line-height:1.6;height:calc(100vh - 220px);overflow-y:auto;padding:12px 16px;background:#0f172a;border-radius:8px;color:#94a3b8">
         <div class="loading">Loading logs…</div>
       </div>
     </section>
@@ -2233,6 +2253,82 @@
         drawPnlCanvas(_pnlChartData);
       }
     });
+
+    // ── Deposit Tracker ───────────────────────────────────────────────────────
+    async function loadDeposits() {
+      try {
+        const deposits = await fetch(`${API_BASE}/api/deposits`).then(r => r.json());
+        const list = document.getElementById('depositList');
+        const totalEl = document.getElementById('depositTotal');
+        const roiEl = document.getElementById('depositROI');
+        if (!Array.isArray(deposits)) return;
+
+        const total = deposits.reduce((s, d) => s + d.amount, 0);
+        totalEl.textContent = `$${total.toFixed(2)}`;
+
+        // Compute true ROI: (current balance - total deposited) / total deposited
+        const balanceText = document.getElementById('portfolioValue')?.textContent || '';
+        const balance = parseFloat(balanceText.replace(/[^0-9.-]/g, '')) || 0;
+        if (total > 0 && balance > 0) {
+          const roi = ((balance - total) / total * 100).toFixed(1);
+          roiEl.textContent = `${roi >= 0 ? '+' : ''}${roi}%`;
+          roiEl.style.color = roi >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+        } else {
+          roiEl.textContent = '—';
+          roiEl.style.color = 'var(--muted)';
+        }
+
+        if (!deposits.length) {
+          list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">No deposits recorded yet.</div>';
+          return;
+        }
+
+        list.innerHTML = deposits.slice().reverse().map(d => {
+          const date = new Date(d.timestamp).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+          const sign = d.amount >= 0 ? '+' : '';
+          const color = d.amount >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">
+            <span>${date}${d.note ? ' — <span style="color:var(--muted)">' + d.note + '</span>' : ''}</span>
+            <span style="display:flex;align-items:center;gap:12px">
+              <strong style="color:${color}">${sign}$${Math.abs(d.amount).toFixed(2)}</strong>
+              <button onclick="removeDeposit(${d.id})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px" title="Remove">×</button>
+            </span>
+          </div>`;
+        }).join('');
+      } catch (e) { /* silent */ }
+    }
+
+    async function addDeposit() {
+      const amountEl = document.getElementById('depositAmount');
+      const noteEl = document.getElementById('depositNote');
+      const amount = parseFloat(amountEl.value);
+      if (!amount || isNaN(amount)) { amountEl.focus(); return; }
+      await fetch(`${API_BASE}/api/deposits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, note: noteEl.value.trim() }),
+      });
+      amountEl.value = '';
+      noteEl.value = '';
+      loadDeposits();
+    }
+    window.addDeposit = addDeposit;
+
+    async function removeDeposit(id) {
+      if (!confirm('Remove this deposit entry?')) return;
+      await fetch(`${API_BASE}/api/deposits/${id}`, { method: 'DELETE' });
+      loadDeposits();
+    }
+    window.removeDeposit = removeDeposit;
+
+    // Load deposits when tools tab opens
+    const origSwitchTab = window.switchTab;
+    window.switchTab = function(tabId) {
+      origSwitchTab(tabId);
+      if (tabId === 'tools') loadDeposits();
+    };
+    // Initial load if tools tab is active
+    if (document.getElementById('tab-tools')?.classList.contains('active')) loadDeposits();
 
     loadInitialState()
       .catch(() => {
