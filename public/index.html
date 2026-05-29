@@ -2267,11 +2267,15 @@
         const total = deposits.reduce((s, d) => s + d.amount, 0);
         totalEl.textContent = `$${total.toFixed(2)}`;
 
-        // Compute true ROI: (current balance - total deposited) / total deposited
-        const balanceText = document.getElementById('portfolioValue')?.textContent || '';
-        const balance = parseFloat(balanceText.replace(/[^0-9.-]/g, '')) || 0;
-        if (total > 0 && balance > 0) {
-          const roi = ((balance - total) / total * 100).toFixed(1);
+        // Compute true ROI: (portfolio total value - total deposited) / total deposited
+        // portfolioValue shows cash only; portfolioSub has the full value including open positions
+        const subText = document.getElementById('portfolioSub')?.textContent || '';
+        const totalMatch = subText.match(/Portfolio total:\s*\$([0-9,.]+)/);
+        const cashText = document.getElementById('portfolioValue')?.textContent || '';
+        const cashBalance = parseFloat(cashText.replace(/[^0-9.-]/g, '')) || 0;
+        const portfolioTotal = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : cashBalance;
+        if (total > 0 && portfolioTotal > 0) {
+          const roi = ((portfolioTotal - total) / total * 100).toFixed(1);
           roiEl.textContent = `${roi >= 0 ? '+' : ''}${roi}%`;
           roiEl.style.color = roi >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
         } else {
