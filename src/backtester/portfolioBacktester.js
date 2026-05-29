@@ -34,7 +34,7 @@ import { BacktestSimulator } from './backtestSimulator.js';
 import { calculateMetrics } from './metrics.js';
 import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
-import { buildMtfIndex, mtfAlignScore } from '../utils/mtfAlignment.js';
+import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
 import signalBus from '../signals/signalBus.js';
 
 const MIN_WARMUP = 50;
@@ -93,6 +93,20 @@ export class PortfolioBacktester {
     this.mtfEarlyExit = Boolean(config.mtfEarlyExit ?? false);
     this.mtfEarlyExitScore = Number(config.mtfEarlyExitScore ?? 0.35);
     this.mtfEarlyExitMinLoss = Number(config.mtfEarlyExitMinLoss ?? 0.02);
+    // 4h momentum filter — stronger than 15m green-candle counting.
+    // Uses EMA(8)/EMA(21) crossover + RSI direction on 4h candles.
+    this.mtf4hFilter = Boolean(config.mtf4hFilter ?? false);
+    this.mtf4hSymbolCandles = config.mtf4hSymbolCandles ?? {};
+    this.mtf4hMinScore = Number(config.mtf4hMinScore ?? 0.55);
+    this.mtf4hLookback = Number(config.mtf4hLookback ?? 21);
+    // Regime-aware sizing: scale position size by ADX strength.
+    // ADX > regimeBoostThresh → multiply by regimeBoostFactor (up to 1.3×)
+    // ADX < regimePenaltyThresh → multiply by regimePenaltyFactor (down to 0.5×)
+    this.regimeSizing = Boolean(config.regimeSizing ?? false);
+    this.regimeBoostThresh = Number(config.regimeBoostThresh ?? 25);
+    this.regimePenaltyThresh = Number(config.regimePenaltyThresh ?? 15);
+    this.regimeBoostFactor = Number(config.regimeBoostFactor ?? 1.3);
+    this.regimePenaltyFactor = Number(config.regimePenaltyFactor ?? 0.5);
     // Cap candle slice length fed to strategies — avoids O(N²) on large datasets.
     // 0 = no cap (default, safe for 12h). Set to e.g. 300 for 15m performance.
     this.maxLookback = Number(config.maxLookback ?? 0);
@@ -138,6 +152,17 @@ export class PortfolioBacktester {
         const c15m = this.mtfSymbolCandles[sym];
         if (c15m?.length) {
           mtfIndex[sym] = buildMtfIndex(symbolCandles[sym], c15m);
+        }
+      }
+    }
+
+    // Build per-symbol 12h→4h index for 4h momentum filter
+    const mtf4hIndex = {};
+    if (this.mtf4hFilter) {
+      for (const sym of symbols) {
+        const c4h = this.mtf4hSymbolCandles[sym];
+        if (c4h?.length) {
+          mtf4hIndex[sym] = buildMtf4hIndex(symbolCandles[sym], c4h);
         }
       }
     }
@@ -265,6 +290,15 @@ export class PortfolioBacktester {
           positionPct *= this.macroSizeReduceFactor;
         }
 
+        // Regime-aware sizing: boost in trends, reduce in chop
+        if (this.regimeSizing && d.adxValue != null) {
+          if (d.adxValue >= this.regimeBoostThresh) {
+            positionPct *= this.regimeBoostFactor;
+          } else if (d.adxValue < this.regimePenaltyThresh) {
+            positionPct *= this.regimePenaltyFactor;
+          }
+        }
+
         // MTF alignment filter: check if last 4h of 15m candles are constructive
         if (this.mtfFilter && mtfIndex[sym]) {
           const candle12hIdx = step + MIN_WARMUP;
@@ -281,6 +315,21 @@ export class PortfolioBacktester {
               filtersApplied.mtf = (filtersApplied.mtf ?? 0) + 1;
               continue;
             }
+          }
+        }
+
+        // 4h momentum filter: EMA crossover + RSI on 4h candles
+        if (this.mtf4hFilter && mtf4hIndex[sym]) {
+          const candle12hIdx = step + MIN_WARMUP;
+          const last4hIdx = mtf4hIndex[sym][candle12hIdx];
+          const score = mtf4hMomentumScore(
+            this.mtf4hSymbolCandles[sym],
+            last4hIdx,
+            this.mtf4hLookback,
+          );
+          if (score < this.mtf4hMinScore) {
+            filtersApplied.mtf4h = (filtersApplied.mtf4h ?? 0) + 1;
+            continue;
           }
         }
         const entryOpts = {
@@ -397,6 +446,7 @@ export class PortfolioBacktester {
           timestamp: Number(candle.timestamp),
           atrPct: this.#computeATRpct(slice),
           isTrending: this.#computeIsTrending(slice),
+          adxValue: this.#computeADX(slice),
           volumeOk: this.#computeVolumeOk(slice),
         });
       }
@@ -436,6 +486,17 @@ export class PortfolioBacktester {
     const adxValues = calculateADX(highs, lows, closes, 14);
     const lastADX = adxValues.at(-1)?.adx;
     return Number.isFinite(lastADX) ? lastADX >= this.regimeADXThreshold : true;
+  }
+
+  #computeADX(candles) {
+    if (candles.length < 30) return null;
+    const recent = candles.slice(-ADX_LOOKBACK);
+    const highs = recent.map((c) => Number(c.high));
+    const lows = recent.map((c) => Number(c.low));
+    const closes = recent.map((c) => Number(c.close));
+    const adxValues = calculateADX(highs, lows, closes, 14);
+    const lastADX = adxValues.at(-1)?.adx;
+    return Number.isFinite(lastADX) ? lastADX : null;
   }
 
   #computeVolumeOk(candles) {

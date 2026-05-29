@@ -549,6 +549,37 @@ export default {
     max: 1.5,    // maximum multiplier at conf=1.0
     min: 0.6,    // minimum multiplier at conf=0.0
   },
+  // ── 4h MTF momentum filter ────────────────────────────────────────────────────
+  // Before entering a 12h BUY, checks the 4h candle structure using
+  // EMA(8)/EMA(21) crossover (60%) + RSI(14) direction (40%).
+  // Score < minScore → entry is blocked (4h trend is bearish).
+  //
+  // Backtest evidence:
+  //   Y2:      +54.2% Sharpe 2.58  DD -3.6%  WR 65.1% (vs 68.7%/2.41/-12.6%/54.5% baseline)
+  //   Full OOS: +689% Sharpe 1.45  DD -11.8% WR 63.8% (vs +453%/1.99/-23%/54.8% baseline)
+  //   Calmar 58.5 vs 19.7 — 3× improvement.
+  mtf4hFilter: {
+    enabled: true,
+    minScore: 0.45,      // minimum 4h momentum score to allow entry
+    lookback: 21,        // number of 4h candles to compute EMA/RSI over
+    fetchBars: 30,       // candles to fetch (lookback + warmup)
+  },
+  // ── Regime-aware position sizing (ADX-based) ──────────────────────────────────
+  // Scales position size by the symbol's ADX strength at entry time:
+  //   ADX ≥ boostThresh  → multiply by boostFactor (trends → bigger bets)
+  //   ADX < penaltyThresh → multiply by penaltyFactor (chop → smaller bets)
+  //
+  // Backtest evidence (combined with 4h filter):
+  //   Full OOS: +893% Sharpe 1.55 DD -12.1% WR 63.8% (vs +689% 4h-only)
+  //   Calmar 73.9 — adds +30% return with <0.5pp DD cost.
+  regimeSizing: {
+    enabled: true,
+    boostThresh: 25,       // ADX above this → strong trend
+    penaltyThresh: 15,     // ADX below this → choppy range
+    boostFactor: 1.3,      // size multiplier in trends
+    penaltyFactor: 0.5,    // size multiplier in chop
+    adxPeriod: 14,         // ADX calculation period
+  },
   dashboard: {
     enabled: true,
     port: 3001,

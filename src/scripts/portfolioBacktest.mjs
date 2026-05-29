@@ -92,6 +92,16 @@ function parseArgs(argv) {
     mtfExit:          config.mtfEarlyExit?.enabled ?? false,
     mtfExitScore:     config.mtfEarlyExit?.exitScore ?? 0.35,
     mtfExitMinLoss:   config.mtfEarlyExit?.minLossPct ?? 0.02,
+    // 4h momentum filter (EMA crossover + RSI on 4h candles)
+    mtf4h:         false,
+    mtf4hScore:    0.55,
+    mtf4hLookback: 21,
+    // Regime-aware position sizing (ADX-based)
+    regimeSizing:        false,
+    regimeBoostThresh:   25,
+    regimePenaltyThresh: 15,
+    regimeBoostFactor:   1.3,
+    regimePenaltyFactor: 0.5,
     // Confidence-proportional position sizing
     confSizing:    config.confSizing?.enabled ?? false,
     confSizingMid: config.confSizing?.mid ?? 0.65,
@@ -139,6 +149,16 @@ function parseArgs(argv) {
     if (a === '--confMax'     && argv[i+1]) { args.confSizingMax = Number(argv[++i]); continue; }
     if (a === '--confMin'     && argv[i+1]) { args.confSizingMin = Number(argv[++i]); continue; }
     if (a === '--confMid'     && argv[i+1]) { args.confSizingMid = Number(argv[++i]); continue; }
+    // 4h momentum filter
+    if (a === '--mtf4h')                     { args.mtf4h        = true;              continue; }
+    if (a === '--no-mtf4h')                  { args.mtf4h        = false;             continue; }
+    if (a === '--mtf4hScore'  && argv[i+1]) { args.mtf4hScore   = Number(argv[++i]); continue; }
+    if (a === '--mtf4hLookback' && argv[i+1]) { args.mtf4hLookback = Number(argv[++i]); continue; }
+    // Regime sizing
+    if (a === '--regimeSizing')               { args.regimeSizing = true;              continue; }
+    if (a === '--no-regimeSizing')            { args.regimeSizing = false;             continue; }
+    if (a === '--regimeBoost'  && argv[i+1]) { args.regimeBoostThresh = Number(argv[++i]); continue; }
+    if (a === '--regimePenalty' && argv[i+1]) { args.regimePenaltyThresh = Number(argv[++i]); continue; }
   }
   return args;
 }
@@ -219,6 +239,8 @@ const featuresEnabled = [
   args.corrFilter && `Correlation filter r>${args.corrThresh}`,
   args.macro      && `Macro filter BTC EMA${args.macroEMA} (reduce×${args.macroReduce})`,
   args.mtf        && `MTF filter 15m×${args.mtfBars} score≥${args.mtfScore}${args.mtfReduce > 0 ? ` reduce×${args.mtfReduce}` : ' (skip)'}`,
+  args.mtf4h      && `MTF 4h momentum score≥${args.mtf4hScore} lookback=${args.mtf4hLookback}`,
+  args.regimeSizing && `Regime sizing ADX>${args.regimeBoostThresh}→${args.regimeBoostFactor}× ADX<${args.regimePenaltyThresh}→${args.regimePenaltyFactor}×`,
   args.mtfExit    && `MTF early exit (score<${args.mtfExitScore}, loss>${(args.mtfExitMinLoss*100).toFixed(0)}%)`,
   args.confSizing && `Conf sizing [${args.confSizingMin}×–${args.confSizingMax}×] mid@${args.confSizingMid}`,
 ].filter(Boolean);
@@ -263,6 +285,22 @@ if (args.mtf || args.mtfExit) {
   }
   const mtfCount = Object.keys(mtfSymbolCandles).length;
   console.log(`  ${mtfCount} symbols have 15m data (${Object.keys(mtfSymbolCandles).map(s => s.replace('/USDC','').replace('/USDC','').replace('/USDT','')).join(', ')})\n`);
+}
+
+// Load 4h candles for MTF 4h momentum filter (graceful if missing)
+const mtf4hSymbolCandles = {};
+if (args.mtf4h) {
+  console.log('Loading 4h candles for MTF momentum filter…');
+  const { readFileSync, existsSync } = await import('fs');
+  for (const sym of symbols) {
+    const base = sym.replace('/', '_');
+    const path = `data/candles/${base}_4h.json`;
+    if (existsSync(path)) {
+      mtf4hSymbolCandles[sym] = JSON.parse(readFileSync(path, 'utf8'));
+    }
+  }
+  const cnt = Object.keys(mtf4hSymbolCandles).length;
+  console.log(`  ${cnt} symbols have 4h data\n`);
 }
 
 // Per-symbol slippage tiers — realistic cost model for different liquidity classes.
@@ -373,6 +411,15 @@ const backtester = new PortfolioBacktester(symbolStrategies, {
   confSizingMid:      args.confSizingMid,
   confSizingMax:      args.confSizingMax,
   confSizingMin:      args.confSizingMin,
+  mtf4hFilter:        args.mtf4h,
+  mtf4hSymbolCandles,
+  mtf4hMinScore:      args.mtf4hScore,
+  mtf4hLookback:      args.mtf4hLookback,
+  regimeSizing:       args.regimeSizing,
+  regimeBoostThresh:  args.regimeBoostThresh,
+  regimePenaltyThresh: args.regimePenaltyThresh,
+  regimeBoostFactor:  args.regimeBoostFactor,
+  regimePenaltyFactor: args.regimePenaltyFactor,
   symbolSlippage:     SLIPPAGE_TIERS,
 });
 
@@ -401,6 +448,9 @@ if (result.regimeFilteredCount > 0) {
 }
 if (result.filtersApplied?.mtf > 0) {
   console.log(`  MTF skipped   : ${result.filtersApplied.mtf} BUY signals blocked (15m bearish alignment)`);
+}
+if (result.filtersApplied?.mtf4h > 0) {
+  console.log(`  MTF 4h skipped: ${result.filtersApplied.mtf4h} BUY signals blocked (4h momentum bearish)`);
 }
 if (result.filtersApplied?.mtfEarlyExit > 0) {
   console.log(`  MTF early exit: ${result.filtersApplied.mtfEarlyExit} positions closed early (losing + 15m bearish)`);

@@ -6,8 +6,8 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 > **EU compliance note:** All pairs trade against USDC (not USDT). USDT is not tradeable from most EU countries.
 
 **Backtested performance (4 years, 37 USDC coins, next-open fills, tiered slippage):**  
-`Y2 in-sample: +68.7% · Sharpe 2.41 · Max DD −12.6% · WR 54.5%`  
-`Y1+Y2 full OOS: +453.2% · Sharpe 1.99 · Max DD −23.0% · WR 54.8%`
+`Y2 in-sample: +65.0% · Sharpe 2.58 · Max DD −4.4% · WR 65.1% · PF 4.95`  
+`Y1+Y2 full OOS: +893.2% · Sharpe 1.55 · Max DD −12.1% · WR 63.8% · PF 3.95`
 
 ---
 
@@ -27,16 +27,25 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 - **Daily loss limit** — halts trading if drawdown exceeds threshold
 - **Step-size precision** — sells the exact maximum qty Binance accepts (no dust remainder)
 
-### Multi-Timeframe (MTF) Alignment Filter
-- Before entering a 12h BUY, checks last 16 × 15m candles (4h window)
-- **Recency-weighted scoring** — recent 15m candles have ~2× influence vs oldest
-- Blocks entry when short-term trend is bearish (score < 0.5)
-- Covers all 37 portfolio coins — blocks ~193 bad entries per year
+### Multi-Timeframe (MTF) Alignment Filters
+- **15m filter:** Before entering a 12h BUY, checks last 16 × 15m candles (4h window)
+  - Recency-weighted scoring — recent 15m candles have ~2× influence vs oldest
+  - Blocks entry when short-term trend is bearish (score < 0.5)
+- **4h momentum filter:** EMA(8)/EMA(21) crossover + RSI(14) on 4h candles
+  - Score < 0.45 → entry blocked (4h trend is clearly bearish)
+  - Blocks ~80 bad entries per year, boosts WR by +10pp
+- Combined: covers all 37 coins — blocks ~290 bad entries per year
 
 ### Confidence-Proportional Sizing
 - High-confidence signals (conf ≥ 0.65) get up to **1.5× position size**
 - Low-confidence signals get as little as **0.6×**
 - Linear interpolation — no sharp jumps
+
+### Regime-Aware Position Sizing
+- ADX-based — scales position size by trend strength at entry time
+- **ADX ≥ 25** (strong trend): position boosted to **1.3×**
+- **ADX < 15** (choppy range): position reduced to **0.5×**
+- Combined with 4h filter: +893% full OOS vs +453% baseline (Calmar 73.9)
 
 ### Live Position Sync
 - On startup and every 5 minutes, the bot reads actual Binance balances
@@ -125,6 +134,9 @@ Copy `.env.live.example` → `..env` for the server (never committed).
 ```bash
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
   --mtf          # enable MTF alignment filter (uses 15m candles on disk)
+  --mtf4h        # enable 4h momentum filter (EMA crossover + RSI)
+  --mtf4hScore 0.45   # minimum 4h score to allow entry
+  --regimeSizing # enable ADX-based position sizing (boost trends, reduce chop)
   --confSizing   # enable confidence-proportional position sizing
   --mtfExit      # enable 15m early exit for losing positions (experimental)
   --slots 4      # max concurrent open positions

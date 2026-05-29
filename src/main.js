@@ -12,9 +12,9 @@ import RiskManager from './risk/index.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
-import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
+import { isMarketTrending, computeATRPct, isBullTrend, calculateADX } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
-import { mtfAlignScore } from './utils/mtfAlignment.js';
+import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -205,6 +205,25 @@ async function runCycle(symbol) {
       }
     }
 
+    // ── 4h MTF momentum filter: check EMA crossover + RSI on 4h candles ──────
+    // More powerful than 15m green-counting — uses EMA(8)/EMA(21) spread + RSI.
+    // Blocks entries when 4h trend is clearly bearish (score < threshold).
+    if (!blockReason && result.decision === 'BUY' && config.mtf4hFilter?.enabled) {
+      try {
+        const cfg4h = config.mtf4hFilter;
+        const bars4h = await fetchOHLCV(symbol, '4h', cfg4h.fetchBars ?? 30);
+        if (bars4h.length >= (cfg4h.lookback ?? 21)) {
+          const score = mtf4hMomentumScore(bars4h, bars4h.length - 1, cfg4h.lookback ?? 21);
+          if (score < (cfg4h.minScore ?? 0.45)) {
+            blockReason = `4h momentum bearish (score=${(score * 100).toFixed(0)}% < ${((cfg4h.minScore ?? 0.45) * 100).toFixed(0)}% required)`;
+            logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+          }
+        }
+      } catch (err) {
+        logger.warn(`${symbol}: 4h MTF filter fetch failed — ${err.message}`);
+      }
+    }
+
     // Track filter-level blocks for the dashboard counter
     if (blockReason) dashboardState.pushBlockedSignal(blockReason);
 
@@ -227,6 +246,26 @@ async function runCycle(symbol) {
     // ── Macro bear filter: halve position size when BTC is below EMA(200) ────────
     if (config.macroFilter?.enabled && !btcMacroBull) {
       positionPct *= config.macroFilter.sizeReduceFactor ?? 0.5;
+    }
+    // ── Regime-aware sizing: scale position by ADX strength ───────────────────────
+    if (config.regimeSizing?.enabled) {
+      const adxPeriod = config.regimeSizing.adxPeriod ?? 14;
+      const adxLookback = Math.min(candles.length, 50);
+      const recent = candles.slice(-adxLookback);
+      if (recent.length >= 30) {
+        const highs = recent.map(c => Number(c.high));
+        const lows = recent.map(c => Number(c.low));
+        const closes = recent.map(c => Number(c.close));
+        const adxValues = calculateADX(highs, lows, closes, adxPeriod);
+        const lastADX = adxValues.at(-1)?.adx;
+        if (Number.isFinite(lastADX)) {
+          if (lastADX >= config.regimeSizing.boostThresh) {
+            positionPct *= config.regimeSizing.boostFactor;
+          } else if (lastADX < config.regimeSizing.penaltyThresh) {
+            positionPct *= config.regimeSizing.penaltyFactor;
+          }
+        }
+      }
     }
     // ── Confidence-proportional sizing ───────────────────────────────────────────
     if (config.confSizing?.enabled) {
@@ -401,6 +440,14 @@ function logStartup() {
   const mtf = config.mtfFilter;
   logger.info(
     `MTF filter: ${mtf?.enabled ? `ON — 15m×${mtf.alignBars ?? 16} bars, min ${((mtf.minAlignScore ?? 0.5) * 100).toFixed(0)}% green to allow BUY${(mtf.reduceFactor ?? 0) > 0 ? ` (misaligned → ${(mtf.reduceFactor * 100).toFixed(0)}% size)` : ' (misaligned → skip)'}` : 'OFF'}`,
+  );
+  const mtf4h = config.mtf4hFilter;
+  logger.info(
+    `4h MTF filter: ${mtf4h?.enabled ? `ON — EMA(8/21)+RSI(14), min score ${((mtf4h.minScore ?? 0.45) * 100).toFixed(0)}%, lookback=${mtf4h.lookback ?? 21}` : 'OFF'}`,
+  );
+  const rs = config.regimeSizing;
+  logger.info(
+    `Regime sizing: ${rs?.enabled ? `ON — ADX≥${rs.boostThresh}→${rs.boostFactor}× ADX<${rs.penaltyThresh}→${rs.penaltyFactor}×` : 'OFF'}`,
   );
 
   if (config.dashboard?.enabled) {
@@ -700,6 +747,8 @@ dashboardState.setActiveFilters({
   correlation:  { enabled: config.correlation?.enabled ?? false, threshold: config.correlation?.threshold ?? 0.8, period: config.correlation?.period ?? 60 },
   breakEven:    { enabled: (config.risk?.breakEvenTriggerPct ?? 0) > 0, triggerPct: config.risk?.breakEvenTriggerPct ?? 0 },
   trailingStop: { enabled: (config.risk?.trailingStopPct ?? 0) > 0, pct: config.risk?.trailingStopPct ?? 0 },
+  mtf4hFilter:  { enabled: config.mtf4hFilter?.enabled ?? false, minScore: config.mtf4hFilter?.minScore ?? 0.45 },
+  regimeSizing: { enabled: config.regimeSizing?.enabled ?? false, boostThresh: config.regimeSizing?.boostThresh ?? 25, penaltyThresh: config.regimeSizing?.penaltyThresh ?? 15 },
 });
 await initializeHistoricalData();
 // Seed daily P&L from persisted history so the loss limit survives restarts
