@@ -138,7 +138,7 @@ export class LiveTrader {
           if (!currentPrice || currentPrice <= 0) continue;
 
           const notional = qty * currentPrice;
-          if (notional < MIN_NOTIONAL) continue;
+          if (notional < FALLBACK_MIN_NOTIONAL) continue;
 
           // Find entry price from trade history: walk newest-first
           // Stop at first SELL (no open position) or first BUY (entry price found)
