@@ -10,6 +10,9 @@ node_modules/
 logs/*.log
 logs/*.json
 
+logs/trades.csv
+data/dashboard_persist.json
+
 # Large backtest / scan artifacts (reproducible, not source of truth)
 data/optimization_results*.json
 data/optimization_15m.json
