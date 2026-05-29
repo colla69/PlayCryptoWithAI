@@ -68,10 +68,10 @@ export default {
   perSymbol: {
     'BTC/USDC': {
       // ADX+PSAR+HeikinAshi  SL5/TP12  conf=0.55 → optimizer holdout: +7.7%  Sharpe 0.34 ✅
-      strategies: ["BB","Stoch","WilliamsR"],
+      strategies: ["EMA","PSAR","HeikinAshi"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'XRP/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +31.7%  Y1 +46.8%  Sharpe 1.10/1.16 ✅
@@ -82,10 +82,10 @@ export default {
     },
     'LINK/USDC': {
       // MOM:MACD+Stoch+RSI  SL5/TP12  conf=0.55 → Y2 +85.6%  Y1 +78.8%  Sharpe 1.51/1.35 ✅
-      strategies: ["RSI","CCI","Stoch"],
+      strategies: ["BB","Stoch","Supertrend"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.55,
+      minConfidence: 0.70,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
     'BNB/USDC': {
@@ -188,17 +188,17 @@ export default {
     },
     'JTO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +6.0%  Y1 +111.0%  Sharpe 0.30/1.92 ✅
-      strategies: ['RSI', 'BB', 'CCI'],
+      strategies: ["CCI","PSAR","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'LDO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +22.7%  Y1 +38.7%  Sharpe 0.62/1.05 ✅
-      strategies: ["MACD","ADX","SR"],
+      strategies: ["MACD","ADX","WilliamsR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'LSK/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +138.7%  Y1 +66.9%  Sharpe 1.38/1.33 ✅
@@ -349,10 +349,10 @@ export default {
     // strategies key omitted until perSymbolOptimizer sets it
     'ETH/USDC': {
       // CCI+Stoch+StochRSI  SL5/TP12  conf=0.70 → optimizer holdout: +9.0%  Sharpe 0.42 [4t] ✅
-      strategies: ["CCI","Stoch","StochRSI"],
+      strategies: ["Supertrend","MFI","SR"],
       stopLossPct: 0.05,
       takeProfitPct: 0.12,
-      minConfidence: 0.70,
+      minConfidence: 0.55,
     },
     'ZEC/USDC': {
       // CCI+Stoch+OBV  SL5/TP12  conf=0.70 → optimizer holdout: +19.0%  Sharpe 1.19 [3t] ✅

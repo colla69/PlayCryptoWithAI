@@ -130,17 +130,20 @@ function precomputeSignals(candles, symbol) {
   return cache;
 }
 
-// ── Aggregator (vote counting, same logic as SignalAggregator) ────────────────
+// ── Aggregator (vote counting, matches live SignalAggregator HOLD suppression) ─
 function aggregate(comboNames, signalCache, idx, minConf) {
   const votes = { BUY: 0, SELL: 0, HOLD: 0 };
+  let directionalWeight = 0;
   for (const name of comboNames) {
     const sig = signalCache[name]?.[idx] ?? 'HOLD';
     votes[sig] = (votes[sig] ?? 0) + 1;
+    if (sig !== 'HOLD') directionalWeight += 1;
   }
   const ranked = Object.entries(votes).sort((a, b) => b[1] - a[1]);
   const [winner = 'HOLD', wVotes = 0] = ranked[0] ?? [];
   const tie = ranked.filter(([, c]) => Math.abs(c - wVotes) < 1e-9).length > 1;
-  const conf = wVotes / (comboNames.length || 1);
+  // HOLD votes excluded from denominator — confidence = directional / directional total
+  const conf = directionalWeight > 0 ? wVotes / directionalWeight : 0;
   if (tie || winner === 'HOLD' || conf < minConf) return 'HOLD';
   return winner;
 }
