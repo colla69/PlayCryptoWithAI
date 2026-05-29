@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import config from '../../config/default.js';
 import { fetchOHLCV, fetchTicker } from '../exchange/binanceClient.js';
-import { placeOcoExit, updateOcoExit, cancelOcoOrders } from '../exchange/ocoOrders.js';
+import { placeOcoExit } from '../exchange/ocoOrders.js';
 import SignalAggregator from '../engine/signalAggregator.js';
 import { LiveTrader } from '../executor/liveTrader.js';
 import RiskManager from '../risk/index.js';
@@ -138,45 +138,8 @@ export async function handler(event) {
           continue;
         }
 
-        // Check existing position — update trailing stop OCO if price moved up
+        // Existing position — OCO is already on Binance, nothing to do
         if (trader.positions.has(symbol)) {
-          const position = trader.positions.get(symbol);
-
-          // Trailing stop: if price made a new high, raise the stop-loss
-          const trailingPct = position.trailingStopPct ?? symRisk.trailingStopPct ?? 0;
-          if (trailingPct > 0 && currentPrice > (position.highWaterMark ?? position.entryPrice)) {
-            const oldHWM = position.highWaterMark ?? position.entryPrice;
-            position.highWaterMark = currentPrice;
-            const newStop = currentPrice * (1 - trailingPct);
-
-            if (newStop > position.stopLoss) {
-              position.stopLoss = newStop;
-              // Update OCO on Binance with new stop level
-              try {
-                const updatedRisk = { ...symRisk, stopLossPct: trailingPct };
-                await updateOcoExit(symbol, position.qty, currentPrice, updatedRisk);
-                console.log(`[Lambda] ${symbol}: trailing stop raised ${oldHWM.toFixed(4)} → ${currentPrice.toFixed(4)}, new SL=${newStop.toFixed(4)}`);
-              } catch (err) {
-                console.error(`[Lambda] ${symbol}: OCO update failed — ${err.message}`);
-              }
-            }
-          }
-
-          // Break-even stop: lock at entry once price exceeds trigger
-          const bePct = Number(config.risk.breakEvenTriggerPct ?? 0);
-          if (bePct > 0 && position.stopLoss < position.entryPrice) {
-            if (currentPrice >= position.entryPrice * (1 + bePct)) {
-              position.stopLoss = position.entryPrice;
-              try {
-                const beRisk = { stopLossPct: 0.001, takeProfitPct: symRisk.takeProfitPct };
-                await updateOcoExit(symbol, position.qty, position.entryPrice, beRisk);
-                console.log(`[Lambda] ${symbol}: break-even stop locked at ${position.entryPrice.toFixed(4)}`);
-              } catch (err) {
-                console.error(`[Lambda] ${symbol}: BE OCO update failed — ${err.message}`);
-              }
-            }
-          }
-
           continue;
         }
 
