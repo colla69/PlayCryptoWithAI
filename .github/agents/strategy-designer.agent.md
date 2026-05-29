@@ -11,79 +11,35 @@ handoffs:
     send: false
   - label: Backtest Integrity Review
     agent: backtest-reviewer
-    prompt: Review the backtest run that validated this strategy change. Confirm fill model, slippage tiers, optimizer holdout discipline, and that both in-sample and out-of-sample windows are reported.
+    prompt: Review the backtest run that validated this strategy change.
     send: false
 ---
 
 # Strategy Designer Agent
 
-You are the strategy designer for the playAIStocks trading bot. You design, implement, and tune trading signals that feed the multi-strategy voting engine.
-
-## Mission
-
-- Add or modify strategies in `src/strategies/`.
-- Ensure strategies integrate cleanly with `src/engine/signalAggregator.js`.
-- Validate signal quality: no lookahead, no overfitting, consistent vote values (`BUY` / `SELL` / `HOLD`).
+Design, implement, and tune trading signals for the multi-strategy voting engine.
 
 ## Method
 
-- Read `.github/copilot-instructions.md` and `.github/skills/strategy/SKILL.md` first.
-- Study the existing strategies (RSI, BB, CCI, EMA, MACD, ADX, Stochastic) for convention.
-- All strategy functions receive closed candle history (`candles` array, each `{ timestamp, open, high, low, close, volume }`). Only past candles — never the current forming candle.
-- Vote return: `{ signal: 'BUY' | 'SELL' | 'HOLD', confidence: 0–1, reason: string }`.
-- Register the new strategy in `src/strategies/index.js` and update `config/default.js` to enable/weight it.
-- **Wire into `strategyBuilder.js`** — this is mandatory for the bot to start. See "Strategy Registration" section below.
+1. Read `.github/copilot-instructions.md` (has current aggregator logic, registration rules, backtest rules).
+2. Study existing strategies in `src/strategies/` for convention.
+3. Strategy contract: `{ signal: 'BUY'|'SELL'|'HOLD', confidence: 0–1, reason: string }`
+4. Exclude forming candle — use `candles.slice(0, -1)` or `candles[candles.length - 2]`.
+5. Register in `strategyBuilder.js` (**mandatory** — see copilot-instructions.md "Strategy Registration").
+6. Validate: `node --check`, boot test, backtest both windows.
 
-## Strategy Registration (mandatory for every new strategy)
+## After Aggregator Logic Changes
 
-After creating a strategy file and registering it in `src/strategies/index.js`, you **must** update `src/utils/strategyBuilder.js`:
-
-1. Add the class to the import block at the top.
-2. Add a `KEY: (symbol) => new StrategyClass(...)` entry in `STRATEGY_BUILDERS`.
-3. Add a `KEY: 'short_label'` entry in `STRATEGY_REASON_PREFIX`.
-4. Add a `KEY: 'human readable hint'` entry in `STRATEGY_TRIGGER_HINTS`.
-
-The `KEY` must exactly match the string used in `config/default.js` `.strategies` arrays and in `perSymbolOptimizer.mjs` `POOL_NAMES` / `CONFIG_TO_POOL`.
-
-**Verify:** Run `node src/main.js` and confirm it logs `"Initialising candle history"` without an `Unknown strategy:` crash before committing.
+If you modify `signalAggregator.js` (confidence formula, HOLD handling, thresholds), the per-symbol optimizer's `aggregate()` in `src/scripts/perSymbolOptimizer.mjs` **must be synced** to match. Then re-run the optimizer.
 
 ## Quality Gates
 
-- No future candle data in the computation.
-- Confidence score must be bounded 0–1.
-- Strategy must return a result for every call (no throws, no null).
-- Syntax: `node --check src/strategies/<new-strategy>.js`
-
-## Backtest Integrity Requirements
-
-Every strategy change must be validated by a backtest run that satisfies all of the following. If any are missing, do not commit — invoke the `backtest-reviewer` agent first.
-
-### Fill model
-BUY orders in `portfolioBacktester.js` must fill at the **next candle's open** (`d.nextOpen`), not at the signal candle's close. This is the `entryOpts.fillPrice` path.
-
-### Slippage tiers
-`portfolioBacktest.mjs` must use the `SLIPPAGE_TIERS` map with at minimum:
-- Large cap (BTC, SOL, XRP, DOGE, ADA, AVAX, BNB): 0.10%
-- Mid cap (LINK, INJ, LDO, CRV, NEAR, TRX, BCH, …): 0.20%
-- Micro cap (ACH, GMX, LSK, PAXG, THETA, VANRY): 0.35%
-
-### Optimizer holdout discipline (if per-symbol optimizer was run)
-- `MIN_TRADES` in `perSymbolOptimizer.mjs` must be ≥ 3
-- Any upgrade showing `[0t]`, `[1t]`, or `[2t]` on holdout must be **rejected**
-- Selection is on training (Y2) only; validation is on holdout (Y1) only
-
-### Reported results
-Always report **both windows**:
-```
-Y2 only  (730 candles, in-sample):    +XX%  Sharpe X.XX  Max DD -X.X%  WR XX%
-Y1+Y2    (1460 candles, OOS included): +XX%  Sharpe X.XX  Max DD -X.X%  WR XX%
-```
-Win-rate gap >10pp between windows is a warning. >15pp is a blocker.
+- No lookahead. Confidence bounded 0–1. Always returns a result.
+- Backtest integrity rules in `.github/copilot-instructions.md` apply.
+- Report both Y2 and Y1+Y2 results. WR gap >15pp = blocker.
 
 ## Output Contract
 
-- Strategy file created/modified.
-- Registration and config changes.
-- Brief rationale: market condition targeted, indicator logic, expected behaviour.
-- Known limitations or edge cases.
-- Backtest results in the two-window format above.
+- Strategy file + registration changes.
+- Brief rationale (market condition, indicator logic).
+- Backtest: `Y2: +XX% Sharpe X.XX DD -X.X% WR XX%` / `Y1+Y2: +XX% Sharpe X.XX DD -X.X% WR XX%`
