@@ -271,20 +271,21 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   });
 
   app.post('/api/deposits', express.json(), (req, res) => {
-    const { amount, note } = req.body ?? {};
+    const { amount, note, date } = req.body ?? {};
     if (!amount || isNaN(Number(amount)) || Number(amount) === 0) {
       return res.status(400).json({ error: 'amount required (non-zero number)' });
     }
     const deposits = loadDeposits();
     const entry = {
       id: Date.now(),
+      date: date || new Date().toISOString().slice(0, 10),
       timestamp: new Date().toISOString(),
       amount: Number(amount),
       note: note || '',
     };
     deposits.push(entry);
     saveDeposits(deposits);
-    logger.info(`Deposit recorded: ${amount >= 0 ? '+' : ''}$${Number(amount).toFixed(2)}${note ? ' — ' + note : ''}`);
+    logger.info(`Deposit recorded: ${amount >= 0 ? '+' : ''}$${Number(amount).toFixed(2)} on ${entry.date}${note ? ' — ' + note : ''}`);
     res.json(entry);
   });
 
