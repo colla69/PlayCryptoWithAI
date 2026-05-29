@@ -478,4 +478,30 @@ if (sorted.length > maxShow) console.log(`    … and ${sorted.length - maxShow}
 
 const inactive = Object.entries(result.symbolStats).filter(([, s]) => s.trades === 0);
 if (inactive.length) console.log(`\n  No trades: ${inactive.map(([s]) => s.replace('/USDC','').replace('/USDT','')).join(', ')}`);
+
+// ── Monthly P&L breakdown ───────────────────────────────────────────────────
+if (result.trades.length > 0) {
+  const monthly = {};
+  for (const t of result.trades) {
+    const ts = t.exitTime || t.closeTime;
+    if (!ts) continue;
+    const d = new Date(ts);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    if (!monthly[key]) monthly[key] = { pnl: 0, wins: 0, losses: 0 };
+    monthly[key].pnl += Number(t.pnl ?? 0);
+    if (Number(t.pnl ?? 0) > 0) monthly[key].wins++; else monthly[key].losses++;
+  }
+  const months = Object.keys(monthly).sort();
+  if (months.length > 1) {
+    console.log('\n  Monthly P&L:');
+    let cumPnl = 0;
+    for (const m of months) {
+      const { pnl, wins, losses } = monthly[m];
+      cumPnl += pnl;
+      const bar = pnl >= 0 ? '█'.repeat(Math.min(Math.round(pnl / 20), 30)) : '▓'.repeat(Math.min(Math.round(-pnl / 20), 30));
+      const sign = pnl >= 0 ? '+' : '';
+      console.log(`    ${m}  ${sign}$${pnl.toFixed(0).padStart(6)}  ${wins}W/${losses}L  cum: $${cumPnl.toFixed(0).padStart(7)}  ${pnl >= 0 ? '\x1b[32m' : '\x1b[31m'}${bar}\x1b[0m`);
+    }
+  }
+}
 console.log('');

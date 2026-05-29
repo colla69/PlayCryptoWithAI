@@ -694,6 +694,94 @@
       font-size: 15px;
     }
 
+    /* ── Tab navigation ──────────────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+    }
+
+    .tab-btn {
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .tab-btn.active {
+      color: #fff;
+      border-bottom-color: var(--blue);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* ── P&L Chart ───────────────────────────────────────────────────────── */
+    .pnl-chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 300px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+    }
+
+    .pnl-chart-wrap canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pnl-total-display {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .pnl-total-display .pnl-label {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .pnl-total-display .pnl-value {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .pnl-chart-tooltip {
+      display: none;
+      position: absolute;
+      background: rgba(13, 17, 23, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text);
+      pointer-events: none;
+      z-index: 10;
+      white-space: nowrap;
+    }
+
     @media (max-width: 1120px) {
       .summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -763,7 +851,7 @@
         <span id="modeBadge" class="badge mode-paper">PAPER</span>
         <button id="smokeTestBtn" onclick="triggerSmokeTest()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer" title="Run a minimal buy+sell smoke test (45s hold)">🔬 Smoke Test</button>
         <button onclick="resetHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer" title="Permanently erase all trade history and signal feed">🗑️ Reset History</button>
-        <button onclick="document.getElementById('logsPanel').scrollIntoView({behavior:'smooth'})" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer">📜 Logs</button>
+
         <span class="connection"><span id="connectionDot" class="ticker-dot"></span><span id="connectionLabel">Disconnected</span></span>
         <span class="clock" id="liveClock">--:--:--</span>
       </div>
@@ -771,6 +859,13 @@
   </header>
 
   <main class="page">
+    <nav class="tab-bar">
+      <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">🛠 Tools</button>
+      <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 Logs</button>
+    </nav>
+
+    <div id="tab-dashboard" class="tab-content active">
     <section class="summary-grid">
       <article class="stat-card">
         <div class="eyebrow">💰 Balance</div>
@@ -920,8 +1015,22 @@
       </section>
     </section>
 
+    </div><!-- /tab-dashboard -->
+
+    <div id="tab-tools" class="tab-content">
+      <div class="pnl-total-display">
+        <div class="pnl-label">Cumulative P&amp;L</div>
+        <div class="pnl-value" id="pnlTotalValue">$0.00</div>
+      </div>
+      <div class="pnl-chart-wrap">
+        <canvas id="pnlCanvas"></canvas>
+        <div class="pnl-chart-tooltip" id="pnlTooltip"></div>
+      </div>
+    </div><!-- /tab-tools -->
+
+    <div id="tab-logs" class="tab-content">
     <!-- ── Logs panel ─────────────────────────────────────────────────────── -->
-    <section class="panel" id="logsPanel" style="margin-top:24px">
+    <section class="panel" id="logsPanel">
       <div class="panel-header">
         <div>
           <div class="panel-title">📜 App Logs</div>
@@ -942,6 +1051,7 @@
         <div class="loading">Loading logs…</div>
       </div>
     </section>
+    </div><!-- /tab-logs -->
   </main>
 
   <footer class="footer-strip">
@@ -1913,12 +2023,216 @@
     }
     window.loadLogsDebounced = loadLogsDebounced;
 
-    // Auto-refresh logs every 15s if panel is visible
+    // Auto-refresh logs every 15s if logs tab is active
     setInterval(() => {
-      const panel = document.getElementById('logsPanel');
-      if (panel && panel.getBoundingClientRect().top < window.innerHeight + 200) loadLogs();
+      if (document.getElementById('tab-logs')?.classList.contains('active')) loadLogs();
     }, 15000);
     loadLogs();
+
+    // ── Tab navigation ───────────────────────────────────────────────────
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabId));
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.toggle('active', tc.id === `tab-${tabId}`));
+      localStorage.setItem('playai-active-tab', tabId);
+      if (tabId === 'logs') loadLogs();
+      if (tabId === 'tools') renderPnlChart();
+    }
+    window.switchTab = switchTab;
+
+    // Restore tab from localStorage
+    (function restoreTab() {
+      const saved = localStorage.getItem('playai-active-tab');
+      if (saved && document.getElementById(`tab-${saved}`)) switchTab(saved);
+    })();
+
+    // ── P&L Chart ─────────────────────────────────────────────────────────
+    let _pnlChartData = [];
+
+    async function fetchPnlData() {
+      try {
+        const trades = await fetch(`${API_BASE}/api/trades`, { cache: 'no-store' }).then(r => r.json());
+        if (!Array.isArray(trades)) return [];
+        // Only closed trades (SELLs with pnl)
+        const closed = trades
+          .filter(t => t.side === 'SELL' && t.pnl != null)
+          .sort((a, b) => new Date(a.exitTime || a.timestamp).getTime() - new Date(b.exitTime || b.timestamp).getTime());
+        let cumulative = 0;
+        return closed.map(t => {
+          cumulative += Number(t.pnl || 0);
+          return { time: new Date(t.exitTime || t.timestamp), pnl: cumulative, symbol: t.symbol, tradePnl: Number(t.pnl || 0) };
+        });
+      } catch (e) { return []; }
+    }
+
+    function renderPnlChart() {
+      fetchPnlData().then(data => {
+        _pnlChartData = data;
+        drawPnlCanvas(data);
+      });
+    }
+
+    function drawPnlCanvas(data) {
+      const canvas = document.getElementById('pnlCanvas');
+      const totalEl = document.getElementById('pnlTotalValue');
+      if (!canvas) return;
+
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const W = rect.width;
+      const H = rect.height;
+      const pad = { top: 30, right: 20, bottom: 40, left: 65 };
+      const chartW = W - pad.left - pad.right;
+      const chartH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Total display
+      const total = data.length ? data[data.length - 1].pnl : 0;
+      if (totalEl) {
+        const sign = total >= 0 ? '+' : '';
+        totalEl.textContent = `${sign}$${Math.abs(total).toFixed(2)}`;
+        totalEl.style.color = total >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+      }
+
+      if (data.length < 2) {
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '14px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Not enough closed trades to plot chart', W / 2, H / 2);
+        return;
+      }
+
+      const pnls = data.map(d => d.pnl);
+      const minPnl = Math.min(0, ...pnls);
+      const maxPnl = Math.max(0, ...pnls);
+      const range = maxPnl - minPnl || 1;
+      const minTime = data[0].time.getTime();
+      const maxTime = data[data.length - 1].time.getTime();
+      const timeRange = maxTime - minTime || 1;
+
+      function xPos(t) { return pad.left + ((t.getTime() - minTime) / timeRange) * chartW; }
+      function yPos(v) { return pad.top + chartH - ((v - minPnl) / range) * chartH; }
+
+      // Grid lines
+      ctx.strokeStyle = 'rgba(48, 54, 61, 0.5)';
+      ctx.lineWidth = 0.5;
+      const gridLines = 5;
+      for (let i = 0; i <= gridLines; i++) {
+        const y = pad.top + (i / gridLines) * chartH;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + chartW, y);
+        ctx.stroke();
+        // Y label
+        const val = maxPnl - (i / gridLines) * range;
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`$${val.toFixed(2)}`, pad.left - 8, y + 4);
+      }
+
+      // Zero line
+      const zeroY = yPos(0);
+      ctx.strokeStyle = 'rgba(139, 148, 158, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, zeroY);
+      ctx.lineTo(pad.left + chartW, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // X-axis labels
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      const xLabels = Math.min(6, data.length);
+      for (let i = 0; i < xLabels; i++) {
+        const idx = Math.round((i / (xLabels - 1)) * (data.length - 1));
+        const d = data[idx].time;
+        const label = `${d.getMonth() + 1}/${d.getDate()}`;
+        ctx.fillText(label, xPos(d), H - pad.bottom + 20);
+      }
+
+      // Draw line with gradient fill
+      ctx.beginPath();
+      ctx.moveTo(xPos(data[0].time), yPos(data[0].pnl));
+      for (let i = 1; i < data.length; i++) {
+        ctx.lineTo(xPos(data[i].time), yPos(data[i].pnl));
+      }
+
+      // Stroke the line
+      const lineGrad = ctx.createLinearGradient(0, pad.top, 0, pad.top + chartH);
+      lineGrad.addColorStop(0, '#3fb950');
+      lineGrad.addColorStop(1, '#f85149');
+      ctx.strokeStyle = total >= 0 ? '#3fb950' : '#f85149';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Fill area to zero
+      ctx.lineTo(xPos(data[data.length - 1].time), zeroY);
+      ctx.lineTo(xPos(data[0].time), zeroY);
+      ctx.closePath();
+      const fillColor = total >= 0 ? 'rgba(63, 185, 80, 0.1)' : 'rgba(248, 81, 73, 0.1)';
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+
+      // Store chart params for tooltip
+      canvas._chartParams = { data, xPos, yPos, pad, W, H, chartW, chartH };
+    }
+
+    // Tooltip on hover
+    (function setupPnlTooltip() {
+      const canvas = document.getElementById('pnlCanvas');
+      const tooltip = document.getElementById('pnlTooltip');
+      if (!canvas || !tooltip) return;
+
+      canvas.addEventListener('mousemove', (e) => {
+        const params = canvas._chartParams;
+        if (!params || !params.data.length) { tooltip.style.display = 'none'; return; }
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        if (mx < params.pad.left || mx > params.W - params.pad.right) { tooltip.style.display = 'none'; return; }
+
+        // Find closest data point
+        let closest = 0;
+        let closestDist = Infinity;
+        for (let i = 0; i < params.data.length; i++) {
+          const dx = Math.abs(params.xPos(params.data[i].time) - mx);
+          if (dx < closestDist) { closestDist = dx; closest = i; }
+        }
+        const d = params.data[closest];
+        const sign = d.pnl >= 0 ? '+' : '';
+        tooltip.innerHTML = `<div><strong>${d.time.toLocaleDateString()}</strong></div><div>Cumulative: ${sign}$${d.pnl.toFixed(2)}</div><div style="color:var(--muted)">${d.symbol} ${d.tradePnl >= 0 ? '+' : ''}$${d.tradePnl.toFixed(2)}</div>`;
+        tooltip.style.display = 'block';
+        const tx = Math.min(mx + 12, params.W - 160);
+        const ty = Math.max(my - 60, 4);
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      });
+
+      canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    })();
+
+    // Auto-refresh P&L chart every 60s if visible
+    setInterval(() => {
+      if (document.getElementById('tab-tools')?.classList.contains('active')) renderPnlChart();
+    }, 60000);
+
+    // Redraw on resize
+    window.addEventListener('resize', () => {
+      if (document.getElementById('tab-tools')?.classList.contains('active') && _pnlChartData.length) {
+        drawPnlCanvas(_pnlChartData);
+      }
+    });
 
     loadInitialState()
       .catch(() => {
