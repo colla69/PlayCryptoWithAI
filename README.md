@@ -6,8 +6,8 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 > **EU compliance note:** All pairs trade against USDC (not USDT). USDT is not tradeable from most EU countries.
 
 **Backtested performance (4 years, 37 USDC coins, next-open fills, tiered slippage):**  
-`Y2 in-sample: +90.9% · Sharpe 3.09 · Max DD −8.1%`  
-`Y1+Y2 full OOS: +324.7% · Sharpe 1.75 · Max DD −23.5% · WR 53%`
+`Y2 in-sample: +68.7% · Sharpe 2.41 · Max DD −12.6% · WR 54.5%`  
+`Y1+Y2 full OOS: +453.2% · Sharpe 1.99 · Max DD −23.0% · WR 54.8%`
 
 ---
 
@@ -15,7 +15,8 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 
 ### Signal Engine
 - **15 strategies** vote on every candle: RSI, Bollinger Bands, CCI, EMA, MACD, ADX, Stochastic, StochRSI, MFI, OBV, PSAR, WilliamsR, Supertrend, HeikinAshi, Support & Resistance
-- Weighted confidence aggregation — entry only when score exceeds per-symbol threshold
+- **HOLD-suppressed aggregation** — HOLD votes don't dilute directional confidence (1 BUY + 2 HOLD = 100% confidence, not 33%)
+- **Asymmetric exit threshold** — open positions can exit at 70% of normal confidence when SELL majority exists
 - Per-symbol strategy combinations optimised via holdout-validated backtesting
 
 ### Risk Management
@@ -28,8 +29,9 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 
 ### Multi-Timeframe (MTF) Alignment Filter
 - Before entering a 12h BUY, checks last 16 × 15m candles (4h window)
-- Blocks entry when short-term trend is bearish (< 50% green candles)
-- Covers all 37 portfolio coins — blocks ~127 bad entries per year
+- **Recency-weighted scoring** — recent 15m candles have ~2× influence vs oldest
+- Blocks entry when short-term trend is bearish (score < 0.5)
+- Covers all 37 portfolio coins — blocks ~193 bad entries per year
 
 ### Confidence-Proportional Sizing
 - High-confidence signals (conf ≥ 0.65) get up to **1.5× position size**
@@ -40,6 +42,7 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 - On startup and every 5 minutes, the bot reads actual Binance balances
 - Automatically restores any open positions after a restart (no manual intervention needed)
 - Entry prices recovered from trade history; SL/TP recalculated from per-symbol config
+- **Synthetic trade record** — if no matching BUY found in history, a synthetic entry is created for dashboard continuity
 
 ### Dashboard
 - Live web dashboard at `http://localhost:3001`
@@ -96,6 +99,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 | `BINANCE_API_SECRET` | — | Binance API secret |
 | `PAPER_MODE` | `true` | `true` = simulate orders, no real funds |
 | `BINANCE_TESTNET` | `false` | Use Binance testnet endpoints |
+| `SMOKE_TEST` | `true` | `false` = skip startup connectivity check |
 | `DASHBOARD_PORT` | `3001` | Dashboard HTTP port |
 | `LOG_LEVEL` | `info` | Winston log level |
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot notifications |
