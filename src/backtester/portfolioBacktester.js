@@ -107,6 +107,13 @@ export class PortfolioBacktester {
     this.regimePenaltyThresh = Number(config.regimePenaltyThresh ?? 15);
     this.regimeBoostFactor = Number(config.regimeBoostFactor ?? 1.3);
     this.regimePenaltyFactor = Number(config.regimePenaltyFactor ?? 0.5);
+    // Adaptive confidence threshold: in strong trends (ADX>thresh), lower the bar
+    // to allow more entries; in chop (ADX<thresh), raise it to be more selective.
+    this.adaptiveThreshold = Boolean(config.adaptiveThreshold ?? false);
+    this.adaptiveThreshLow = Number(config.adaptiveThreshLow ?? 0.50);   // conf needed in trends
+    this.adaptiveThreshHigh = Number(config.adaptiveThreshHigh ?? 0.75);  // conf needed in chop
+    this.adaptiveADXTrend = Number(config.adaptiveADXTrend ?? 25);        // ADX above = trend
+    this.adaptiveADXChop = Number(config.adaptiveADXChop ?? 15);          // ADX below = chop
     // Cap candle slice length fed to strategies — avoids O(N²) on large datasets.
     // 0 = no cap (default, safe for 12h). Set to e.g. 300 for 15m performance.
     this.maxLookback = Number(config.maxLookback ?? 0);
@@ -249,6 +256,24 @@ export class PortfolioBacktester {
         if (this.regimeFilter && !d.isTrending) {
           filtersApplied.regime++;
           continue;
+        }
+
+        // Adaptive threshold: require higher confidence in choppy markets
+        if (this.adaptiveThreshold && d.adxValue != null) {
+          let minConf;
+          if (d.adxValue >= this.adaptiveADXTrend) {
+            minConf = this.adaptiveThreshLow;
+          } else if (d.adxValue < this.adaptiveADXChop) {
+            minConf = this.adaptiveThreshHigh;
+          } else {
+            // Linear interpolation between chop and trend
+            const t = (d.adxValue - this.adaptiveADXChop) / (this.adaptiveADXTrend - this.adaptiveADXChop);
+            minConf = this.adaptiveThreshHigh - t * (this.adaptiveThreshHigh - this.adaptiveThreshLow);
+          }
+          if (d.confidence < minConf) {
+            filtersApplied.adaptiveThresh = (filtersApplied.adaptiveThresh ?? 0) + 1;
+            continue;
+          }
         }
 
         if (this.volumeFilter && !d.volumeOk) {

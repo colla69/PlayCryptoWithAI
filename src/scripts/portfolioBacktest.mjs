@@ -102,6 +102,10 @@ function parseArgs(argv) {
     regimePenaltyThresh: 15,
     regimeBoostFactor:   1.3,
     regimePenaltyFactor: 0.5,
+    // Adaptive confidence threshold
+    adaptiveThreshold:   false,
+    adaptiveThreshLow:   0.50,
+    adaptiveThreshHigh:  0.75,
     // Confidence-proportional position sizing
     confSizing:    config.confSizing?.enabled ?? false,
     confSizingMid: config.confSizing?.mid ?? 0.65,
@@ -159,6 +163,11 @@ function parseArgs(argv) {
     if (a === '--no-regimeSizing')            { args.regimeSizing = false;             continue; }
     if (a === '--regimeBoost'  && argv[i+1]) { args.regimeBoostThresh = Number(argv[++i]); continue; }
     if (a === '--regimePenalty' && argv[i+1]) { args.regimePenaltyThresh = Number(argv[++i]); continue; }
+    // Adaptive confidence threshold
+    if (a === '--adaptiveThresh')             { args.adaptiveThreshold = true;         continue; }
+    if (a === '--no-adaptiveThresh')          { args.adaptiveThreshold = false;        continue; }
+    if (a === '--adaptLow'  && argv[i+1])   { args.adaptiveThreshLow = Number(argv[++i]); continue; }
+    if (a === '--adaptHigh' && argv[i+1])   { args.adaptiveThreshHigh = Number(argv[++i]); continue; }
   }
   return args;
 }
@@ -241,6 +250,7 @@ const featuresEnabled = [
   args.mtf        && `MTF filter 15m×${args.mtfBars} score≥${args.mtfScore}${args.mtfReduce > 0 ? ` reduce×${args.mtfReduce}` : ' (skip)'}`,
   args.mtf4h      && `MTF 4h momentum score≥${args.mtf4hScore} lookback=${args.mtf4hLookback}`,
   args.regimeSizing && `Regime sizing ADX>${args.regimeBoostThresh}→${args.regimeBoostFactor}× ADX<${args.regimePenaltyThresh}→${args.regimePenaltyFactor}×`,
+  args.adaptiveThreshold && `Adaptive threshold trend(ADX≥25)→${args.adaptiveThreshLow} chop(ADX<15)→${args.adaptiveThreshHigh}`,
   args.mtfExit    && `MTF early exit (score<${args.mtfExitScore}, loss>${(args.mtfExitMinLoss*100).toFixed(0)}%)`,
   args.confSizing && `Conf sizing [${args.confSizingMin}×–${args.confSizingMax}×] mid@${args.confSizingMid}`,
 ].filter(Boolean);
@@ -420,6 +430,9 @@ const backtester = new PortfolioBacktester(symbolStrategies, {
   regimePenaltyThresh: args.regimePenaltyThresh,
   regimeBoostFactor:  args.regimeBoostFactor,
   regimePenaltyFactor: args.regimePenaltyFactor,
+  adaptiveThreshold:  args.adaptiveThreshold,
+  adaptiveThreshLow:  args.adaptiveThreshLow,
+  adaptiveThreshHigh: args.adaptiveThreshHigh,
   symbolSlippage:     SLIPPAGE_TIERS,
 });
 
