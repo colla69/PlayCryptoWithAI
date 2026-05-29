@@ -120,6 +120,13 @@ export function calculateMetrics(trades, equityCurve, initialBalance) {
     sharpeRatio: dailyReturns.length < 2 || standardDeviation(dailyReturns) === 0
       ? 0
       : Number(((average(dailyReturns) / standardDeviation(dailyReturns)) * Math.sqrt(252)).toFixed(4)),
+    sortinoRatio: (() => {
+      if (dailyReturns.length < 2) return 0;
+      const negReturns = dailyReturns.filter(r => r < 0);
+      if (negReturns.length === 0) return dailyReturns.length > 0 ? Infinity : 0;
+      const downDev = Math.sqrt(negReturns.reduce((s, r) => s + r * r, 0) / dailyReturns.length);
+      return downDev === 0 ? 0 : Number(((average(dailyReturns) / downDev) * Math.sqrt(252)).toFixed(4));
+    })(),
     avgTradeDurationMs: Number(avgTradeDurationMs.toFixed(0)),
     byReason,
   };

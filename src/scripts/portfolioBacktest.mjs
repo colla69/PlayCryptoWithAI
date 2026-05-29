@@ -6,7 +6,7 @@
  *
  * Options:
  *   --budget     <number>   Starting balance in USD                (default: 1000)
- *   --slots      <number>   Max concurrent open positions          (default: 5)
+ *   --slots      <number>   Max concurrent open positions          (default: 3)
  *   --timeframe  <string>   Candle timeframe                       (default: config value)
  *   --candles    <number>   Candles to load per symbol             (default: 730)
  *   --symbols    a,b,c      Comma-separated override list          (default: all config symbols)
@@ -51,7 +51,7 @@ import {
 function parseArgs(argv) {
   const args = {
     budget:      1000,
-    slots:       5,
+    slots:       3,
     timeframe:   config.timeframe,
     candles:     730,
     symbols:     null,
@@ -441,6 +441,7 @@ console.log(`  Trades        : ${m.totalTrades}  (${m.winningTrades}W / ${m.losi
 console.log(`  Win rate      : ${(m.winRate * 100).toFixed(1)}%`);
 console.log(`  Profit factor : ${m.profitFactor === Infinity ? '∞' : m.profitFactor.toFixed(2)}`);
 console.log(`  Sharpe ratio  : ${m.sharpeRatio.toFixed(2)}`);
+console.log(`  Sortino ratio : ${m.sortinoRatio === Infinity ? '∞' : m.sortinoRatio.toFixed(2)}`);
 console.log(`  Max drawdown  : ${m.maxDrawdownPct}`);
 console.log(`  Avg win       : $${m.avgWin.toFixed(2)}   Avg loss: $${m.avgLoss.toFixed(2)}`);
 if (result.regimeFilteredCount > 0) {

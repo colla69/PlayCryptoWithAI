@@ -6,8 +6,8 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 > **EU compliance note:** All pairs trade against USDC (not USDT). USDT is not tradeable from most EU countries.
 
 **Backtested performance (4 years, 37 USDC coins, next-open fills, tiered slippage):**  
-`Y2 in-sample: +65.0% · Sharpe 2.58 · Max DD −4.4% · WR 65.1% · PF 4.95`  
-`Y1+Y2 full OOS: +893.2% · Sharpe 1.55 · Max DD −12.1% · WR 63.8% · PF 3.95`
+`Y2 in-sample: +87.1% · Sharpe 2.15 · Max DD −7.2% · WR 63.6% · PF 5.70`  
+`Y1+Y2 full OOS: +1912% · Sortino 10.33 · Max DD −13.0% · WR 62.8%`
 
 ---
 
@@ -139,7 +139,7 @@ PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
   --regimeSizing # enable ADX-based position sizing (boost trends, reduce chop)
   --confSizing   # enable confidence-proportional position sizing
   --mtfExit      # enable 15m early exit for losing positions (experimental)
-  --slots 4      # max concurrent open positions
+  --slots 3      # max concurrent open positions
   --candles 730  # candle window (730=Y2 in-sample, 1460=Y1+Y2 full OOS)
   --budget 1000  # starting capital in USD
   --sl 0.08      # stop-loss override (8%)
@@ -195,7 +195,7 @@ logs/
 37 Binance spot USDC pairs:  
 BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, TON, RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
 
-Max **4** concurrent open positions (~25% capital each), sized by ATR and confidence.  
+Max **3** concurrent open positions (~33% capital each), sized by ATR and confidence.  
 Per-symbol strategies and risk params are holdout-validated (Y1 OOS, MIN_TRADES ≥ 3).
 
 ---
