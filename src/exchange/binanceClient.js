@@ -66,8 +66,9 @@ async function loadTestnetMarkets() {
   for (const s of info.symbols ?? []) {
     if (s.status !== 'TRADING') continue;
     const symbol = `${s.baseAsset}/${s.quoteAsset}`;
-    const lotFilter = s.filters?.find((f) => f.filterType === 'LOT_SIZE') ?? {};
-    const priceFilter = s.filters?.find((f) => f.filterType === 'PRICE_FILTER') ?? {};
+    const lotFilter      = s.filters?.find((f) => f.filterType === 'LOT_SIZE') ?? {};
+    const priceFilter    = s.filters?.find((f) => f.filterType === 'PRICE_FILTER') ?? {};
+    const notionalFilter = s.filters?.find((f) => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL') ?? {};
     const m = {
       id: s.symbol, symbol,
       base: s.baseAsset, quote: s.quoteAsset,
@@ -80,6 +81,7 @@ async function loadTestnetMarkets() {
       limits: {
         amount: { min: parseFloat(lotFilter.minQty ?? 0), max: parseFloat(lotFilter.maxQty ?? 0) },
         price:  { min: parseFloat(priceFilter.minPrice ?? 0), max: parseFloat(priceFilter.maxPrice ?? 0) },
+        cost:   { min: parseFloat(notionalFilter.minNotional ?? notionalFilter.minOrderValue ?? 0) },
       },
       info: s,
     };
@@ -259,6 +261,29 @@ export async function amountToPrecision(symbol, amount) {
   }
 }
 
+/**
+ * Returns the exchange-enforced order limits for a symbol.
+ * @returns {{ minQty: number, stepSize: number, minNotional: number }}
+ */
+export async function getMarketLimits(symbol) {
+  await ensureMarketsLoaded();
+  const market = client.markets?.[symbol];
+  if (!market) return { minQty: 0, stepSize: 0, minNotional: 0 };
+
+  const minQty = Number(market.limits?.amount?.min ?? 0);
+  const minNotional = Number(market.limits?.cost?.min ?? 0);
+
+  // stepSize comes from the LOT_SIZE filter via ccxt's precision.amount
+  // ccxt stores it as decimal places, so 0.01 stepSize = precision 2
+  let stepSize = 0;
+  try {
+    const raw = market.info?.filters?.find?.((f) => f.filterType === 'LOT_SIZE');
+    stepSize = parseFloat(raw?.stepSize ?? 0);
+  } catch { /* ignore */ }
+
+  return { minQty, stepSize, minNotional };
+}
+
 export async function cancelOrder(orderId, symbol) {
   await ensureMarketsLoaded();
   return client.cancelOrder(orderId, symbol);
@@ -311,6 +336,7 @@ export default {
   fetchBalance,
   createOrder,
   amountToPrecision,
+  getMarketLimits,
   cancelOrder,
   fetchOpenOrders,
   fetchOrderStatus,

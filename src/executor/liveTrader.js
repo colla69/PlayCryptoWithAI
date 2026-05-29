@@ -1,7 +1,8 @@
-import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision } from '../exchange/binanceClient.js';
+import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 
-const MIN_NOTIONAL = 1;
+// Fallback floor — exchange-specific minNotional takes precedence when available
+const FALLBACK_MIN_NOTIONAL = 11;
 const roundMoney = (value) => Number(Number(value ?? 0).toFixed(2));
 const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
@@ -230,16 +231,35 @@ export class LiveTrader {
       }
 
       const allocation = roundMoney(freeQuote * risk.maxPositionPct);
-      const qty = roundQty(allocation / referencePrice);
-      const notional = roundMoney(qty * referencePrice);
 
-      if (allocation <= 0 || qty <= 0) {
+      if (allocation <= 0) {
         logger.warn(`[LIVE] ${symbol}: BUY skipped, insufficient balance`);
         return null;
       }
 
-      if (notional < MIN_NOTIONAL) {
-        logger.warn(`[LIVE] ${symbol}: BUY skipped, order value ${notional.toFixed(2)} below ${MIN_NOTIONAL} ${this.quoteCurrency} minimum`);
+      // Apply exchange lot-size step precision before any checks
+      const rawQty = allocation / referencePrice;
+      const qty = await amountToPrecision(symbol, rawQty).catch(() => roundQty(rawQty));
+      const notional = roundMoney(qty * referencePrice);
+
+      // Fetch exchange-enforced limits (minQty, minNotional) — fall back to safe defaults
+      let minQty = 0;
+      let minNotional = FALLBACK_MIN_NOTIONAL;
+      try {
+        const limits = await getMarketLimits(symbol);
+        minQty = limits.minQty ?? 0;
+        minNotional = Math.max(limits.minNotional ?? 0, FALLBACK_MIN_NOTIONAL);
+      } catch {
+        // Use fallback values — don't abort the trade on a limits-fetch failure
+      }
+
+      if (qty <= 0 || qty < minQty) {
+        logger.warn(`[LIVE] ${symbol}: BUY skipped, qty ${qty} below exchange minQty ${minQty}`);
+        return null;
+      }
+
+      if (notional < minNotional) {
+        logger.warn(`[LIVE] ${symbol}: BUY skipped, notional ${notional.toFixed(2)} below minimum ${minNotional.toFixed(2)} ${this.quoteCurrency}`);
         return null;
       }
 
