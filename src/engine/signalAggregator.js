@@ -146,20 +146,27 @@ export class SignalAggregator {
 
     for (const result of signals) {
       votes[result.signal] = (votes[result.signal] ?? 0) + algoWeight;
-      totalWeight += algoWeight;
+      // HOLD votes don't contribute to totalWeight — they represent absence of
+      // conviction, not conviction about holding. This prevents 2/3 HOLD + 1/3 BUY
+      // from diluting the BUY confidence down to 33%.
+      if (result.signal !== 'HOLD') totalWeight += algoWeight;
     }
 
     for (const externalSignal of externalSignals) {
       const sourceWeight = Math.max(0, this.getSourceWeight(externalSignal.source, activeConfig));
       const weightedVote = Number((sourceWeight * normalizeConfidence(externalSignal.confidence)).toFixed(4));
       votes[externalSignal.signal] = (votes[externalSignal.signal] ?? 0) + weightedVote;
-      totalWeight += weightedVote;
+      if (externalSignal.signal !== 'HOLD') totalWeight += weightedVote;
     }
 
     const rankedSignals = Object.entries(votes).sort((a, b) => b[1] - a[1]);
     const [winningSignal = 'HOLD', winningVotes = 0] = rankedSignals[0] ?? [];
     const tie = rankedSignals.filter(([, count]) => Math.abs(count - winningVotes) < 1e-9).length > 1;
-    const confidence = Number((winningVotes / (totalWeight || 1)).toFixed(2));
+    // Confidence = directional votes / total directional weight
+    // If only HOLD votes exist (totalWeight=0), confidence = 0
+    const confidence = totalWeight > 0
+      ? Number((winningVotes / totalWeight).toFixed(2))
+      : 0;
 
     if (tie || winningSignal === 'HOLD' || confidence < this.minimumConfidence) {
       return {

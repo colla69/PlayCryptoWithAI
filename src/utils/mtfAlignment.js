@@ -53,7 +53,10 @@ export function buildMtfIndex(candles12h, candles15m) {
  * Compute a [0, 1] bullish alignment score from the last `bars` 15m candles
  * ending at `lastIdx` (inclusive).
  *
- * Score = fraction of candles where close > open (green candles).
+ * Uses recency-weighted scoring: recent candles count more than older ones.
+ * A linearly increasing weight (oldest=1, newest=N) emphasises the current
+ * short-term trend direction over stale data.
+ *
  * Returns 0.5 (neutral) when fewer than half the requested candles are available.
  *
  * @param {Array<{open: number, close: number}>} candles15m
@@ -67,9 +70,15 @@ export function mtfAlignScore(candles15m, lastIdx, bars = 16) {
   const available = lastIdx - firstIdx + 1;
   if (available < Math.ceil(bars * 0.5)) return 0.5; // not enough data → neutral
 
-  let green = 0;
+  let weightedGreen = 0;
+  let totalWeight = 0;
   for (let k = firstIdx; k <= lastIdx; k++) {
-    if (Number(candles15m[k].close) > Number(candles15m[k].open)) green++;
+    // Linear weight: oldest candle in window = 1, newest = available
+    const weight = k - firstIdx + 1;
+    totalWeight += weight;
+    if (Number(candles15m[k].close) > Number(candles15m[k].open)) {
+      weightedGreen += weight;
+    }
   }
-  return green / available;
+  return totalWeight > 0 ? weightedGreen / totalWeight : 0.5;
 }

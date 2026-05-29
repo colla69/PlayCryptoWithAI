@@ -104,28 +104,45 @@ export class SupportResistanceStrategy {
       return dist >= 0 && dist <= nearZonePct;
     });
 
-    // ── 4. Signal logic ──────────────────────────────────────────────────────
+    // ── 4. Signal logic with candle confirmation ─────────────────────────────
+    // Require a rejection candle at the zone: for support, the last candle must
+    // show a bullish reaction (long lower wick relative to body, close in upper half).
+    // For resistance, the last candle must show rejection (long upper wick, close in lower half).
+    const lastCandle = data.at(-1);
+    const body     = Math.abs(lastCandle.close - lastCandle.open);
+    const range    = lastCandle.high - lastCandle.low || 1e-10;
+    const lowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
+    const upperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
+    const bullishRejection = lowerWick > body * 0.8 && lastCandle.close > lastCandle.open;
+    const bearishRejection = upperWick > body * 0.8 && lastCandle.close < lastCandle.open;
+
     if (nearSupport && !nearResistance) {
       const strength   = Math.min(1, nearSupport.touches / 5);
       const proximity  = 1 - Math.abs(currentPrice - nearSupport.level) / (nearSupport.level * nearZonePct);
-      const confidence = Math.min(0.82, 0.38 + strength * 0.28 + proximity * 0.16);
+      // Boost confidence if there's a confirming rejection candle, reduce if not
+      const confirmBonus = bullishRejection ? 0.12 : 0;
+      const confidence = Math.min(0.88, 0.38 + strength * 0.28 + proximity * 0.16 + confirmBonus);
+      // Without confirmation, cap confidence lower to express uncertainty
+      const finalConf = bullishRejection ? confidence : Math.min(confidence, 0.62);
       return {
         name:       'SupportResistance',
         signal:     'BUY',
-        confidence: Number(confidence.toFixed(4)),
-        reason:     `Support ${nearSupport.level.toFixed(4)} (${nearSupport.touches}×)`,
+        confidence: Number(finalConf.toFixed(4)),
+        reason:     `Support ${nearSupport.level.toFixed(4)} (${nearSupport.touches}×)${bullishRejection ? ' +pin' : ''}`,
       };
     }
 
     if (nearResistance && !nearSupport) {
       const strength   = Math.min(1, nearResistance.touches / 5);
       const proximity  = 1 - (nearResistance.level - currentPrice) / (currentPrice * nearZonePct);
-      const confidence = Math.min(0.82, 0.38 + strength * 0.28 + proximity * 0.16);
+      const confirmBonus = bearishRejection ? 0.12 : 0;
+      const confidence = Math.min(0.88, 0.38 + strength * 0.28 + proximity * 0.16 + confirmBonus);
+      const finalConf = bearishRejection ? confidence : Math.min(confidence, 0.62);
       return {
         name:       'SupportResistance',
         signal:     'SELL',
-        confidence: Number(confidence.toFixed(4)),
-        reason:     `Resistance ${nearResistance.level.toFixed(4)} (${nearResistance.touches}×)`,
+        confidence: Number(finalConf.toFixed(4)),
+        reason:     `Resistance ${nearResistance.level.toFixed(4)} (${nearResistance.touches}×)${bearishRejection ? ' +pin' : ''}`,
       };
     }
 

@@ -130,6 +130,22 @@ async function runCycle(symbol) {
     const currentStatus = await trader.getStatus();
     const symRisk = getRiskForSymbol(symbol);
 
+    // ── Easier SELL for open positions: lower confidence threshold ────────────
+    // If we already hold this symbol and the aggregator says SELL but confidence
+    // fell below minConfidence (decision forced to HOLD), re-check at a lower bar.
+    // Exiting a position requires less conviction than entering one.
+    const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
+    if (hasPosition && result.decision === 'HOLD') {
+      const sellVotes = result.signals.filter((s) => s.signal === 'SELL').length;
+      const totalStrategies = result.signals.length;
+      const sellMajority = totalStrategies > 0 && sellVotes > totalStrategies / 2;
+      const sellThreshold = (symSignalConfig.minConfidence ?? 0.7) * 0.7; // 30% lower bar for exits
+      if (sellMajority && result.confidence >= sellThreshold) {
+        result.decision = 'SELL';
+        logger.info(`${symbol}: SELL threshold lowered for exit (conf=${result.confidence.toFixed(2)} ≥ ${sellThreshold.toFixed(2)})`);
+      }
+    }
+
     // ── Regime filter: block NEW buys in ranging markets ─────────────────────
     // ADX computed from the same past candles the aggregator just used — no lookahead.
     // Existing positions are unaffected; SL/TP management always runs.
