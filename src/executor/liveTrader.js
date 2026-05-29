@@ -122,10 +122,12 @@ export class LiveTrader {
     }
   }
 
-  async restorePositionsFromExchange(symbols, fetchTickerFn, getRiskForSymbol, tradeHistory = []) {
+  async restorePositionsFromExchange(symbols, fetchTickerFn, getRiskForSymbol, tradeHistory = [], onSyntheticTrade = null) {
     let restored = 0;
     try {
       const balance = await fetchBalance();
+      const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
+
       for (const symbol of symbols) {
         try {
           // Skip symbols already tracked in memory
@@ -180,12 +182,32 @@ export class LiveTrader {
             trailingStopPct: Number.isFinite(this.config.trailingStopPct) && this.config.trailingStopPct > 0
               ? this.config.trailingStopPct
               : undefined,
-            openedAt: foundEntry ? new Date().toISOString() : new Date().toISOString(),
+            openedAt: new Date().toISOString(),
           };
 
           this.positions.set(symbol, position);
           restored++;
-          logger.info(`[LIVE] Restored position from exchange: ${symbol} qty=${qty} entry=${entryPrice} notional=$${notional.toFixed(2)}`);
+          logger.info(`[LIVE] Restored position from exchange: ${symbol} qty=${qty} entry=${entryPrice} notional=$${notional.toFixed(2)}${foundEntry ? '' : ' (no history — synthetic BUY recorded)'}`);
+
+          // If no matching BUY exists in the trade log, synthesise one so the
+          // dashboard P&L, win-rate, and open-position panel are all consistent.
+          if (!foundEntry && typeof onSyntheticTrade === 'function') {
+            const synthetic = {
+              timestamp: new Date().toISOString(),
+              symbol,
+              side: 'BUY',
+              price: entryPrice,
+              qty: roundQty(qty),
+              pnl: 0,
+              balance: roundMoney(freeQuote),
+              note: '🔄 restored-from-exchange',
+            };
+            try {
+              onSyntheticTrade(synthetic);
+            } catch (cbErr) {
+              logger.warn(`[LIVE] ${symbol}: synthetic trade callback failed — ${cbErr.message}`);
+            }
+          }
         } catch (symErr) {
           logger.warn(`[LIVE] restorePositionsFromExchange: skipped ${symbol} - ${symErr.message}`);
         }

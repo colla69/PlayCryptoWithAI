@@ -11,7 +11,7 @@ import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
-import logger from './utils/logger.js';
+import logger, { appendTrade } from './utils/logger.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import { mtfAlignScore } from './utils/mtfAlignment.js';
@@ -690,10 +690,19 @@ await initializeHistoricalData();
 riskManager.seedFromHistory(dashboardState.getSummary().trades);
 
 // ── Restore in-memory live positions from Binance exchange ───────────────────
+// onSyntheticTrade: called when a position is found on Binance but has no
+// matching BUY in the trade log (e.g. manual buy, history cleared, first run).
+// Writes a synthetic BUY to both the CSV log and the dashboard trade feed.
+function recordSyntheticTrade(trade) {
+  appendTrade(trade);
+  dashboardState.pushTrade(trade);
+  logger.info(`[LIVE] ${trade.symbol}: synthetic BUY added to history (entry=${trade.price} qty=${trade.qty})`);
+}
+
 if (!paperMode) {
   const tradeHistory = dashboardState.getSummary().trades;
   const restored = await trader.restorePositionsFromExchange(
-    config.symbols, fetchTicker, getRiskForSymbol, tradeHistory
+    config.symbols, fetchTicker, getRiskForSymbol, tradeHistory, recordSyntheticTrade
   );
   if (restored > 0) {
     const status = await trader.getStatus();
@@ -772,7 +781,7 @@ if (!paperMode) {
     try {
       // Sync positions FIRST so balance reflects actual holdings
       await trader.restorePositionsFromExchange(
-        config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades
+        config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades, recordSyntheticTrade
       );
       const status = await trader.getStatus();
       dashboardState.updateStatus(status, riskManager.getDailyStats());
