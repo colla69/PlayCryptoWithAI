@@ -107,7 +107,8 @@ export class BacktestSimulator {
       && position.stopLoss < position.entryPrice
       && currentPrice >= position.entryPrice * (1 + breakEvenTriggerPct)
     ) {
-      position.stopLoss = roundPrice(position.entryPrice);
+      // Cover round-trip fees (~0.2%) so break-even is truly net-zero
+      position.stopLoss = roundPrice(position.entryPrice * 1.002);
     }
 
     if (currentPrice <= position.stopLoss) {

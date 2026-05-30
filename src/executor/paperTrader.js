@@ -74,8 +74,8 @@ export class PaperTrader {
     const bePct = Number(this.config.breakEvenTriggerPct ?? 0);
     if (bePct > 0 && position.stopLoss < position.entryPrice) {
       if (currentPrice >= position.entryPrice * (1 + bePct)) {
-        position.stopLoss = position.entryPrice;
-        logger.info(`[PAPER] ${symbol}: break-even stop locked at ${position.entryPrice}`);
+        position.stopLoss = position.entryPrice * 1.002;
+        logger.info(`[PAPER] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
       }
     }
 
