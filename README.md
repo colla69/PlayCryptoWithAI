@@ -27,6 +27,33 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 - **Daily loss limit** — halts trading if drawdown exceeds threshold
 - **Step-size precision** — sells the exact maximum qty Binance accepts (no dust remainder)
 
+### Protections & Safety
+
+| Layer | Protection | Trigger | Action |
+|-------|-----------|---------|--------|
+| **Entry** | Max open positions | 3 slots filled | New BUY signals blocked |
+| **Entry** | 15m MTF alignment | Score < 0.50 | Entry blocked |
+| **Entry** | 4h momentum filter | Score < 0.45 | Entry blocked |
+| **Entry** | Macro bear filter | BTC < EMA(200) | Position size halved (0.5×) |
+| **Entry** | Regime sizing | ADX < 15 (choppy) | Position size halved (0.5×) |
+| **Entry** | Daily loss limit | Daily P&L < −5% | All new trades blocked for the day |
+| **Entry** | Min confidence | Weighted vote < threshold | No trade executed |
+| **In-trade** | Stop-loss | Price drops to SL level | Market sell immediately |
+| **In-trade** | Take-profit | Price reaches TP level | Market sell immediately |
+| **In-trade** | Break-even stop | Price reaches +5% | SL moved to entry (risk-free trade) |
+| **Startup** | Position sync | Bot restarts | Reads Binance balances, restores positions |
+| **Startup** | Smoke test | Boot | Verifies Binance API connectivity before trading |
+
+**Default risk parameters:**
+```
+stopLossPct:        5%    (per symbol, range 3-8%)
+takeProfitPct:      12%   (per symbol, range 8-20%)
+breakEvenTriggerPct: 5%
+maxDailyLossPct:    5%
+maxOpenPositions:   3     (~33% capital per trade)
+maxPositionPct:     15%   (before ATR/confidence/regime scaling)
+```
+
 ### Multi-Timeframe (MTF) Alignment Filters
 - **15m filter:** Before entering a 12h BUY, checks last 16 × 15m candles (4h window)
   - Recency-weighted scoring — recent 15m candles have ~2× influence vs oldest
@@ -54,13 +81,43 @@ Trades a **37-coin USDC portfolio** on a 12h timeframe using a voting signal eng
 - **Synthetic trade record** — if no matching BUY found in history, a synthetic entry is created for dashboard continuity
 
 ### Dashboard
-- Live web dashboard at `http://localhost:3001`
-- Real-time open positions, P&L, trade history (with trade size column), signal feed
-- Manual **Close Position** button per open trade
+- Live web dashboard at `http://localhost:3001` — 3 tabs:
+  - **Dashboard** — real-time positions, P&L, trade history, signal feed, balance, manual close buttons
+  - **Tools** — P&L equity curve chart, deposit tracker (with True ROI calculation)
+  - **Logs** — full-height log viewer with live filter and debounced search
+- SSE real-time updates (no polling)
 - Balance auto-refresh every 5 minutes (picks up deposits automatically)
+- **Deposit tracker** — track capital injections with date picker, calculates True ROI (portfolio value vs total deposited)
 - **Reset History** button to clear trade log and persisted state
-- Log viewer with live filter and debounced search
-- Persists across restarts via `data/dashboard_persist.json` and `logs/trades.csv` (both git-tracked)
+- Persists across restarts via `data/dashboard_persist.json` and `logs/trades.csv`
+
+---
+
+## How It Works
+
+```
+Every 12h candle close:
+┌─────────────────────────────────────────────────────────────┐
+│  1. Fetch 15m + 4h + 12h candles for all 37 symbols         │
+│  2. For each symbol:                                        │
+│     ├── Run signal aggregator (15 strategies vote)          │
+│     ├── Apply entry filters:                                │
+│     │   ├── Max positions check (3 slots)                   │
+│     │   ├── Daily loss limit check                          │
+│     │   ├── 15m MTF alignment score                         │
+│     │   ├── 4h momentum filter                              │
+│     │   └── Min confidence threshold                        │
+│     ├── Compute position size:                              │
+│     │   ├── Base: maxPositionPct (15%)                      │
+│     │   ├── × ATR scaling (volatile = smaller)              │
+│     │   ├── × Confidence scaling (0.6× – 1.5×)             │
+│     │   ├── × Regime sizing (ADX-based, 0.5× – 1.3×)       │
+│     │   └── × Macro filter (0.5× if BTC bearish)           │
+│     └── Execute trade + set SL/TP                           │
+│  3. Check open positions for SL/TP/break-even               │
+│  4. Update dashboard via SSE                                │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
