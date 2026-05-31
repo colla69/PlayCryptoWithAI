@@ -977,13 +977,28 @@
     })();
 
     // ── P&L Chart ─────────────────────────────────────────────────────────
-    let _pnlChartData = [];
+    let _pnlChartDataFull = [];
+    let _cumulativeRange = '7d';
+
+    function rangeToCutoff(range) {
+      if (range === 'all') return 0;
+      const days = { '7d': 7, '30d': 30, '180d': 180, '365d': 365 }[range] || 30;
+      return Date.now() - days * 86400000;
+    }
+
+    function filterByRange(data, range, timeKey = 'time') {
+      const cutoff = rangeToCutoff(range);
+      if (!cutoff) return data;
+      return data.filter(d => {
+        const t = d[timeKey] instanceof Date ? d[timeKey].getTime() : new Date(d[timeKey]).getTime();
+        return t >= cutoff;
+      });
+    }
 
     async function fetchPnlData() {
       try {
         const trades = await fetch(`${API_BASE}/api/trades`, { cache: 'no-store' }).then(r => r.json());
         if (!Array.isArray(trades)) return [];
-        // Only closed trades (SELLs with pnl)
         const closed = trades
           .filter(t => t.side === 'SELL' && t.pnl != null)
           .sort((a, b) => new Date(a.exitTime || a.timestamp).getTime() - new Date(b.exitTime || b.timestamp).getTime());
@@ -997,8 +1012,9 @@
 
     function renderPnlChart() {
       fetchPnlData().then(data => {
-        _pnlChartData = data;
-        drawPnlCanvas(data);
+        _pnlChartDataFull = data;
+        const filtered = filterByRange(data, _cumulativeRange);
+        drawPnlCanvas(filtered);
       });
     }
 
@@ -1164,13 +1180,14 @@
     // Redraw on resize
     window.addEventListener('resize', () => {
       if (document.getElementById('tab-tools')?.classList.contains('active')) {
-        if (_pnlChartData.length) drawPnlCanvas(_pnlChartData);
-        if (_dailyPnlData.length) drawDailyPnlCanvas(_dailyPnlData);
+        if (_pnlChartDataFull.length) drawPnlCanvas(filterByRange(_pnlChartDataFull, _cumulativeRange));
+        if (_dailyPnlDataFull.length) drawDailyPnlCanvas(filterByRange(_dailyPnlDataFull, _dailyRange, 'date'));
       }
     });
 
     // ── Daily P&L Bar Chart ─────────────────────────────────────────────────────
-    let _dailyPnlData = [];
+    let _dailyPnlDataFull = [];
+    let _dailyRange = '7d';
 
     async function fetchDailyPnl() {
       try {
@@ -1181,23 +1198,28 @@
 
     function renderDailyPnlChart() {
       fetchDailyPnl().then(data => {
-        _dailyPnlData = data;
-        drawDailyPnlCanvas(data);
-        updateWeeklySummary(data);
+        _dailyPnlDataFull = data;
+        const filtered = filterDailyByRange(data, _dailyRange);
+        drawDailyPnlCanvas(filtered);
+        updatePeriodSummary(filtered);
       });
     }
 
-    function updateWeeklySummary(data) {
+    function filterDailyByRange(data, range) {
+      if (range === 'all') return data;
+      const days = { '7d': 7, '30d': 30, '180d': 180, '365d': 365 }[range] || 30;
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      return data.filter(d => d.date >= cutoff);
+    }
+
+    function updatePeriodSummary(data) {
       const el7 = document.getElementById('weeklyPnlValue');
       const elTrades = document.getElementById('weeklyPnlTrades');
       if (!el7) return;
 
-      const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-      const last7 = data.filter(d => d.date >= weekAgo);
-      const totalPnl = last7.reduce((sum, d) => sum + d.pnl, 0);
-      const totalTrades = last7.reduce((sum, d) => sum + d.trades, 0);
-      const totalWins = last7.reduce((sum, d) => sum + d.wins, 0);
+      const totalPnl = data.reduce((sum, d) => sum + d.pnl, 0);
+      const totalTrades = data.reduce((sum, d) => sum + d.trades, 0);
+      const totalWins = data.reduce((sum, d) => sum + d.wins, 0);
       const wr = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(0) : '—';
 
       const sign = totalPnl >= 0 ? '+' : '';
@@ -1231,12 +1253,11 @@
         ctx.fillStyle = '#8b949e';
         ctx.font = '14px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('No daily P&L data yet', W / 2, H / 2);
+        ctx.fillText('No daily P&L data for this period', W / 2, H / 2);
         return;
       }
 
-      // Show last 30 days max
-      const recent = data.slice(-30);
+      const recent = data;
       const pnls = recent.map(d => d.pnl);
       const maxPnl = Math.max(0, ...pnls);
       const minPnl = Math.min(0, ...pnls);
@@ -1330,6 +1351,27 @@
 
       canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
     })();
+
+    // ── Range button handlers ─────────────────────────────────────────────────
+    document.getElementById('cumulativeRangeBtns')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.range-btn');
+      if (!btn) return;
+      _cumulativeRange = btn.dataset.range;
+      document.querySelectorAll('#cumulativeRangeBtns .range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      drawPnlCanvas(filterByRange(_pnlChartDataFull, _cumulativeRange));
+    });
+
+    document.getElementById('dailyRangeBtns')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.range-btn');
+      if (!btn) return;
+      _dailyRange = btn.dataset.range;
+      document.querySelectorAll('#dailyRangeBtns .range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const filtered = filterDailyByRange(_dailyPnlDataFull, _dailyRange);
+      drawDailyPnlCanvas(filtered);
+      updatePeriodSummary(filtered);
+    });
 
     // ── Deposit Tracker ───────────────────────────────────────────────────────
     async function loadDeposits() {
