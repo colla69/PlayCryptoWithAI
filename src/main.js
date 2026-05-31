@@ -14,6 +14,7 @@ import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
+import { initNotifier, notifyTrade, notifyStartup } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
 import { computePositionSize } from './core/positionSizing.js';
@@ -210,6 +211,7 @@ async function runCycle(symbol) {
           riskManager.recordTrade(tradeResult.pnl);
         }
         dashboardState.pushTrade(tradeResult);
+        notifyTrade(tradeResult);
         pushEvent('trade', tradeResult);
       }
     }
@@ -656,6 +658,7 @@ if (config.dashboard?.enabled) {
       const status = await trader.getStatus();
       dashboardState.updateStatus(status, riskManager.getDailyStats());
       dashboardState.pushTrade({ ...result, note: '🖱️ manual close' });
+      notifyTrade({ ...result, note: '🖱️ manual close' });
       pushEvent('status', { balance: status.balance });
     }
     return result;
@@ -671,6 +674,12 @@ if (config.dashboard?.enabled) {
 }
 
 logStartup();
+
+// Initialize Telegram notifications (send-only — separate from the signal listener)
+const notifyChatIds = (process.env.TELEGRAM_CHANNEL_IDS?.split(',') ?? []).map(id => id.trim()).filter(Boolean);
+initNotifier(process.env.TELEGRAM_TOKEN, notifyChatIds);
+notifyStartup(paperMode ? 'PAPER' : testnetMode ? 'TESTNET' : 'LIVE', config.symbols);
+
 // Expose filter config to the dashboard
 dashboardState.setActiveFilters({
   regime:       { enabled: config.regime?.enabled ?? false,      adxPeriod: config.regime?.adxPeriod ?? 14,     adxThreshold: config.regime?.adxThreshold ?? 20 },
@@ -791,6 +800,7 @@ if (!paperMode) {
             // Position was closed — update dashboard
             logger.info(`[RISK-LOOP] ${pos.symbol}: position closed by risk check`);
             dashboardState.pushTrade(result);
+            notifyTrade(result);
             const freshStatus = await trader.getStatus();
             dashboardState.updateStatus(freshStatus, riskManager.getDailyStats());
             pushEvent('trade', result);
