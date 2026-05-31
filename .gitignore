@@ -7,23 +7,8 @@ node_modules/
 .env.live
 
 # Runtime logs (not trade history)
-logs/*.log
-logs/*.json
-
-logs/trades.csv
-data/dashboard_persist.json
-data/signal_history.json
-data/deposits.json
-
-# Large backtest / scan artifacts (reproducible, not source of truth)
-data/optimization_results*.json
-data/optimization_15m.json
-data/new_coins_*.json
-data/results_12h.json
-data/results_1d.json
-data/sweep_results.json
-data/holdout_15m.json
-data/persymbol_results.json
+logs/*
+data/*
 
 # Editor / OS
 .idea/
