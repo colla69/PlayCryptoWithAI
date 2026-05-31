@@ -1,7 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import fs from 'fs';
 import path from 'path';
-import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
+import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, fetchOHLCV, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
 
@@ -220,11 +220,36 @@ export class LiveTrader {
             }
             logger.info(`[LIVE] ${symbol}: restored persisted stop-loss=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}${saved.breakEvenLocked ? ' (BE locked)' : ''}`);
           } else {
-            // No persisted state — use heuristic: if price is above BE trigger, lock BE
-            if (breakEvenTriggerPct > 0 && currentPrice >= entryPrice * (1 + breakEvenTriggerPct)) {
-              position.stopLoss = roundPrice(entryPrice * 1.002);
+            // No persisted state — use candle-based heuristic to detect if BE should be locked.
+            // Fetch recent 4h candles and check if high ever exceeded BE trigger since entry.
+            let beLocked = false;
+            if (breakEvenTriggerPct > 0) {
+              const beLevel = entryPrice * (1 + breakEvenTriggerPct);
+              // Current price check (fast path)
+              if (currentPrice >= beLevel) {
+                beLocked = true;
+              } else {
+                // Candle-based check: did the price ever reach BE trigger?
+                try {
+                  const candles = await fetchOHLCV(symbol, '4h', 42); // ~7 days
+                  if (candles && candles.length > 0) {
+                    for (const c of candles) {
+                      if (Number(c.high ?? c[2] ?? 0) >= beLevel) {
+                        beLocked = true;
+                        break;
+                      }
+                    }
+                  }
+                } catch (candleErr) {
+                  logger.debug(`[LIVE] ${symbol}: candle heuristic failed — ${candleErr.message}`);
+                }
+              }
+              if (beLocked) {
+                position.stopLoss = roundPrice(entryPrice * 1.002);
+                logger.info(`[LIVE] ${symbol}: BE lock detected from candle history (no persisted state)`);
+              }
             }
-            if (position.trailingStopPct && currentPrice > entryPrice) {
+            if (!beLocked && position.trailingStopPct && currentPrice > entryPrice) {
               const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
               if (trailStop > position.stopLoss) {
                 position.stopLoss = trailStop;
