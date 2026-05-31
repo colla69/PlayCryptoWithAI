@@ -95,28 +95,12 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   };
 
   const sendTrades = (_req, res) => {
-    // Read directly from trades.csv — no persistence dependency
-    const csvPath = path.join(logsDir, 'trades.csv');
-    if (!fs.existsSync(csvPath)) return res.json([]);
+    // Read directly from dashboard_persist.json
+    const persistFile = path.resolve(process.cwd(), 'data', 'dashboard_persist.json');
     try {
-      const raw = fs.readFileSync(csvPath, 'utf8');
-      const lines = raw.trim().split('\n').slice(1); // skip header
-      const trades = [];
-      for (const line of lines) {
-        const cols = line.split(',');
-        if (cols.length < 7) continue;
-        const [timestamp, symbol, side, price, qty, pnl, balance] = cols;
-        trades.push({
-          timestamp, symbol, side,
-          entryPrice: side === 'BUY' ? Number(price) : undefined,
-          exitPrice: side === 'SELL' ? Number(price) : undefined,
-          exitTime: side === 'SELL' ? timestamp : undefined,
-          qty: Number(qty),
-          pnl: side === 'SELL' ? Number(pnl) : undefined,
-          balance: Number(balance),
-        });
-      }
-      res.json(trades);
+      if (!fs.existsSync(persistFile)) return res.json([]);
+      const data = JSON.parse(fs.readFileSync(persistFile, 'utf8'));
+      res.json(data.trades ?? []);
     } catch { res.json([]); }
   };
 
@@ -356,27 +340,27 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     res.json({ ok: true });
   });
 
-  // ── Daily P&L — computed directly from trades.csv ──────────────────────────
-  const tradesCsvFile = path.join(logsDir, 'trades.csv');
+  // ── Daily P&L — computed from dashboard_persist.json trades ─────────────────
+  const persistFile = path.resolve(process.cwd(), 'data', 'dashboard_persist.json');
 
-  function computeDailyPnlFromCsv() {
-    if (!fs.existsSync(tradesCsvFile)) return [];
-    const raw = fs.readFileSync(tradesCsvFile, 'utf8');
-    const lines = raw.trim().split('\n').slice(1);
+  function computeDailyPnl() {
+    let trades = [];
+    try {
+      if (fs.existsSync(persistFile)) {
+        const data = JSON.parse(fs.readFileSync(persistFile, 'utf8'));
+        trades = data.trades ?? [];
+      }
+    } catch { /* empty */ }
+
+    const sells = trades.filter(t => t.side === 'SELL' && t.pnl != null);
     const byDay = {};
-    for (const line of lines) {
-      const cols = line.split(',');
-      if (cols.length < 6) continue;
-      const [timestamp, , side, , , pnlStr] = cols;
-      if (side !== 'SELL') continue;
-      const pnl = Number(pnlStr);
-      if (!Number.isFinite(pnl)) continue;
-      const day = (timestamp || '').slice(0, 10);
+    for (const t of sells) {
+      const day = (t.exitTime || t.timestamp || '').slice(0, 10);
       if (!day) continue;
       if (!byDay[day]) byDay[day] = { pnl: 0, trades: 0, wins: 0 };
-      byDay[day].pnl += pnl;
+      byDay[day].pnl += Number(t.pnl || 0);
       byDay[day].trades++;
-      if (pnl > 0) byDay[day].wins++;
+      if (Number(t.pnl || 0) > 0) byDay[day].wins++;
     }
 
     // Add today's unrealized P&L from open positions
@@ -402,7 +386,7 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   }
 
   app.get('/api/daily-pnl', (_req, res) => {
-    res.json(computeDailyPnlFromCsv());
+    res.json(computeDailyPnl());
   });
 
   app.get(['/api/logs', '/logs-data'], (req, res) => {
