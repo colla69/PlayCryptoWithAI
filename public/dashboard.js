@@ -425,7 +425,7 @@
       }
       // P&L stat card: percentage as main, $ amount in sub-line, hover shows exact dollar
       const pnlSign = stats.totalPnl >= 0 ? '+' : '';
-      el.totalPnl.textContent = `${pnlSign}${formatPercent(stats.pnlPct)}`;
+      el.totalPnl.textContent = formatPercent(stats.pnlPct);
       el.totalPnl.className = `stat-main ${classForValue(stats.totalPnl)}`;
       el.totalPnl.title = `${pnlSign}${formatMoney(Math.abs(stats.totalPnl))} total`;
       el.totalPnl.style.cursor = 'default';
@@ -471,7 +471,7 @@
         const unrealized = Number(position.unrealizedPnl ?? 0);
         const unrealizedPct = costBasis > 0 ? (unrealized / costBasis) * 100 : null;
         const unrealizedDisplay = unrealizedPct !== null
-          ? `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${unrealizedPct >= 0 ? '+' : ''}${formatPercent(unrealizedPct)}</span>`
+          ? `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${formatPercent(unrealizedPct)}</span>`
           : '—';
         const base       = getBaseSymbol(position.symbol);
         const heldFor    = position.openedAt ? formatDuration(Date.now() - new Date(position.openedAt).getTime()) : '—';
@@ -794,7 +794,7 @@
         const pnlCell = row.querySelector('.pos-unrealized');
         if (pnlCell && unrealizedPct !== null) {
           pnlCell.className = `pos-unrealized ${classForValue(unrealized)}`;
-          pnlCell.innerHTML = `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${unrealizedPct >= 0 ? '+' : ''}${formatPercent(unrealizedPct)}</span>`;
+          pnlCell.innerHTML = `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${formatPercent(unrealizedPct)}</span>`;
         }
       });
     }
