@@ -1034,7 +1034,7 @@
       ctx.scale(dpr, dpr);
       const W = rect.width;
       const H = rect.height;
-      const pad = { top: 30, right: 20, bottom: 40, left: 65 };
+      const pad = { top: 20, right: 20, bottom: 40, left: 65 };
       const chartW = W - pad.left - pad.right;
       const chartH = H - pad.top - pad.bottom;
 
@@ -1130,6 +1130,14 @@
       const fillColor = total >= 0 ? 'rgba(63, 185, 80, 0.1)' : 'rgba(248, 81, 73, 0.1)';
       ctx.fillStyle = fillColor;
       ctx.fill();
+
+      // Data points
+      for (let i = 0; i < data.length; i++) {
+        ctx.beginPath();
+        ctx.arc(xPos(data[i].time), yPos(data[i].pnl), 3, 0, Math.PI * 2);
+        ctx.fillStyle = data[i].tradePnl >= 0 ? '#3fb950' : '#f85149';
+        ctx.fill();
+      }
 
       // Store chart params for tooltip
       canvas._chartParams = { data, xPos, yPos, pad, W, H, chartW, chartH };
@@ -1307,7 +1315,8 @@
       const xLabels = Math.min(6, points.length);
       for (let i = 0; i < xLabels; i++) {
         const idx = Math.round((i / (xLabels - 1)) * (points.length - 1));
-        ctx.fillText(points[idx].date.slice(5), xPos(idx), H - pad.bottom + 20);
+        const dt = new Date(points[idx].date);
+        ctx.fillText(`${dt.getMonth() + 1}/${dt.getDate()}`, xPos(idx), H - pad.bottom + 20);
       }
 
       // Draw line
