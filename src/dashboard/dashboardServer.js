@@ -300,7 +300,7 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   });
 
   // ── Daily P&L (persisted) ──────────────────────────────────────────────────
-  const dailyPnlFile = path.join(dataDir, 'daily_pnl.json');
+  const dailyPnlFile = path.resolve(process.cwd(), 'data', 'daily_pnl.json');
 
   function loadDailyPnl() {
     try { return JSON.parse(fs.readFileSync(dailyPnlFile, 'utf8')); }
