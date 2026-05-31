@@ -1,4 +1,6 @@
 import '../types.js'; // JSDoc type definitions
+import fs from 'fs';
+import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
@@ -11,6 +13,8 @@ const MIN_RESTORE_NOTIONAL = 5;
 const roundMoney = (value) => Number(Number(value ?? 0).toFixed(2));
 const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
+
+const POSITION_STATE_FILE = path.join(process.cwd(), 'data', 'position_state.json');
 
 export class LiveTrader {
   constructor(config = {}) {
@@ -77,6 +81,7 @@ export class LiveTrader {
         const prevSL = position.stopLoss;
         position.stopLoss = trailing.newStopLoss;
         logger.debug(`[LIVE] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${trailing.newStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
+        this.#savePositionState();
       }
 
       // Break-even stop
@@ -84,6 +89,7 @@ export class LiveTrader {
       if (be.shouldTrigger) {
         position.stopLoss = be.newStopLoss;
         logger.info(`[LIVE] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
+        this.#savePositionState();
       }
 
       // Exit signal evaluation
@@ -136,6 +142,7 @@ export class LiveTrader {
 
   async restorePositionsFromExchange(symbols, fetchTickerFn, getRiskForSymbol, tradeHistory = [], onSyntheticTrade = null) {
     let restored = 0;
+    const savedState = LiveTrader.loadPositionState();
     try {
       const balance = await fetchBalance();
       const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
@@ -197,15 +204,25 @@ export class LiveTrader {
             openedAt: new Date().toISOString(),
           };
 
-          // Re-apply break-even and trailing stop based on current price.
-          // Without this, a restart erases previously locked protections.
-          if (breakEvenTriggerPct > 0 && currentPrice >= entryPrice * (1 + breakEvenTriggerPct)) {
-            position.stopLoss = roundPrice(entryPrice * 1.002);
-          }
-          if (position.trailingStopPct && currentPrice > entryPrice) {
-            const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
-            if (trailStop > position.stopLoss) {
-              position.stopLoss = trailStop;
+          // Re-apply break-even and trailing stop from persisted state or heuristic.
+          const saved = savedState[symbol];
+          if (saved && saved.stopLoss > 0) {
+            // Restore exact persisted stop-loss and HWM
+            position.stopLoss = roundPrice(saved.stopLoss);
+            if (saved.highWaterMark > position.highWaterMark) {
+              position.highWaterMark = roundPrice(saved.highWaterMark);
+            }
+            logger.info(`[LIVE] ${symbol}: restored persisted stop-loss=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}`);
+          } else {
+            // No persisted state — use heuristic: if price is above BE trigger, lock BE
+            if (breakEvenTriggerPct > 0 && currentPrice >= entryPrice * (1 + breakEvenTriggerPct)) {
+              position.stopLoss = roundPrice(entryPrice * 1.002);
+            }
+            if (position.trailingStopPct && currentPrice > entryPrice) {
+              const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
+              if (trailStop > position.stopLoss) {
+                position.stopLoss = trailStop;
+              }
             }
           }
 
@@ -341,6 +358,7 @@ export class LiveTrader {
       };
 
       this.positions.set(symbol, position);
+      this.#savePositionState();
       const balanceAfter = await this.#fetchQuoteBalance();
 
       logger.info(
@@ -423,6 +441,7 @@ export class LiveTrader {
 
       this.totalPnL = roundMoney(this.totalPnL + pnl);
       this.positions.delete(symbol);
+      this.#savePositionState();
 
       logger.info(
         `[LIVE] SELL ${symbol} qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} pnl%=${pnlPct}% reason=${reason} held=${durationHrs}h balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
@@ -482,6 +501,34 @@ export class LiveTrader {
 
   #formatError(error) {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  /** Persist current position stop-loss/HWM state to disk. */
+  #savePositionState() {
+    try {
+      const state = {};
+      for (const [symbol, pos] of this.positions) {
+        state[symbol] = {
+          stopLoss: pos.stopLoss,
+          highWaterMark: pos.highWaterMark,
+          initialStopLoss: pos.initialStopLoss,
+          entryPrice: pos.entryPrice,
+        };
+      }
+      fs.writeFileSync(POSITION_STATE_FILE, JSON.stringify(state, null, 2));
+    } catch (e) {
+      logger.debug(`[LIVE] position state save failed: ${e.message}`);
+    }
+  }
+
+  /** Load persisted position state (stop-loss levels that survive restarts). */
+  static loadPositionState() {
+    try {
+      if (!fs.existsSync(POSITION_STATE_FILE)) return {};
+      return JSON.parse(fs.readFileSync(POSITION_STATE_FILE, 'utf8'));
+    } catch {
+      return {};
+    }
   }
 }
 
