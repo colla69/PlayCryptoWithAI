@@ -12,6 +12,7 @@ logs/*.json
 
 logs/trades.csv
 data/dashboard_persist.json
+data/deposits.json
 
 # Large backtest / scan artifacts (reproducible, not source of truth)
 data/optimization_results*.json

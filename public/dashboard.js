@@ -1460,11 +1460,16 @@
       const amount = parseFloat(amountEl.value);
       if (!amount || isNaN(amount)) { amountEl.focus(); return; }
       const date = dateEl.value || new Date().toISOString().slice(0, 10);
-      await fetch(`${API_BASE}/api/deposits`, {
+      const resp = await fetch(`${API_BASE}/api/deposits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount, note: noteEl.value.trim(), date }),
       });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
+        alert(`Failed to save deposit: ${err.error || resp.statusText}`);
+        return;
+      }
       amountEl.value = '';
       noteEl.value = '';
       dateEl.value = '';

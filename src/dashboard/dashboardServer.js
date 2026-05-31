@@ -264,6 +264,7 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   function saveDeposits(deposits) {
     fs.mkdirSync(path.dirname(depositsFile), { recursive: true });
     fs.writeFileSync(depositsFile, JSON.stringify(deposits, null, 2));
+    logger.debug(`[deposits] saved ${deposits.length} entries to ${depositsFile}`);
   }
 
   app.get('/api/deposits', (_req, res) => {
@@ -284,7 +285,12 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
       note: note || '',
     };
     deposits.push(entry);
-    saveDeposits(deposits);
+    try {
+      saveDeposits(deposits);
+    } catch (err) {
+      logger.error(`[deposits] write failed: ${err.message}`);
+      return res.status(500).json({ error: `Failed to save deposit: ${err.message}` });
+    }
     logger.info(`Deposit recorded: ${amount >= 0 ? '+' : ''}$${Number(amount).toFixed(2)} on ${entry.date}${note ? ' — ' + note : ''}`);
     res.json(entry);
   });
@@ -294,7 +300,12 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     const idx = deposits.findIndex(d => d.id === Number(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'deposit not found' });
     const removed = deposits.splice(idx, 1)[0];
-    saveDeposits(deposits);
+    try {
+      saveDeposits(deposits);
+    } catch (err) {
+      logger.error(`[deposits] write failed: ${err.message}`);
+      return res.status(500).json({ error: `Failed to remove deposit: ${err.message}` });
+    }
     logger.info(`Deposit removed: $${removed.amount.toFixed(2)}`);
     res.json({ ok: true });
   });
