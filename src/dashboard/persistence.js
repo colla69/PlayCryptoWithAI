@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR   = join(__dirname, '../../data');
 const STATE_FILE = join(DATA_DIR, 'dashboard_persist.json');
+const SIGNAL_HISTORY_FILE = join(DATA_DIR, 'signal_history.json');
+
+export const MAX_SIGNAL_HISTORY = 5000;
 
 /** Load the last-saved trades + signalFeed from disk. Returns null on miss. */
 export function loadPersistedState() {
@@ -30,4 +33,23 @@ export function scheduleSave(trades, signalFeed) {
     const data = JSON.stringify({ trades, signalFeed });
     writeFile(STATE_FILE, data, 'utf8', () => {});
   }, 500);
+}
+
+/** Load signal history from disk. */
+export function loadSignalHistory() {
+  try {
+    if (!existsSync(SIGNAL_HISTORY_FILE)) return [];
+    return JSON.parse(readFileSync(SIGNAL_HISTORY_FILE, 'utf8'));
+  } catch { return []; }
+}
+
+let _historyTimer = null;
+
+/** Debounced save of signal history (2s). */
+export function scheduleHistorySave(history) {
+  clearTimeout(_historyTimer);
+  _historyTimer = setTimeout(() => {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+    writeFile(SIGNAL_HISTORY_FILE, JSON.stringify(history), 'utf8', () => {});
+  }, 2000);
 }

@@ -16,19 +16,8 @@
       cci_sell: 'CCI overbought',
     };
 
-    const STRATEGY_REASON_MAP = {
-      RSI: { BUY: 'rsi_buy', SELL: 'rsi_sell' },
-      EMA: { BUY: 'ema_buy', SELL: 'ema_sell' },
-      MACD: { BUY: 'macd_buy', SELL: 'macd_sell' },
-      BollingerBands: { BUY: 'bb_buy', SELL: 'bb_sell' },
-      Stochastic: { BUY: 'stoch_buy', SELL: 'stoch_sell' },
-      ADX: { BUY: 'adx_buy', SELL: 'adx_sell' },
-      CCI: { BUY: 'cci_buy', SELL: 'cci_sell' },
-    };
-
     const state = {
       summary: null,
-      signals: [],
       trades: [],
       source: null,
       reconnectTimer: null,
@@ -50,7 +39,7 @@
       positionsPanel: document.getElementById('positionsPanel'),
       positionsCountLabel: document.getElementById('positionsCountLabel'),
       positionsBody: document.getElementById('positionsBody'),
-      signalFeed: document.getElementById('signalFeed'),
+      signalFeed: null,
       tradesBody: document.getElementById('tradesBody'),
       lastCycle: document.getElementById('lastCycle'),
       nextCycle: document.getElementById('nextCycle'),
@@ -274,27 +263,6 @@
         .replace(/_/g, ' ')
         .replace(/\s+/g, ' ')
         .replace(/\b\w/g, (char) => char.toUpperCase());
-    }
-
-    function mapStrategyReason(entry, decision) {
-      const code = STRATEGY_REASON_MAP[entry?.name]?.[decision];
-      return prettifyReason(code || entry?.reason || '');
-    }
-
-    function getSignalReasonText(signal, summary) {
-      if (!signal || signal.decision === 'HOLD') return '—';
-
-      if (Array.isArray(signal.reasons) && signal.reasons.length) {
-        return signal.reasons.map(prettifyReason).join(' + ');
-      }
-
-      const strategyResults = summary?.latestStrategyResults?.[signal.symbol] || [];
-      const matching = strategyResults.filter((entry) => entry.signal === signal.decision);
-      if (matching.length) {
-        return matching.map((entry) => mapStrategyReason(entry, signal.decision)).join(' + ');
-      }
-
-      return 'No clear reason provided';
     }
 
     function tradeResultLabel(trade) {
@@ -524,57 +492,57 @@
       }).join('');
     }
 
-    function renderSignals(summary) {
-      const signals = (state.signals.length ? state.signals : (summary?.signalFeed || [])).slice(0, 20);
+    async function loadSignalHistory() {
+      const body = document.getElementById('signalHistoryBody');
+      if (!body) return;
+      const symbolFilter = document.getElementById('signalFilterSymbol')?.value || '';
+      const decisionFilter = document.getElementById('signalFilterDecision')?.value || '';
+      const params = new URLSearchParams({ limit: '500' });
+      if (symbolFilter) params.set('symbol', symbolFilter);
+      if (decisionFilter) params.set('decision', decisionFilter);
 
-      if (!signals.length) {
-        el.signalFeed.innerHTML = '<div class="empty-state">No signals yet. Once the bot runs a cycle, the newest buy, sell, and hold decisions will appear here.</div>';
-        return;
+      // Populate symbol dropdown from runtime config
+      const symSelect = document.getElementById('signalFilterSymbol');
+      if (symSelect && symSelect.options.length <= 1 && state.summary?.runtimeConfig?.symbols?.length) {
+        for (const sym of state.summary.runtimeConfig.symbols) {
+          const opt = document.createElement('option');
+          opt.value = sym;
+          opt.textContent = getBaseSymbol(sym);
+          symSelect.appendChild(opt);
+        }
+        if (symbolFilter) symSelect.value = symbolFilter;
       }
 
-      el.signalFeed.innerHTML = signals.map((signal) => {
-        const confidence = Math.max(0, Math.min(100, Number(signal.confidence ?? 0) * 100));
-        const decision = String(signal.decision || 'HOLD').toUpperCase();
-        const decisionClass = decision.toLowerCase();
-        const reasonText = getSignalReasonText(signal, summary);
-
-        // Strategy badges
-        const strategies = Array.isArray(signal.strategies) ? signal.strategies : [];
-        const strategyBadges = strategies.map(s => `<span class="strategy-badge">${escapeHtml(s)}</span>`).join('');
-
-        // Hover tooltip via data attribute (rendered by global fixed tooltip, escapes overflow)
-        const hints = Array.isArray(signal.triggerHints) ? signal.triggerHints : [];
-        const hintBtn = hints.length ? (() => {
-          const extra = strategies.length > 1 ? `All ${strategies.length} must agree` : '';
-          return `<span class="hint-btn" data-hint="${escapeHtml(JSON.stringify(hints))}" data-hint-extra="${escapeHtml(extra)}">?</span>`;
-        })() : '';
-
-        const blockNote = signal.blockReason ? (() => {
-          const r = String(signal.blockReason).toLowerCase();
-          const cls = r.includes('ranging') || r.includes('adx') ? 'block-regime'
-                    : r.includes('correl') ? 'block-corr'
-                    : 'block-risk';
-          const icon = cls === 'block-regime' ? '📉' : cls === 'block-corr' ? '🔗' : '⚠️';
-          return `<span class="signal-blocked ${cls}">${icon} ${escapeHtml(signal.blockReason)}</span>`;
-        })() : '';
-
-        const icon = decision === 'BUY' ? '🟢' : decision === 'SELL' ? '🔴' : '⚪';
-        const confText = decision !== 'HOLD' ? `${confidence.toFixed(0)}%` : '';
-
-        return `
-          <article class="signal-item ${decisionClass}">
-            <span class="signal-time">${escapeHtml(relativeTime(signal.timestamp))}</span>
-            <strong style="font-size:13px;white-space:nowrap">${escapeHtml((signal.symbol || 'Unknown').split('/')[0])}</strong>
-            <span class="signal-tag ${decisionClass}">${icon} ${escapeHtml(decision)}</span>
-            ${confText ? `<span class="signal-time">${confText}</span>` : ''}
-            <span class="signal-details" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</span>
-            <span class="signal-strategies">${strategyBadges}</span>
-            ${hintBtn}
-            ${blockNote}
-          </article>
-        `;
-      }).join('');
+      try {
+        const data = await fetchJson(`/api/signal-history?${params}`);
+        if (!data.length) {
+          body.innerHTML = '<tr><td colspan="7" class="empty-state">No signals recorded yet. Signals will appear after the first cycle runs.</td></tr>';
+          return;
+        }
+        body.innerHTML = data.map(signal => {
+          const decision = String(signal.decision || 'HOLD').toUpperCase();
+          const decisionClass = decision.toLowerCase();
+          const icon = decision === 'BUY' ? '🟢' : decision === 'SELL' ? '🔴' : '⚪';
+          const conf = (Number(signal.confidence ?? 0) * 100).toFixed(0);
+          const strategies = (signal.strategies || []).join(', ');
+          const reasons = (signal.reasons || []).map(prettifyReason).join(' + ') || '—';
+          const blocked = signal.blockReason ? `<span class="signal-blocked">${escapeHtml(signal.blockReason)}</span>` : '—';
+          const time = new Date(signal.timestamp).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+          return `<tr>
+            <td>${escapeHtml(time)}</td>
+            <td><strong>${escapeHtml(getBaseSymbol(signal.symbol))}</strong></td>
+            <td><span class="signal-tag ${decisionClass}">${icon} ${decision}</span></td>
+            <td>${conf}%</td>
+            <td style="font-size:11px">${escapeHtml(strategies)}</td>
+            <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(reasons)}">${escapeHtml(reasons)}</td>
+            <td style="font-size:11px">${blocked}</td>
+          </tr>`;
+        }).join('');
+      } catch {
+        body.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load signal history.</td></tr>';
+      }
     }
+    window.loadSignalHistory = loadSignalHistory;
 
     function renderTrades() {
       const allTrades = (state.trades.length ? state.trades : (state.summary?.trades || []));
@@ -709,7 +677,6 @@
       renderSummary(summary);
       renderFilters(summary);
       renderPositions(summary);
-      renderSignals(summary);
       renderTrades();
       renderFooter(summary);
     }
@@ -728,13 +695,11 @@
     }
 
     async function loadInitialState() {
-      const [summary, signals, trades] = await Promise.all([
+      const [summary, trades] = await Promise.all([
         fetchJson('/status'),
-        fetchJson('/signals').catch(() => []),
         fetchJson('/trades').catch(() => []),
       ]);
 
-      state.signals = Array.isArray(signals) ? signals.slice(0, 20) : (summary.signalFeed || []).slice(0, 20);
       state.trades = Array.isArray(trades) ? trades.slice(0, 50) : (summary.trades || []).slice(0, 50);
       render(summary);
     }
@@ -750,7 +715,6 @@
 
       source.addEventListener('cycle', (event) => {
         const summary = JSON.parse(event.data);
-        state.signals = (summary.signalFeed || []).slice(0, 20);
         state.trades = (summary.trades || []).slice(0, 50);
         render(summary);
       });
@@ -957,6 +921,7 @@
     // Auto-refresh logs every 15s if logs tab is active
     setInterval(() => {
       if (document.getElementById('tab-logs')?.classList.contains('active')) loadLogs();
+      if (document.getElementById('tab-signals')?.classList.contains('active')) loadSignalHistory();
     }, 15000);
     loadLogs();
 
@@ -966,6 +931,7 @@
       document.querySelectorAll('.tab-content').forEach(tc => tc.classList.toggle('active', tc.id === `tab-${tabId}`));
       localStorage.setItem('playai-active-tab', tabId);
       if (tabId === 'logs') loadLogs();
+      if (tabId === 'signals') loadSignalHistory();
       if (tabId === 'tools') { renderPnlChart(); renderDailyPnlChart(); }
     }
     window.switchTab = switchTab;
@@ -1499,7 +1465,6 @@
 
     loadInitialState()
       .catch(() => {
-        el.signalFeed.innerHTML = '<div class="empty-state">Could not load the dashboard. Make sure the bot is running on http://localhost:3001.</div>';
-        el.tradesBody.innerHTML = '<tr><td colspan="7" class="empty-state">Waiting for the dashboard server on localhost:3001.</td></tr>';
+        el.tradesBody.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load the dashboard. Make sure the bot is running on http://localhost:3001.</td></tr>';
       })
       .finally(connectEvents);

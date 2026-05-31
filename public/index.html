@@ -867,6 +867,7 @@
     </div>
     <nav class="tab-bar">
       <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="tab-btn" data-tab="signals" onclick="switchTab('signals')">📡 Signals</button>
       <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">🛠 Tools</button>
       <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 Logs</button>
     </nav>
@@ -984,19 +985,6 @@
       <section class="panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">📡 Live Signals</div>
-            <div class="panel-subtitle">The latest buy, sell, and hold decisions in plain English.</div>
-          </div>
-          <div class="panel-count">Last 20 updates</div>
-        </div>
-        <div id="signalFeed" class="signal-feed">
-          <div class="loading">Loading signals…</div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <div>
             <div class="panel-title">📋 Trade History</div>
             <div class="panel-subtitle">Recent trade entries and exits, including the profit or loss for each one.</div>
           </div>
@@ -1025,6 +1013,47 @@
     </section>
 
     </div><!-- /tab-dashboard -->
+
+    <div id="tab-signals" class="tab-content">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">📡 Signal History</div>
+            <div class="panel-subtitle">Every buy, sell, and hold decision from each cycle</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="signalFilterSymbol" onchange="loadSignalHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
+              <option value="">All Coins</option>
+            </select>
+            <select id="signalFilterDecision" onchange="loadSignalHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
+              <option value="">All Decisions</option>
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+              <option value="HOLD">HOLD</option>
+            </select>
+            <button onclick="loadSignalHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer">↺ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height:calc(100vh - 220px);overflow-y:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Coin</th>
+                <th>Decision</th>
+                <th>Confidence</th>
+                <th>Strategies</th>
+                <th>Reason</th>
+                <th>Blocked</th>
+              </tr>
+            </thead>
+            <tbody id="signalHistoryBody">
+              <tr><td colspan="7" class="loading">Loading signal history…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div><!-- /tab-signals -->
 
     <div id="tab-tools" class="tab-content">
       <section class="panel">

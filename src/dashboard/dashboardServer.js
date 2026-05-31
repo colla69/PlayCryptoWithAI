@@ -105,6 +105,13 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   app.get(['/api/status', '/status'], sendSummary);
   app.get(['/api/signals', '/signals'], sendSignals);
 
+  app.get('/api/signal-history', (req, res) => {
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    const symbol = req.query.symbol || null;
+    const decision = req.query.decision || null;
+    res.json(dashboardState.getSignalHistory(limit, symbol, decision));
+  });
+
   app.get('/api/strategies', (_req, res) => {
     res.json(dashboardState.getSummary().strategyRegistry ?? []);
   });

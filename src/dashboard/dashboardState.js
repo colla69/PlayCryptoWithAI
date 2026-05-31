@@ -1,4 +1,4 @@
-import { loadPersistedState, scheduleSave } from './persistence.js';
+import { loadPersistedState, scheduleSave, loadSignalHistory, scheduleHistorySave, MAX_SIGNAL_HISTORY } from './persistence.js';
 
 const MAX_TRADES = 100;
 const MAX_SIGNALS = 50;
@@ -32,6 +32,7 @@ class DashboardState {
       this.trades = saved.trades.slice(0, MAX_TRADES);
     if (saved?.signalFeed?.length)
       this.signalFeed = saved.signalFeed.slice(0, MAX_SIGNALS);
+    this.signalHistory = loadSignalHistory();
     this.cycleCount = 0;
     this.errors = [];
     this.latestStatus = null;
@@ -95,7 +96,23 @@ class DashboardState {
     }
 
     this.#touch();
+    this.#pushSignalHistory(entry);
     scheduleSave(this.trades, this.signalFeed);
+  }
+
+  #pushSignalHistory(signal) {
+    this.signalHistory.unshift(signal);
+    if (this.signalHistory.length > MAX_SIGNAL_HISTORY) {
+      this.signalHistory.length = MAX_SIGNAL_HISTORY;
+    }
+    scheduleHistorySave(this.signalHistory);
+  }
+
+  getSignalHistory(limit = 500, symbolFilter = null, decisionFilter = null) {
+    let history = this.signalHistory;
+    if (symbolFilter) history = history.filter(s => s.symbol === symbolFilter);
+    if (decisionFilter) history = history.filter(s => s.decision === decisionFilter.toUpperCase());
+    return history.slice(0, limit);
   }
 
   pushError(msg) {
