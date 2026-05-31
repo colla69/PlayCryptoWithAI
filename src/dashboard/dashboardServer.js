@@ -299,6 +299,55 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     res.json({ ok: true });
   });
 
+  // ── Daily P&L (persisted) ──────────────────────────────────────────────────
+  const dailyPnlFile = path.join(dataDir, 'daily_pnl.json');
+
+  function loadDailyPnl() {
+    try { return JSON.parse(fs.readFileSync(dailyPnlFile, 'utf8')); }
+    catch { return {}; }
+  }
+
+  function saveDailyPnl(data) {
+    fs.mkdirSync(path.dirname(dailyPnlFile), { recursive: true });
+    fs.writeFileSync(dailyPnlFile, JSON.stringify(data, null, 2));
+  }
+
+  /** Rebuild daily P&L from trades and merge with persisted history. */
+  function computeDailyPnl() {
+    const persisted = loadDailyPnl();
+    const trades = dashboardState.getSummary().trades ?? [];
+    const sells = trades.filter(t => t.side === 'SELL' && t.pnl != null);
+
+    // Group by date
+    const byDay = {};
+    for (const t of sells) {
+      const day = (t.exitTime || t.timestamp || '').slice(0, 10);
+      if (!day) continue;
+      if (!byDay[day]) byDay[day] = { pnl: 0, trades: 0, wins: 0 };
+      byDay[day].pnl += Number(t.pnl || 0);
+      byDay[day].trades++;
+      if (Number(t.pnl || 0) > 0) byDay[day].wins++;
+    }
+
+    // Merge: persisted days that have no trades in current session stay intact
+    const merged = { ...persisted };
+    for (const [day, data] of Object.entries(byDay)) {
+      merged[day] = { pnl: Math.round(data.pnl * 100) / 100, trades: data.trades, wins: data.wins };
+    }
+
+    saveDailyPnl(merged);
+    return merged;
+  }
+
+  app.get('/api/daily-pnl', (_req, res) => {
+    const data = computeDailyPnl();
+    // Return sorted array
+    const sorted = Object.entries(data)
+      .map(([date, v]) => ({ date, ...v }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    res.json(sorted);
+  });
+
   app.get(['/api/logs', '/logs-data'], (req, res) => {
     const lines  = Math.min(parseInt(req.query.lines ?? 500, 10), 5000);
     const filter = String(req.query.filter ?? '').toLowerCase();

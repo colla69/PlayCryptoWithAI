@@ -966,7 +966,7 @@
       document.querySelectorAll('.tab-content').forEach(tc => tc.classList.toggle('active', tc.id === `tab-${tabId}`));
       localStorage.setItem('playai-active-tab', tabId);
       if (tabId === 'logs') loadLogs();
-      if (tabId === 'tools') renderPnlChart();
+      if (tabId === 'tools') { renderPnlChart(); renderDailyPnlChart(); }
     }
     window.switchTab = switchTab;
 
@@ -1155,15 +1155,181 @@
 
     // Auto-refresh P&L chart every 60s if visible
     setInterval(() => {
-      if (document.getElementById('tab-tools')?.classList.contains('active')) renderPnlChart();
+      if (document.getElementById('tab-tools')?.classList.contains('active')) {
+        renderPnlChart();
+        renderDailyPnlChart();
+      }
     }, 60000);
 
     // Redraw on resize
     window.addEventListener('resize', () => {
-      if (document.getElementById('tab-tools')?.classList.contains('active') && _pnlChartData.length) {
-        drawPnlCanvas(_pnlChartData);
+      if (document.getElementById('tab-tools')?.classList.contains('active')) {
+        if (_pnlChartData.length) drawPnlCanvas(_pnlChartData);
+        if (_dailyPnlData.length) drawDailyPnlCanvas(_dailyPnlData);
       }
     });
+
+    // ── Daily P&L Bar Chart ─────────────────────────────────────────────────────
+    let _dailyPnlData = [];
+
+    async function fetchDailyPnl() {
+      try {
+        const data = await fetch(`${API_BASE}/api/daily-pnl`, { cache: 'no-store' }).then(r => r.json());
+        return Array.isArray(data) ? data : [];
+      } catch { return []; }
+    }
+
+    function renderDailyPnlChart() {
+      fetchDailyPnl().then(data => {
+        _dailyPnlData = data;
+        drawDailyPnlCanvas(data);
+        updateWeeklySummary(data);
+      });
+    }
+
+    function updateWeeklySummary(data) {
+      const el7 = document.getElementById('weeklyPnlValue');
+      const elTrades = document.getElementById('weeklyPnlTrades');
+      if (!el7) return;
+
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+      const last7 = data.filter(d => d.date >= weekAgo);
+      const totalPnl = last7.reduce((sum, d) => sum + d.pnl, 0);
+      const totalTrades = last7.reduce((sum, d) => sum + d.trades, 0);
+      const totalWins = last7.reduce((sum, d) => sum + d.wins, 0);
+      const wr = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(0) : '—';
+
+      const sign = totalPnl >= 0 ? '+' : '';
+      el7.textContent = `${sign}$${Math.abs(totalPnl).toFixed(2)}`;
+      el7.style.color = totalPnl >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+      elTrades.textContent = totalTrades > 0 ? `(${totalTrades} trades, ${wr}% WR)` : '';
+    }
+
+    function drawDailyPnlCanvas(data) {
+      const canvas = document.getElementById('dailyPnlCanvas');
+      if (!canvas) return;
+
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const W = rect.width;
+      const H = rect.height;
+      const pad = { top: 20, right: 20, bottom: 40, left: 65 };
+      const chartW = W - pad.left - pad.right;
+      const chartH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      if (data.length === 0) {
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '14px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No daily P&L data yet', W / 2, H / 2);
+        return;
+      }
+
+      // Show last 30 days max
+      const recent = data.slice(-30);
+      const pnls = recent.map(d => d.pnl);
+      const maxPnl = Math.max(0, ...pnls);
+      const minPnl = Math.min(0, ...pnls);
+      const range = (maxPnl - minPnl) || 1;
+
+      const barW = Math.max(4, (chartW / recent.length) - 3);
+      const gap = (chartW - barW * recent.length) / (recent.length + 1);
+
+      function yPos(v) { return pad.top + chartH - ((v - minPnl) / range) * chartH; }
+      const zeroY = yPos(0);
+
+      // Grid lines
+      ctx.strokeStyle = 'rgba(48, 54, 61, 0.5)';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (i / 4) * chartH;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + chartW, y);
+        ctx.stroke();
+        const val = maxPnl - (i / 4) * range;
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`$${val.toFixed(2)}`, pad.left - 8, y + 4);
+      }
+
+      // Zero line
+      ctx.strokeStyle = 'rgba(139, 148, 158, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, zeroY);
+      ctx.lineTo(pad.left + chartW, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Bars
+      for (let i = 0; i < recent.length; i++) {
+        const d = recent[i];
+        const x = pad.left + gap + i * (barW + gap);
+        const barH = Math.abs((d.pnl / range) * chartH);
+        const y = d.pnl >= 0 ? zeroY - barH : zeroY;
+
+        ctx.fillStyle = d.pnl >= 0 ? 'rgba(63, 185, 80, 0.8)' : 'rgba(248, 81, 73, 0.8)';
+        ctx.fillRect(x, y, barW, Math.max(barH, 1));
+      }
+
+      // X-axis date labels (show ~6 labels evenly spaced)
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      const labelCount = Math.min(6, recent.length);
+      for (let i = 0; i < labelCount; i++) {
+        const idx = Math.round((i / (labelCount - 1)) * (recent.length - 1));
+        const x = pad.left + gap + idx * (barW + gap) + barW / 2;
+        const label = recent[idx].date.slice(5); // MM-DD
+        ctx.fillText(label, x, H - pad.bottom + 16);
+      }
+
+      // Store for tooltip
+      canvas._chartParams = { data: recent, pad, W, H, chartW, chartH, barW, gap, zeroY, range, minPnl, maxPnl };
+    }
+
+    // Tooltip for daily P&L
+    (function setupDailyPnlTooltip() {
+      const canvas = document.getElementById('dailyPnlCanvas');
+      const tooltip = document.getElementById('dailyPnlTooltip');
+      if (!canvas || !tooltip) return;
+
+      canvas.addEventListener('mousemove', (e) => {
+        const p = canvas._chartParams;
+        if (!p || !p.data.length) { tooltip.style.display = 'none'; return; }
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        if (mx < p.pad.left || mx > p.W - p.pad.right) { tooltip.style.display = 'none'; return; }
+
+        // Find which bar we're over
+        const relX = mx - p.pad.left;
+        const idx = Math.floor(relX / (p.barW + p.gap));
+        if (idx < 0 || idx >= p.data.length) { tooltip.style.display = 'none'; return; }
+
+        const d = p.data[idx];
+        const sign = d.pnl >= 0 ? '+' : '';
+        const wr = d.trades > 0 ? ((d.wins / d.trades) * 100).toFixed(0) : '—';
+        tooltip.innerHTML = `<div><strong>${d.date}</strong></div><div>${sign}$${Math.abs(d.pnl).toFixed(2)}</div><div style="color:var(--muted)">${d.trades} trade${d.trades !== 1 ? 's' : ''} · ${wr}% WR</div>`;
+        tooltip.style.display = 'block';
+        tooltip.style.left = Math.min(mx + 12, p.W - 160) + 'px';
+        tooltip.style.top = Math.max(e.clientY - rect.top - 60, 4) + 'px';
+      });
+
+      canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    })();
 
     // ── Deposit Tracker ───────────────────────────────────────────────────────
     async function loadDeposits() {

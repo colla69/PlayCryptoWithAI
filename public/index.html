@@ -1027,6 +1027,25 @@
         <div class="pnl-chart-tooltip" id="pnlTooltip"></div>
       </div>
 
+      <!-- Daily P&L Bar Chart -->
+      <section class="panel" style="margin-top:24px">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">📊 Daily P&amp;L</div>
+            <div class="panel-subtitle">P&amp;L per day (persisted across restarts)</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:baseline">
+            <span style="font-size:13px;color:var(--muted)">Last 7 days:</span>
+            <strong id="weeklyPnlValue" style="font-size:16px">—</strong>
+            <span id="weeklyPnlTrades" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+        </div>
+        <div style="position:relative;height:200px;margin-top:12px">
+          <canvas id="dailyPnlCanvas"></canvas>
+          <div class="pnl-chart-tooltip" id="dailyPnlTooltip"></div>
+        </div>
+      </section>
+
       <!-- Deposit Tracker -->
       <section class="panel" style="margin-top:24px">
         <div class="panel-header">
