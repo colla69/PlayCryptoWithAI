@@ -12,9 +12,11 @@ import RiskManager from './risk/index.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
-import { isMarketTrending, computeATRPct, isBullTrend, calculateADX } from './utils/indicators.js';
+import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
+import { runEntryFilters } from './core/filters.js';
+import { computePositionSize } from './core/positionSizing.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -148,82 +150,16 @@ async function runCycle(symbol) {
       }
     }
 
-    // ── Regime filter: block NEW buys in ranging markets ─────────────────────
-    // ADX computed from the same past candles the aggregator just used — no lookahead.
-    // Existing positions are unaffected; SL/TP management always runs.
-    const regimeCfg = config.regime;
+    // ── Entry filters: regime, correlation, MTF ──────────────────────────────
     let blockReason = null;
-    if (
-      result.decision === 'BUY' &&
-      regimeCfg?.enabled &&
-      !isMarketTrending(candles, regimeCfg.adxPeriod, regimeCfg.adxThreshold)
-    ) {
-      blockReason = `Ranging market (ADX < ${regimeCfg.adxThreshold})`;
-      logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
-    }
-
-    // ── Correlation filter: block BUY if already holding a correlated coin ───
-    // Uses past log-returns only — no lookahead.
-    if (!blockReason && result.decision === 'BUY' && config.correlation?.enabled) {
-      const threshold = config.correlation.threshold ?? 0.8;
-      const correlated = currentStatus.positions.find((p) => {
-        const r = correlationMatrix[symbol]?.[p.symbol] ?? 0;
-        return r > threshold;
-      });
-      if (correlated) {
-        const r = (correlationMatrix[symbol]?.[correlated.symbol] ?? 0).toFixed(2);
-        blockReason = `Correlated with open ${correlated.symbol.replace('/USDC', '').replace('/USDT', '')} (r=${r})`;
-        logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
-      }
-    }
-
-    // ── MTF alignment filter: check 15m short-term trend before entering ─────
-    // Fetches the last ~20 × 15m candles and checks if the last `alignBars` are
-    // predominantly green. If not, the 12h BUY is blocked or position is reduced.
     let mtfSizeFactor = 1.0;
-    if (!blockReason && result.decision === 'BUY' && config.mtfFilter?.enabled) {
-      try {
-        const mtfCfg = config.mtfFilter;
-        const fetchBars = Math.max(20, (mtfCfg.alignBars ?? 16) + 4);
-        const bars15m = await fetchOHLCV(symbol, '15m', fetchBars);
-        if (bars15m.length >= (mtfCfg.alignBars ?? 16)) {
-          const score = mtfAlignScore(bars15m, bars15m.length - 1, mtfCfg.alignBars ?? 16);
-          const threshold = mtfCfg.minAlignScore ?? 0.5;
-          if (score < threshold) {
-            const pct = (score * 100).toFixed(0);
-            const reduce = mtfCfg.reduceFactor ?? 0;
-            if (reduce > 0) {
-              mtfSizeFactor = reduce;
-              logger.info(`${symbol}: MTF misaligned (${pct}% green) — position reduced to ${(reduce * 100).toFixed(0)}%`);
-            } else {
-              blockReason = `MTF misaligned (15m: ${pct}% green < ${(threshold * 100).toFixed(0)}% required)`;
-              logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
-            }
-          }
-        }
-      } catch (err) {
-        // Non-fatal — if 15m fetch fails, proceed without the filter
-        logger.warn(`${symbol}: MTF filter fetch failed — ${err.message}`);
-      }
-    }
-
-    // ── 4h MTF momentum filter: check EMA crossover + RSI on 4h candles ──────
-    // More powerful than 15m green-counting — uses EMA(8)/EMA(21) spread + RSI.
-    // Blocks entries when 4h trend is clearly bearish (score < threshold).
-    if (!blockReason && result.decision === 'BUY' && config.mtf4hFilter?.enabled) {
-      try {
-        const cfg4h = config.mtf4hFilter;
-        const bars4h = await fetchOHLCV(symbol, '4h', cfg4h.fetchBars ?? 30);
-        if (bars4h.length >= (cfg4h.lookback ?? 21)) {
-          const score = mtf4hMomentumScore(bars4h, bars4h.length - 1, cfg4h.lookback ?? 21);
-          if (score < (cfg4h.minScore ?? 0.45)) {
-            blockReason = `4h momentum bearish (score=${(score * 100).toFixed(0)}% < ${((cfg4h.minScore ?? 0.45) * 100).toFixed(0)}% required)`;
-            logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
-          }
-        }
-      } catch (err) {
-        logger.warn(`${symbol}: 4h MTF filter fetch failed — ${err.message}`);
-      }
+    if (result.decision === 'BUY') {
+      const filterResult = await runEntryFilters({
+        symbol, candles, openPositions: currentStatus.positions,
+        correlationMatrix, fetchOHLCV, config,
+      });
+      blockReason = filterResult.blockReason;
+      mtfSizeFactor = filterResult.mtfSizeFactor;
     }
 
     // Track filter-level blocks for the dashboard counter
@@ -234,57 +170,13 @@ async function runCycle(symbol) {
       : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
     let tradeResult = null;
 
-    // ── ATR position sizing: scale maxPositionPct inversely to symbol volatility ─
-    // High-volatility symbols get smaller allocations; low-vol symbols get larger ones.
-    // Only applies when config.atr.enabled and the portfolio median is known.
-    let positionPct = symRisk.maxPositionPct;
-    if (config.atr?.enabled && medianATRPct != null) {
-      const symbolATRPct = computeATRPct(candles, config.atr.period);
-      if (symbolATRPct > 0) {
-        positionPct *= Math.max(0.5, Math.min(2.0, medianATRPct / symbolATRPct));
-      }
-    }
-
-    // ── Macro bear filter: halve position size when BTC is below EMA(200) ────────
-    if (config.macroFilter?.enabled && !btcMacroBull) {
-      positionPct *= config.macroFilter.sizeReduceFactor ?? 0.5;
-    }
-    // ── Regime-aware sizing: scale position by ADX strength ───────────────────────
-    if (config.regimeSizing?.enabled) {
-      const adxPeriod = config.regimeSizing.adxPeriod ?? 14;
-      const adxLookback = Math.min(candles.length, 50);
-      const recent = candles.slice(-adxLookback);
-      if (recent.length >= 30) {
-        const highs = recent.map(c => Number(c.high));
-        const lows = recent.map(c => Number(c.low));
-        const closes = recent.map(c => Number(c.close));
-        const adxValues = calculateADX(highs, lows, closes, adxPeriod);
-        const lastADX = adxValues.at(-1)?.adx;
-        if (Number.isFinite(lastADX)) {
-          if (lastADX >= config.regimeSizing.boostThresh) {
-            positionPct *= config.regimeSizing.boostFactor;
-          } else if (lastADX < config.regimeSizing.penaltyThresh) {
-            positionPct *= config.regimeSizing.penaltyFactor;
-          }
-        }
-      }
-    }
-    // ── Confidence-proportional sizing ───────────────────────────────────────────
-    if (config.confSizing?.enabled) {
-      const conf = result.confidence ?? 0.65;
-      const mid  = config.confSizing.mid ?? 0.65;
-      const max  = config.confSizing.max ?? 1.5;
-      const min  = config.confSizing.min ?? 0.6;
-      let scale;
-      if (conf >= mid) {
-        scale = 1 + (conf - mid) / (1 - mid) * (max - 1);
-      } else {
-        scale = min + (conf / mid) * (1 - min);
-      }
-      positionPct *= Math.min(max, Math.max(min, scale));
-    }
-    // ── MTF reduce: apply if filter chose to reduce rather than block ────────────
-    if (mtfSizeFactor < 1.0) positionPct *= mtfSizeFactor;
+    // ── Position sizing chain (extracted to src/core/positionSizing.js) ──────
+    const positionPct = computePositionSize({
+      basePct: symRisk.maxPositionPct,
+      candles, medianATRPct, btcMacroBull,
+      confidence: result.confidence,
+      mtfSizeFactor, config,
+    });
 
     logger.debug(`[CYCLE] ${symbol}: sizing positionPct=${positionPct.toFixed(4)} (base=${symRisk.maxPositionPct} atr=${config.atr?.enabled ? (medianATRPct ?? 'n/a') : 'off'} regime=${config.regimeSizing?.enabled ? 'on' : 'off'} conf=${config.confSizing?.enabled ? (result.confidence ?? 0).toFixed(2) : 'off'} macro=${config.macroFilter?.enabled ? (btcMacroBull ? 'bull' : 'bear') : 'off'} mtf=${mtfSizeFactor < 1.0 ? mtfSizeFactor.toFixed(2) : '1.0'})`);
 
