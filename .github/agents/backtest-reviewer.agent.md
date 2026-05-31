@@ -45,6 +45,18 @@ BUY fills at **next candle's open** (`d.nextOpen`), not signal candle close.
 - Every key in `config/default.js` `.strategies` arrays must exist in `strategyBuilder.js` `STRATEGY_BUILDERS`
 - Missing = startup crash. Blocker.
 
+## 6. Full Filter Stack (MANDATORY)
+
+All portfolio-level backtests MUST run with the same filter stack as the live bot:
+- `mtfFilter: true` — 15m alignment (needs `{COIN}_USDC_15m.json`)
+- `mtf4hFilter: true` — 4h momentum (needs `{COIN}_USDC_4h.json`)
+- `regimeSizing: true` — ADX-based position scaling
+- `macroFilter: true` — BTC EMA200 bear halving
+- `confSizing: true` — confidence-proportional sizing
+
+**Blocker** if any of these are disabled or if MTF data is missing for tested symbols.
+Results without full filter stack are invalid — they will overstate performance.
+
 ## Output
 
 Per area: ✅ Pass / ⚠️ Warning / 🔴 Blocker

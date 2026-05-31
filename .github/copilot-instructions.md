@@ -76,6 +76,28 @@ These apply whenever backtest/optimizer code is touched:
 - **WR gap**: >10pp = warning, >15pp = blocker
 - **Optimizer aggregator must match live** — if aggregator logic changes, re-run optimizer
 
+### ⚠️ MANDATORY: Full Filter Stack in ALL Backtests
+
+**Every portfolio-level backtest and optimizer MUST enable the same filters as the live bot.**
+Presenting results without filters is MISLEADING. The live bot uses these — backtests must match.
+
+Required filter config for `PortfolioBacktester`:
+```js
+mtfFilter: true,          // 15m alignment (load 15m candles per symbol)
+mtf4hFilter: true,        // 4h EMA+RSI momentum (load 4h candles per symbol)
+regimeSizing: true,       // ADX-based sizing (boost trends, penalise chop)
+macroFilter: true,        // BTC EMA200 bear filter (halve size below)
+confSizing: true,         // confidence-proportional sizing (0.6×–1.5×)
+breakEvenTriggerPct: 0.05 // break-even stop at +5%
+```
+
+**Data requirements**: Before running any portfolio backtest, ensure ALL symbols have:
+- `data/candles/{COIN}_USDC_4h.json` — 4h candles (for mtf4hFilter)
+- `data/candles/{COIN}_USDC_15m.json` — 15m candles (for mtfFilter)
+
+If a new coin lacks MTF data, **download it first** before reporting results.
+Results without full filter coverage are invalid for decision-making.
+
 ## Agent Routing
 
 | Agent | When to use |

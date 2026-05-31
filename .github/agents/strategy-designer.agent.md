@@ -37,6 +37,9 @@ If you modify `signalAggregator.js` (confidence formula, HOLD handling, threshol
 - No lookahead. Confidence bounded 0–1. Always returns a result.
 - Backtest integrity rules in `.github/copilot-instructions.md` apply.
 - Report both Y2 and Y1+Y2 results. WR gap >15pp = blocker.
+- **ALL backtests MUST use full live filter stack** (15m + 4h + regime + macro + confSizing).
+  Never present portfolio numbers from unfiltered runs — they are misleading.
+  Download 4h/15m data for new coins BEFORE running backtests.
 
 ## Output Contract
 
