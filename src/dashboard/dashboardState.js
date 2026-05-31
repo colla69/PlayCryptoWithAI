@@ -27,12 +27,16 @@ class DashboardState {
     this.candleMap = new Map();
 
     // Restore trades + signals that survived the last shutdown.
+    // Always merge with CSV history so charts have full trade data.
     const saved = loadPersistedState();
+    const csvTrades = loadTradesFromCsv(MAX_TRADES);
     if (saved?.trades?.length) {
-      this.trades = saved.trades.slice(0, MAX_TRADES);
+      // Merge: use persisted as primary (has richer data), fill in older from CSV
+      const existingTimestamps = new Set(saved.trades.map(t => t.timestamp));
+      const extra = csvTrades.filter(t => !existingTimestamps.has(t.timestamp));
+      this.trades = [...saved.trades, ...extra].slice(0, MAX_TRADES);
     } else {
-      // Fallback: rebuild from trades.csv so charts work after fresh deploy
-      this.trades = loadTradesFromCsv(MAX_TRADES);
+      this.trades = csvTrades;
     }
     if (saved?.signalFeed?.length)
       this.signalFeed = saved.signalFeed.slice(0, MAX_SIGNALS);

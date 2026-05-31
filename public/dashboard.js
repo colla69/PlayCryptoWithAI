@@ -936,7 +936,7 @@
 
     // ── P&L Chart ─────────────────────────────────────────────────────────
     let _pnlChartDataFull = [];
-    let _cumulativeRange = '7d';
+    let _cumulativeRange = 'all';
 
     function rangeToCutoff(range) {
       if (range === 'all') return 0;
@@ -1006,7 +1006,7 @@
         totalEl.style.color = total >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
       }
 
-      if (data.length < 2) {
+      if (data.length === 0) {
         ctx.fillStyle = '#8b949e';
         ctx.font = '14px Inter, sans-serif';
         ctx.textAlign = 'center';
@@ -1153,7 +1153,7 @@
 
     // ── Daily P&L Bar Chart ─────────────────────────────────────────────────────
     let _dailyPnlDataFull = [];
-    let _dailyRange = '7d';
+    let _dailyRange = 'all';
 
     async function fetchDailyPnl() {
       try {
