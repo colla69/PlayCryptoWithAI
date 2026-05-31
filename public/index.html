@@ -738,10 +738,10 @@
     .pnl-chart-wrap {
       position: relative;
       width: 100%;
-      height: 300px;
-      background: var(--panel);
+      height: 240px;
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: 12px;
       overflow: hidden;
     }
 
@@ -749,26 +749,6 @@
       width: 100%;
       height: 100%;
       display: block;
-    }
-
-    .pnl-total-display {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-
-    .pnl-total-display .pnl-label {
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-
-    .pnl-total-display .pnl-value {
-      font-size: 36px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
     }
 
     .pnl-chart-tooltip {
@@ -1047,23 +1027,31 @@
     </div><!-- /tab-dashboard -->
 
     <div id="tab-tools" class="tab-content">
-      <div class="pnl-total-display">
-        <div class="pnl-label">Cumulative P&amp;L</div>
-        <div class="pnl-value" id="pnlTotalValue">$0.00</div>
-      </div>
-      <div class="chart-range-btns" id="cumulativeRangeBtns">
-        <button class="range-btn active" data-range="7d">1W</button>
-        <button class="range-btn" data-range="30d">1M</button>
-        <button class="range-btn" data-range="180d">6M</button>
-        <button class="range-btn" data-range="365d">1Y</button>
-        <button class="range-btn" data-range="all">All</button>
-      </div>
-      <div class="pnl-chart-wrap">
-        <canvas id="pnlCanvas"></canvas>
-        <div class="pnl-chart-tooltip" id="pnlTooltip"></div>
-      </div>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">📈 Cumulative P&amp;L</div>
+            <div class="panel-subtitle">Running total across all closed trades</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:baseline">
+            <span style="font-size:13px;color:var(--muted)">Total:</span>
+            <strong id="pnlTotalValue" style="font-size:16px">$0.00</strong>
+          </div>
+        </div>
+        <div class="chart-range-btns" id="cumulativeRangeBtns" style="margin-top:8px">
+          <button class="range-btn active" data-range="7d">1W</button>
+          <button class="range-btn" data-range="30d">1M</button>
+          <button class="range-btn" data-range="180d">6M</button>
+          <button class="range-btn" data-range="365d">1Y</button>
+          <button class="range-btn" data-range="all">All</button>
+        </div>
+        <div class="pnl-chart-wrap" style="margin-top:12px">
+          <canvas id="pnlCanvas"></canvas>
+          <div class="pnl-chart-tooltip" id="pnlTooltip"></div>
+        </div>
+      </section>
 
-      <!-- Daily P&L Bar Chart -->
+      <!-- Daily P&L Chart -->
       <section class="panel" style="margin-top:24px">
         <div class="panel-header">
           <div>
@@ -1083,7 +1071,7 @@
           <button class="range-btn" data-range="365d">1Y</button>
           <button class="range-btn" data-range="all">All</button>
         </div>
-        <div style="position:relative;height:200px;margin-top:12px">
+        <div class="pnl-chart-wrap" style="margin-top:12px">
           <canvas id="dailyPnlCanvas"></canvas>
           <div class="pnl-chart-tooltip" id="dailyPnlTooltip"></div>
         </div>
