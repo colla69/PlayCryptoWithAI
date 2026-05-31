@@ -167,6 +167,7 @@ export class LiveTrader {
           // Find entry price from trade history: walk newest-first
           // Stop at first SELL (no open position) or first BUY (entry price found)
           let entryPrice = currentPrice; // fallback
+          let entryTime = null;
           let foundEntry = false;
           for (let i = 0; i < tradeHistory.length; i++) {
             const t = tradeHistory[i];
@@ -174,6 +175,7 @@ export class LiveTrader {
             if (t.side === 'SELL') break; // a SELL before BUY means no open position from history
             if (t.side === 'BUY') {
               entryPrice = roundPrice(Number(t.price ?? currentPrice));
+              entryTime = t.openedAt ?? t.timestamp ?? null;
               foundEntry = true;
               break;
             }
@@ -201,62 +203,60 @@ export class LiveTrader {
             trailingStopPct: Number.isFinite(this.config.trailingStopPct) && this.config.trailingStopPct > 0
               ? this.config.trailingStopPct
               : undefined,
-            openedAt: new Date().toISOString(),
+            openedAt: savedState[symbol]?.openedAt ?? entryTime ?? new Date().toISOString(),
           };
 
           // Re-apply break-even and trailing stop from persisted state or heuristic.
           const saved = savedState[symbol];
           if (saved && saved.stopLoss > 0) {
-            // Restore exact persisted stop-loss and HWM
             position.stopLoss = roundPrice(saved.stopLoss);
             if (saved.highWaterMark > position.highWaterMark) {
               position.highWaterMark = roundPrice(saved.highWaterMark);
             }
-            // Safety: if state says BE was locked, guarantee stop >= entry even if
-            // saved.stopLoss was somehow corrupted to a lower value
             if (saved.breakEvenLocked && position.stopLoss < position.entryPrice) {
               position.stopLoss = roundPrice(position.entryPrice * 1.002);
-              logger.warn(`[LIVE] ${symbol}: breakEvenLocked flag set but stop was below entry — forced BE lock`);
             }
-            logger.info(`[LIVE] ${symbol}: restored persisted stop-loss=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}${saved.breakEvenLocked ? ' (BE locked)' : ''}`);
-          } else {
-            // No persisted state — use candle-based heuristic to detect if BE should be locked.
-            // Fetch recent 4h candles and check if high ever exceeded BE trigger since entry.
+            logger.info(`[LIVE] ${symbol}: restored persisted stop=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}${saved.breakEvenLocked ? ' (BE)' : ''}`);
+          }
+
+          // If stop is still below entry, verify with candle data whether BE should be locked.
+          // This catches: (a) no persisted state, (b) stale file with pre-BE stop, (c) corrupt data.
+          if (breakEvenTriggerPct > 0 && position.stopLoss < position.entryPrice) {
+            const beLevel = entryPrice * (1 + breakEvenTriggerPct);
             let beLocked = false;
-            if (breakEvenTriggerPct > 0) {
-              const beLevel = entryPrice * (1 + breakEvenTriggerPct);
-              // Current price check (fast path)
-              if (currentPrice >= beLevel) {
-                beLocked = true;
-              } else {
-                // Candle-based check: did the price ever reach BE trigger?
-                try {
-                  const candles = await fetchOHLCV(symbol, '4h', 42); // ~7 days
-                  if (candles && candles.length > 0) {
-                    for (const c of candles) {
-                      if (Number(c.high ?? c[2] ?? 0) >= beLevel) {
-                        beLocked = true;
-                        break;
-                      }
+            if (currentPrice >= beLevel) {
+              beLocked = true;
+            } else {
+              try {
+                const posAgeMs = entryTime ? Date.now() - new Date(entryTime).getTime() : 7 * 24 * 3600_000;
+                const candleCount = Math.min(500, Math.max(42, Math.ceil(posAgeMs / (4 * 3600_000))));
+                const candles = await fetchOHLCV(symbol, '4h', candleCount);
+                if (candles && candles.length > 0) {
+                  for (const c of candles) {
+                    if (c.high >= beLevel) {
+                      beLocked = true;
+                      break;
                     }
                   }
-                } catch (candleErr) {
-                  logger.debug(`[LIVE] ${symbol}: candle heuristic failed — ${candleErr.message}`);
                 }
-              }
-              if (beLocked) {
-                position.stopLoss = roundPrice(entryPrice * 1.002);
-                logger.info(`[LIVE] ${symbol}: BE lock detected from candle history (no persisted state)`);
-              }
-            }
-            if (!beLocked && position.trailingStopPct && currentPrice > entryPrice) {
-              const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
-              if (trailStop > position.stopLoss) {
-                position.stopLoss = trailStop;
+                if (!beLocked) {
+                  logger.debug(`[LIVE] ${symbol}: ${candles?.length ?? 0} candles checked, none reached BE level ${beLevel.toFixed(6)}`);
+                }
+              } catch (candleErr) {
+                logger.warn(`[LIVE] ${symbol}: candle BE check failed — ${candleErr.message}`);
               }
             }
-            if (position.stopLoss <= position.initialStopLoss) {
-              logger.warn(`[LIVE] ${symbol}: no persisted state found — using initial stop-loss (heuristic failed)`);
+            if (beLocked) {
+              position.stopLoss = roundPrice(entryPrice * 1.002);
+              logger.info(`[LIVE] ${symbol}: BE lock confirmed from market data — stop set to ${position.stopLoss.toFixed(8)}`);
+            }
+          }
+
+          // Trailing stop (if enabled and price is above entry)
+          if (position.stopLoss < position.entryPrice && position.trailingStopPct && currentPrice > entryPrice) {
+            const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
+            if (trailStop > position.stopLoss) {
+              position.stopLoss = trailStop;
             }
           }
 
@@ -549,11 +549,12 @@ export class LiveTrader {
           highWaterMark: pos.highWaterMark,
           initialStopLoss: pos.initialStopLoss,
           entryPrice: pos.entryPrice,
+          openedAt: pos.openedAt,
           breakEvenLocked: pos.stopLoss >= pos.entryPrice,
         };
       }
       const json = JSON.stringify(state, null, 2);
-      // Atomic write: tmp → rename prevents corruption on crash/kill
+      // Atomic write: tmp → rename prevents corruption on crash
       const tmpFile = POSITION_STATE_FILE + '.tmp';
       fs.writeFileSync(tmpFile, json);
       fs.renameSync(tmpFile, POSITION_STATE_FILE);
