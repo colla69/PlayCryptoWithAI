@@ -812,48 +812,25 @@
       if (priceCountdown <= 0) pollPositionPrices();
     }, 1000);
 
-    // ── Smoke test ─────────────────────────────────────────────────────────
-    let smokeCountdown = null;
-    async function triggerSmokeTest() {
-      const btn = document.getElementById('smokeTestBtn');
-      if (!btn) return;
+    // ── Refresh balance from exchange ──────────────────────────────────────
+    async function refreshBalance() {
+      const btn = document.getElementById('refreshBalanceBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '🔄 Syncing…'; }
       try {
-        const r = await fetch(`${API_BASE}/api/smoke-test`, { method: 'POST' });
-        if (r.status === 409) { btn.textContent = '🔬 Already running…'; return; }
-        if (!r.ok) { btn.textContent = '❌ Failed'; setTimeout(() => { btn.textContent = '🔬 Smoke Test'; }, 3000); return; }
-        let secs = 50; // 45s hold + overhead
-        btn.disabled = true;
-        btn.style.color = '#f59e0b';
-        if (smokeCountdown) clearInterval(smokeCountdown);
-        smokeCountdown = setInterval(() => {
-          secs--;
-          btn.textContent = `🔬 Running… ${secs}s`;
-          if (secs <= 0) {
-            clearInterval(smokeCountdown);
-            btn.textContent = '🔬 Smoke Test';
-            btn.disabled = false;
-            btn.style.color = '#94a3b8';
-          }
-        }, 1000);
+        const r = await fetch(`${API_BASE}/api/refresh-balance`, { method: 'POST' });
+        if (!r.ok) { alert('Balance refresh failed'); return; }
+        const data = await r.json();
+        if (btn) btn.textContent = `✓ $${Number(data.balance ?? 0).toFixed(2)}`;
+        // Reload the summary to reflect new balance
+        const summary = await fetchJson('/status');
+        render(summary);
       } catch (e) {
-        btn.textContent = '❌ Error';
-        setTimeout(() => { btn.textContent = '🔬 Smoke Test'; }, 3000);
+        if (btn) btn.textContent = '❌ Error';
+      } finally {
+        setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '🔄 Refresh Balance'; } }, 3000);
       }
     }
-    window.triggerSmokeTest = triggerSmokeTest;
-
-    async function resetHistory() {
-      if (!confirm('⚠️ This will permanently erase ALL trade history and signal feed.\n\nContinue?')) return;
-      try {
-        const r = await fetch(`${API_BASE}/api/reset-history`, { method: 'POST' });
-        if (!r.ok) { alert('Reset failed'); return; }
-        alert('History cleared. Reloading…');
-        window.location.reload();
-      } catch (e) {
-        alert(`Error: ${e.message}`);
-      }
-    }
-    window.resetHistory = resetHistory;
+    window.refreshBalance = refreshBalance;
 
     // ── Manual close position ──────────────────────────────────────────────
     async function confirmClosePosition(symbol) {

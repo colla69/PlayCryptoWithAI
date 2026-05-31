@@ -69,7 +69,7 @@ export function pushEvent(eventName, data) {
   }
 }
 
-export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, closePosition, resetHistory } = {}) {
+export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, closePosition, resetHistory, refreshBalance } = {}) {
   if (serverInstance) {
     return serverInstance;
   }
@@ -260,6 +260,17 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     try {
       await resetHistory();
       res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/refresh-balance', async (_req, res) => {
+    if (!refreshBalance) return res.status(503).json({ error: 'refreshBalance not available' });
+    try {
+      await refreshBalance();
+      const summary = dashboardState.getSummary();
+      res.json({ ok: true, balance: summary.metrics?.balance ?? null });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

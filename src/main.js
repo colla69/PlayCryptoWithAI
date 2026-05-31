@@ -667,7 +667,7 @@ if (config.dashboard?.enabled) {
     writeFileSync(join(process.cwd(), 'logs', 'trades.csv'), 'timestamp,symbol,side,price,qty,pnl,balance\n', 'utf8');
     logger.info('[dashboard] Trade history reset');
   };
-  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV, closePosition, resetHistory });
+  dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV, closePosition, resetHistory, refreshBalance });
 }
 
 logStartup();
@@ -852,20 +852,20 @@ if (config.mtf4hFilter?.enabled) {
 // Paper mode skips this — its balance is already tracked in memory.
 const BALANCE_POLL_MS = 5 * 60_000;
 let balancePollId = null;
-if (!paperMode) {
-  async function refreshBalance() {
-    try {
-      // Sync positions FIRST so balance reflects actual holdings
-      await trader.restorePositionsFromExchange(
-        config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades, recordSyntheticTrade
-      );
-      const status = await trader.getStatus();
-      dashboardState.updateStatus(status, riskManager.getDailyStats());
-      pushEvent('status', { balance: status.balance });
-    } catch (err) {
-      logger.debug(`Balance poll error: ${err.message}`);
-    }
+async function refreshBalance() {
+  if (paperMode) return;
+  try {
+    await trader.restorePositionsFromExchange(
+      config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades, recordSyntheticTrade
+    );
+    const status = await trader.getStatus();
+    dashboardState.updateStatus(status, riskManager.getDailyStats());
+    pushEvent('status', { balance: status.balance });
+  } catch (err) {
+    logger.debug(`Balance poll error: ${err.message}`);
   }
+}
+if (!paperMode) {
   balancePollId = setInterval(() => void refreshBalance(), BALANCE_POLL_MS);
 }
 
