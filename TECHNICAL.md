@@ -95,9 +95,8 @@ Architecture, data flow, module responsibilities, and deployment.
 ### Trading Cycle (every 12h candle close)
 
 ```
-1. fetchOHLCV(symbol, '15m', 100)  → candleCache
-   fetchOHLCV(symbol, '4h', 30)   → candle4hCache
-   fetchOHLCV(symbol, '12h', 100) → main candles
+1. MTF candles served from in-memory cache (refreshed every 15m / 4h)
+   12h candles fetched fresh from Binance and merged into history cache
 
 2. For each symbol:
    strategies[symbol].computeSignal(candles)
@@ -106,7 +105,7 @@ Architecture, data flow, module responsibilities, and deployment.
 3. signalAggregator.evaluate(candles)
      → { decision, confidence, signals[] }
 
-4. Filter cascade:
+4. Filter cascade (uses cached 15m/4h data — no extra API calls):
    maxPositions? → dailyLossLimit? → mtf15m? → mtf4h? → minConfidence?
 
 5. Position sizing:
@@ -120,6 +119,28 @@ Architecture, data flow, module responsibilities, and deployment.
    price ≤ stopLoss?     → market sell (stop_loss)
    price ≥ takeProfit?   → market sell (take_profit)
    price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
+```
+
+### Fast Risk-Check Loop (every 2 min)
+
+```
+1. For each open position:
+   fetchTicker(symbol) → current price
+2. Evaluate: trailing stop, break-even, stop-loss, take-profit
+3. If triggered → market sell, update dashboard, persist state
+4. Reduces market exposure window from 12h to ~2 min
+```
+
+### MTF Candle Cache
+
+```
+┌─────────────────────────────────────────────┐
+│ 15m cache: refreshed every 15 min (24 bars) │
+│ 4h cache:  refreshed every 4h (30 bars)     │
+│ On cache miss: live fetch + warm cache       │
+└─────────────────────────────────────────────┘
+- Eliminates 74 API calls per BUY evaluation (37 symbols × 2 TF)
+- Stored in-memory (not disk) — rebuilt on restart
 ```
 
 ### Position Sync (startup + every 5 min)

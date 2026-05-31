@@ -80,7 +80,8 @@ Live at `http://localhost:3001` — three tabs:
 | `npm run download-history` | Download candle history from Binance |
 | `npm run optimize` | Per-symbol strategy optimizer |
 | `npm run compare` | Strategy comparison across symbols |
-| `npm test` | Unit tests |
+| `npm test` | Unit tests (Node test runner) |
+| `npm run test:vitest` | Unit tests (Vitest) |
 | `npm run test:connection` | Verify Binance API connectivity |
 
 ### Backtest Flags
@@ -117,6 +118,18 @@ Max 3 concurrent positions (~33% capital each), sized by ATR and confidence.
 | In-trade | Stop-loss (5%) | Market sell |
 | In-trade | Take-profit (12%) | Market sell |
 | In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
+| In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
+
+### Timing Architecture
+
+| Loop | Interval | Purpose |
+|------|----------|---------|
+| Signal cycle | 12h (candle close) | Strategy evaluation + BUY/SELL signals |
+| Risk-check | 2 min | SL/TP/trailing/BE for open positions |
+| Price poll | 5 sec | Dashboard live prices |
+| MTF 15m cache | 15 min | Refresh 15m candle cache for filters |
+| MTF 4h cache | 4h | Refresh 4h candle cache for filters |
+| Balance sync | 5 min | Sync exchange balance + position restore |
 
 ---
 
