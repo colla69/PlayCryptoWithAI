@@ -197,9 +197,24 @@ export class LiveTrader {
             openedAt: new Date().toISOString(),
           };
 
+          // Re-apply break-even and trailing stop based on current price.
+          // Without this, a restart erases previously locked protections.
+          if (breakEvenTriggerPct > 0 && currentPrice >= entryPrice * (1 + breakEvenTriggerPct)) {
+            position.stopLoss = roundPrice(entryPrice * 1.002);
+          }
+          if (position.trailingStopPct && currentPrice > entryPrice) {
+            const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
+            if (trailStop > position.stopLoss) {
+              position.stopLoss = trailStop;
+            }
+          }
+
           this.positions.set(symbol, position);
           restored++;
-          logger.info(`[LIVE] Restored position from exchange: ${symbol} qty=${qty} entry=${entryPrice} notional=$${notional.toFixed(2)}${foundEntry ? '' : ' (no history — synthetic BUY recorded)'}`);
+          const protNote = position.stopLoss > position.initialStopLoss
+            ? ` SL=${position.stopLoss.toFixed(6)} (BE/trail re-applied)`
+            : ` SL=${position.stopLoss.toFixed(6)}`;
+          logger.info(`[LIVE] Restored position from exchange: ${symbol} qty=${qty} entry=${entryPrice} notional=$${notional.toFixed(2)}${protNote}${foundEntry ? '' : ' (no history — synthetic BUY recorded)'}`);
 
           // If no matching BUY exists in the trade log, synthesise one so the
           // dashboard P&L, win-rate, and open-position panel are all consistent.
