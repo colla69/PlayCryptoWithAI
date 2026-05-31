@@ -1,5 +1,6 @@
 import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
+import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
@@ -74,32 +75,30 @@ export class PaperTrader {
 
     logger.debug(`[PAPER] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
 
-    this.#updateTrailingStop(symbol, currentPrice);
+    // Trailing stop update
+    const trailing = calcTrailingStop(position, currentPrice);
+    if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
+    if (trailing.shouldUpdate) {
+      const prevSL = position.stopLoss;
+      position.stopLoss = trailing.newStopLoss;
+      logger.debug(`[PAPER] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${trailing.newStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
+    }
 
     // Track latest price for status reporting
     position.currentPrice = roundPrice(currentPrice);
 
-    // Break-even: once price rises enough above entry, lock stop at entry price
-    // so the trade can no longer result in a loss.
-    const bePct = Number(this.config.breakEvenTriggerPct ?? 0);
-    if (bePct > 0 && position.stopLoss < position.entryPrice) {
-      if (currentPrice >= position.entryPrice * (1 + bePct)) {
-        position.stopLoss = position.entryPrice * 1.002;
-        logger.info(`[PAPER] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
-      }
+    // Break-even stop
+    const be = calcBreakEven(position, currentPrice, this.config.breakEvenTriggerPct);
+    if (be.shouldTrigger) {
+      position.stopLoss = be.newStopLoss;
+      logger.info(`[PAPER] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
     }
 
-    if (currentPrice <= position.stopLoss) {
-      const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
-        ? 'trailing_stop'
-        : 'stop_loss';
-      logger.info(`[PAPER] ${symbol}: ${reason} triggered price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)}`);
-      return this.#closePosition(symbol, currentPrice, reason);
-    }
-
-    if (currentPrice >= position.takeProfit) {
-      logger.info(`[PAPER] ${symbol}: take_profit triggered price=${currentPrice.toFixed(8)} TP=${position.takeProfit.toFixed(8)}`);
-      return this.#closePosition(symbol, currentPrice, 'take_profit');
+    // Exit signal evaluation
+    const exit = calcExitSignal(position, currentPrice);
+    if (exit.shouldExit) {
+      logger.info(`[PAPER] ${symbol}: ${exit.reason} triggered price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)}`);
+      return this.#closePosition(symbol, currentPrice, exit.reason);
     }
 
     return null;
@@ -225,30 +224,6 @@ export class PaperTrader {
       balance: this.balance,
       openedAt: position.openedAt,
     };
-  }
-
-  #updateTrailingStop(symbol, currentPrice) {
-    const position = this.positions.get(symbol);
-
-    if (!position || !position.trailingStopPct) {
-      return null;
-    }
-
-    if (currentPrice <= position.entryPrice || currentPrice <= position.highWaterMark) {
-      return null;
-    }
-
-    position.highWaterMark = roundPrice(currentPrice);
-    const nextStopLoss = roundPrice(currentPrice * (1 - position.trailingStopPct));
-
-    if (nextStopLoss > position.stopLoss) {
-      const prevSL = position.stopLoss;
-      position.stopLoss = nextStopLoss;
-      logger.debug(`[PAPER] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${nextStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
-      return position;
-    }
-
-    return null;
   }
 
   /**

@@ -1,6 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
+import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
 
 // Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
 const FALLBACK_MIN_NOTIONAL = 11;
@@ -69,29 +70,27 @@ export class LiveTrader {
 
       logger.debug(`[LIVE] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
 
-      await this.#updateTrailingStop(symbol, currentPrice);
-
-      // Break-even: once price rises enough above entry, lock stop at entry price
-      const bePct = Number(this.config.breakEvenTriggerPct ?? 0);
-      if (bePct > 0 && position.stopLoss < position.entryPrice) {
-        if (currentPrice >= position.entryPrice * (1 + bePct)) {
-          // Set stop above entry to cover round-trip trading fees (~0.2%)
-          position.stopLoss = position.entryPrice * 1.002;
-          logger.info(`[LIVE] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
-        }
+      // Trailing stop update
+      const trailing = calcTrailingStop(position, currentPrice);
+      if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
+      if (trailing.shouldUpdate) {
+        const prevSL = position.stopLoss;
+        position.stopLoss = trailing.newStopLoss;
+        logger.debug(`[LIVE] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${trailing.newStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
       }
 
-      if (currentPrice <= position.stopLoss) {
-        const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
-          ? 'trailing_stop'
-          : 'stop_loss';
-        logger.info(`[LIVE] ${symbol}: ${reason} triggered price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)}`);
-        return this.#closePosition(symbol, currentPrice, reason);
+      // Break-even stop
+      const be = calcBreakEven(position, currentPrice, this.config.breakEvenTriggerPct);
+      if (be.shouldTrigger) {
+        position.stopLoss = be.newStopLoss;
+        logger.info(`[LIVE] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
       }
 
-      if (currentPrice >= position.takeProfit) {
-        logger.info(`[LIVE] ${symbol}: take_profit triggered price=${currentPrice.toFixed(8)} TP=${position.takeProfit.toFixed(8)}`);
-        return this.#closePosition(symbol, currentPrice, 'take_profit');
+      // Exit signal evaluation
+      const exit = calcExitSignal(position, currentPrice);
+      if (exit.shouldExit) {
+        logger.info(`[LIVE] ${symbol}: ${exit.reason} triggered price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)}`);
+        return this.#closePosition(symbol, currentPrice, exit.reason);
       }
 
       return null;
@@ -464,30 +463,6 @@ export class LiveTrader {
   async #fetchQuoteBalance() {
     const balance = await fetchBalance();
     return roundMoney(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
-  }
-
-  async #updateTrailingStop(symbol, currentPrice) {
-    const position = this.positions.get(symbol);
-
-    if (!position || !position.trailingStopPct) {
-      return null;
-    }
-
-    if (currentPrice <= position.entryPrice || currentPrice <= position.highWaterMark) {
-      return null;
-    }
-
-    position.highWaterMark = roundPrice(currentPrice);
-    const nextStopLoss = roundPrice(currentPrice * (1 - position.trailingStopPct));
-
-    if (nextStopLoss > position.stopLoss) {
-      const prevSL = position.stopLoss;
-      position.stopLoss = nextStopLoss;
-      logger.debug(`[LIVE] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${nextStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
-      return position;
-    }
-
-    return null;
   }
 
   #formatError(error) {
