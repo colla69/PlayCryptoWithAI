@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR   = join(__dirname, '../../data');
+const LOGS_DIR   = join(__dirname, '../../logs');
 const STATE_FILE = join(DATA_DIR, 'dashboard_persist.json');
 const SIGNAL_HISTORY_FILE = join(DATA_DIR, 'signal_history.json');
+const TRADES_CSV = join(LOGS_DIR, 'trades.csv');
 
 export const MAX_SIGNAL_HISTORY = 5000;
 
@@ -33,6 +35,39 @@ export function scheduleSave(trades, signalFeed) {
     const data = JSON.stringify({ trades, signalFeed });
     writeFile(STATE_FILE, data, 'utf8', () => {});
   }, 500);
+}
+
+/**
+ * Fallback: parse trades.csv to reconstruct trade list when dashboard_persist.json is missing.
+ * Returns newest-first array matching the format pushTrade uses.
+ */
+export function loadTradesFromCsv(maxTrades = 100) {
+  try {
+    if (!existsSync(TRADES_CSV)) return [];
+    const raw = readFileSync(TRADES_CSV, 'utf8');
+    const lines = raw.trim().split('\n').slice(1); // skip header
+    const trades = [];
+    for (const line of lines) {
+      const cols = line.split(',');
+      if (cols.length < 7) continue;
+      const [timestamp, symbol, side, price, qty, pnl, balance] = cols;
+      trades.push({
+        timestamp,
+        symbol,
+        side,
+        entryPrice: side === 'BUY' ? Number(price) : undefined,
+        exitPrice: side === 'SELL' ? Number(price) : undefined,
+        qty: Number(qty),
+        pnl: side === 'SELL' ? Number(pnl) : undefined,
+        balance: Number(balance),
+        exitTime: side === 'SELL' ? timestamp : undefined,
+      });
+    }
+    // Return newest first, capped
+    return trades.reverse().slice(0, maxTrades);
+  } catch {
+    return [];
+  }
 }
 
 /** Load signal history from disk. */

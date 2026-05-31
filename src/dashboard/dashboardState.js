@@ -1,4 +1,4 @@
-import { loadPersistedState, scheduleSave, loadSignalHistory, scheduleHistorySave, MAX_SIGNAL_HISTORY } from './persistence.js';
+import { loadPersistedState, scheduleSave, loadSignalHistory, scheduleHistorySave, loadTradesFromCsv, MAX_SIGNAL_HISTORY } from './persistence.js';
 
 const MAX_TRADES = 100;
 const MAX_SIGNALS = 50;
@@ -28,8 +28,12 @@ class DashboardState {
 
     // Restore trades + signals that survived the last shutdown.
     const saved = loadPersistedState();
-    if (saved?.trades?.length)
+    if (saved?.trades?.length) {
       this.trades = saved.trades.slice(0, MAX_TRADES);
+    } else {
+      // Fallback: rebuild from trades.csv so charts work after fresh deploy
+      this.trades = loadTradesFromCsv(MAX_TRADES);
+    }
     if (saved?.signalFeed?.length)
       this.signalFeed = saved.signalFeed.slice(0, MAX_SIGNALS);
     this.signalHistory = loadSignalHistory();
