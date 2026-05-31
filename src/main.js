@@ -49,6 +49,12 @@ const riskManager = new RiskManager(config.risk);
 // Rebuilt after candle init and after each cycle so it always reflects recent data.
 let correlationMatrix = {};
 
+// ── MTF candle cache (15m + 4h) ───────────────────────────────────────────────
+// Stores last-fetched candles keyed by symbol. Refreshed every 15m / 4h respectively.
+// Filters read from these caches instead of hitting the exchange API each cycle.
+const mtf15mCache = new Map(); // symbol → Candle[]
+const mtf4hCache  = new Map(); // symbol → Candle[]
+
 // ── ATR position sizing state ─────────────────────────────────────────────────
 // Median ATR% across all symbols, updated once per cycle in runAllSymbols().
 // Used in runCycle to scale individual position sizes inversely to volatility.
@@ -154,9 +160,15 @@ async function runCycle(symbol) {
     let blockReason = null;
     let mtfSizeFactor = 1.0;
     if (result.decision === 'BUY') {
+      // Use cached MTF candles — falls back to live fetch if cache is empty
+      const cachedFetchOHLCV = (sym, tf, limit) => {
+        if (tf === '15m' && mtf15mCache.has(sym)) return Promise.resolve(mtf15mCache.get(sym).slice(-(limit ?? 20)));
+        if (tf === '4h' && mtf4hCache.has(sym)) return Promise.resolve(mtf4hCache.get(sym).slice(-(limit ?? 30)));
+        return fetchOHLCV(sym, tf, limit);
+      };
       const filterResult = await runEntryFilters({
         symbol, candles, openPositions: currentStatus.positions,
-        correlationMatrix, fetchOHLCV, config,
+        correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
       });
       blockReason = filterResult.blockReason;
       mtfSizeFactor = filterResult.mtfSizeFactor;
@@ -749,6 +761,87 @@ async function refreshOpenPositionPrices() {
 }
 pricePollId = setInterval(() => void refreshOpenPositionPrices(), PRICE_POLL_MS);
 
+// ── Fast risk-check loop ────────────────────────────────────────────────────
+// Evaluates stop-loss / trailing / break-even every 2 minutes using ticker prices.
+// The main signal cycle only runs every 12h — this catches stop events in between.
+const RISK_CHECK_MS = 2 * 60_000;
+let riskCheckId = null;
+if (!paperMode) {
+  async function runRiskChecks() {
+    try {
+      const status = await trader.getStatus();
+      const openPositions = status?.positions ?? [];
+      if (!openPositions.length) return;
+
+      logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s)`);
+      for (const pos of openPositions) {
+        try {
+          const ticker = await fetchTicker(pos.symbol);
+          const price = Number(ticker?.last ?? ticker?.close ?? 0);
+          if (price <= 0) continue;
+
+          dashboardState.updatePrice(pos.symbol, price);
+          const result = await trader.checkRisk(pos.symbol, price);
+          if (result) {
+            // Position was closed — update dashboard
+            logger.info(`[RISK-LOOP] ${pos.symbol}: position closed by risk check`);
+            dashboardState.pushTrade(result);
+            const freshStatus = await trader.getStatus();
+            dashboardState.updateStatus(freshStatus, riskManager.getDailyStats());
+            pushEvent('trade', result);
+            pushEvent('status', freshStatus);
+          }
+        } catch (err) {
+          logger.debug(`[RISK-LOOP] ${pos.symbol}: check failed — ${err.message}`);
+        }
+      }
+    } catch (err) {
+      logger.debug(`[RISK-LOOP] error: ${err.message}`);
+    }
+  }
+  riskCheckId = setInterval(() => void runRiskChecks(), RISK_CHECK_MS);
+  logger.info(`Risk-check loop active: every ${RISK_CHECK_MS / 1000}s for open positions`);
+}
+
+// ── MTF candle cache refresh ────────────────────────────────────────────────
+// Pre-fetch 15m and 4h candles for all symbols on timers matching their period.
+// This eliminates per-BUY API calls and keeps filter data fresh.
+const MTF_15M_REFRESH_MS = 15 * 60_000;
+const MTF_4H_REFRESH_MS  = 4 * 3_600_000;
+let mtf15mRefreshId = null;
+let mtf4hRefreshId  = null;
+
+async function refreshMtfCache(timeframe, cache, bars) {
+  const label = timeframe;
+  let refreshed = 0;
+  for (const symbol of config.symbols) {
+    try {
+      const candles = await fetchOHLCV(symbol, timeframe, bars);
+      if (candles.length) {
+        cache.set(symbol, candles);
+        refreshed++;
+      }
+    } catch (err) {
+      logger.debug(`[MTF-CACHE] ${symbol} ${label}: fetch failed — ${err.message}`);
+    }
+  }
+  logger.info(`[MTF-CACHE] ${label} refresh complete: ${refreshed}/${config.symbols.length} symbols`);
+}
+
+// Initial warm-up + periodic refresh
+if (config.mtfFilter?.enabled) {
+  void refreshMtfCache('15m', mtf15mCache, 24).then(() => {
+    mtf15mRefreshId = setInterval(() => void refreshMtfCache('15m', mtf15mCache, 24), MTF_15M_REFRESH_MS);
+  });
+  logger.info(`MTF 15m cache: refresh every ${MTF_15M_REFRESH_MS / 60_000} min`);
+}
+if (config.mtf4hFilter?.enabled) {
+  void refreshMtfCache('4h', mtf4hCache, 30).then(() => {
+    mtf4hRefreshId = setInterval(() => void refreshMtfCache('4h', mtf4hCache, 30), MTF_4H_REFRESH_MS);
+  });
+  logger.info(`MTF 4h cache: refresh every ${MTF_4H_REFRESH_MS / 3_600_000}h`);
+}
+
 // Refresh the balance from the exchange every 5 minutes so that deposits or
 // withdrawals are reflected on the dashboard without waiting for the next trade.
 // Paper mode skips this — its balance is already tracked in memory.
@@ -800,6 +893,9 @@ process.on('SIGINT', () => {
   clearInterval(cycleIntervalId);
   clearInterval(pricePollId);
   clearInterval(balancePollId);
+  clearInterval(riskCheckId);
+  clearInterval(mtf15mRefreshId);
+  clearInterval(mtf4hRefreshId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });
