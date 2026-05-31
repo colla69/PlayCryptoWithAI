@@ -1,0 +1,1261 @@
+    const API_BASE = window.location.origin;
+    const REASON_MAP = {
+      rsi_buy: 'RSI oversold',
+      rsi_sell: 'RSI overbought',
+      bb_buy: 'Price at lower Bollinger Band',
+      bb_sell: 'Price at upper Bollinger Band',
+      macd_buy: 'MACD bullish crossover',
+      macd_sell: 'MACD bearish crossover',
+      ema_buy: 'Price above EMA',
+      ema_sell: 'Price below EMA',
+      stoch_buy: 'Stochastic oversold',
+      stoch_sell: 'Stochastic overbought',
+      adx_buy: 'Strong uptrend (ADX)',
+      adx_sell: 'Strong downtrend (ADX)',
+      cci_buy: 'CCI oversold',
+      cci_sell: 'CCI overbought',
+    };
+
+    const STRATEGY_REASON_MAP = {
+      RSI: { BUY: 'rsi_buy', SELL: 'rsi_sell' },
+      EMA: { BUY: 'ema_buy', SELL: 'ema_sell' },
+      MACD: { BUY: 'macd_buy', SELL: 'macd_sell' },
+      BollingerBands: { BUY: 'bb_buy', SELL: 'bb_sell' },
+      Stochastic: { BUY: 'stoch_buy', SELL: 'stoch_sell' },
+      ADX: { BUY: 'adx_buy', SELL: 'adx_sell' },
+      CCI: { BUY: 'cci_buy', SELL: 'cci_sell' },
+    };
+
+    const state = {
+      summary: null,
+      signals: [],
+      trades: [],
+      source: null,
+      reconnectTimer: null,
+      connected: false,
+    };
+
+    const el = {
+      modeBadge: document.getElementById('modeBadge'),
+      connectionDot: document.getElementById('connectionDot'),
+      connectionLabel: document.getElementById('connectionLabel'),
+      liveClock: document.getElementById('liveClock'),
+      portfolioValue: document.getElementById('portfolioValue'),
+      portfolioSub: document.getElementById('portfolioSub'),
+      totalPnl: document.getElementById('totalPnl'),
+      totalPnlSub: document.getElementById('totalPnlSub'),
+      winRate: document.getElementById('winRate'),
+      winRateSub: document.getElementById('winRateSub'),
+      openPositionsCount: document.getElementById('openPositionsCount'),
+      positionsPanel: document.getElementById('positionsPanel'),
+      positionsCountLabel: document.getElementById('positionsCountLabel'),
+      positionsBody: document.getElementById('positionsBody'),
+      signalFeed: document.getElementById('signalFeed'),
+      tradesBody: document.getElementById('tradesBody'),
+      lastCycle: document.getElementById('lastCycle'),
+      nextCycle: document.getElementById('nextCycle'),
+      runningFor: document.getElementById('runningFor'),
+      timeframe: document.getElementById('timeframe'),
+      watching: document.getElementById('watching'),
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // Fixed-position tooltip that escapes any overflow:hidden parent
+    const hintTooltip = document.getElementById('hintTooltip');
+    document.addEventListener('mouseover', (e) => {
+      const btn = e.target.closest('[data-hint]');
+      if (!btn) return;
+      const lines = JSON.parse(btn.dataset.hint);
+      const extra = btn.dataset.hintExtra || '';
+      hintTooltip.innerHTML = lines.map(l => `<div>• ${escapeHtml(l)}</div>`).join('') +
+        (extra ? `<div style="margin-top:6px;color:#818cf8;font-size:11px">${escapeHtml(extra)}</div>` : '');
+      hintTooltip.style.display = 'block';
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!hintTooltip.style.display || hintTooltip.style.display === 'none') return;
+      const x = e.clientX + 12;
+      const y = e.clientY + 12;
+      const w = hintTooltip.offsetWidth;
+      const h = hintTooltip.offsetHeight;
+      hintTooltip.style.left = (x + w > window.innerWidth ? x - w - 24 : x) + 'px';
+      hintTooltip.style.top  = (y + h > window.innerHeight ? y - h - 12 : y) + 'px';
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (e.target.closest('[data-hint]')) hintTooltip.style.display = 'none';
+    });
+
+    function endpoint(path) {
+      return `${API_BASE}${path}`;
+    }
+
+    // EUR/USD exchange rate — fetched once on load, refreshed every 10 min
+    let eurRate = null;
+    async function refreshEurRate() {
+      try {
+        const r = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' });
+        if (r.ok) {
+          const data = await r.json();
+          eurRate = data?.rates?.EUR ?? null;
+        }
+      } catch (_) { /* non-critical */ }
+    }
+    refreshEurRate();
+    setInterval(refreshEurRate, 10 * 60 * 1000);
+
+    function formatEur(usdValue) {
+      if (!eurRate) return null;
+      const eur = Number(usdValue) * eurRate;
+      if (!Number.isFinite(eur)) return null;
+      return eur.toLocaleString(undefined, { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // Returns "±$X.XX / ±€Y.YY" or just "±$X.XX" if rate not available
+    function formatSignedDual(usdValue) {
+      const prefix = usdValue >= 0 ? '+' : '';
+      const usd = `${prefix}${formatMoney(Math.abs(usdValue))}`;
+      const eurStr = eurRate ? ` / ${usdValue >= 0 ? '+' : '−'}${formatEur(Math.abs(usdValue))}` : '';
+      return `${usd}${eurStr}`;
+    }
+
+    async function fetchJson(path) {
+      const response = await fetch(endpoint(path), { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Request failed: ${path}`);
+      }
+      return response.json();
+    }
+
+    function getBaseSymbol(symbol = '') {
+      return String(symbol).split('/')[0] || 'COIN';
+    }
+
+    function getPriceDecimals(value, symbol = '') {
+      const amount = Math.abs(Number(value) || 0);
+      const base = getBaseSymbol(symbol).toUpperCase();
+
+      if (base === 'BTC') return 2;
+      if (amount >= 1) return 4;
+      if (amount >= 0.01) return 5;
+      return 6;
+    }
+
+    function formatQty(qty) {
+      const n = Number(qty);
+      if (!Number.isFinite(n) || n === 0) return '—';
+      if (n >= 1_000_000)  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+      if (n >= 1_000)      return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      if (n >= 1)          return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+      return n.toLocaleString(undefined, { maximumSignificantDigits: 5 });
+    }
+
+    function formatPrice(value, symbol = '') {
+      const amount = Number(value ?? 0);
+      if (!Number.isFinite(amount)) return '—';
+      return `$${amount.toLocaleString(undefined, {
+        minimumFractionDigits: getPriceDecimals(amount, symbol),
+        maximumFractionDigits: getPriceDecimals(amount, symbol),
+      })}`;
+    }
+
+    function formatMoney(value) {
+      const amount = Number(value ?? 0);
+      if (!Number.isFinite(amount)) return '$0.00';
+      return amount.toLocaleString(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    }
+
+    function formatSignedMoney(value) {
+      const amount = Number(value ?? 0);
+      const prefix = amount > 0 ? '+' : '';
+      return `${prefix}${formatMoney(amount)}`;
+    }
+
+    function formatPercent(value, digits = 2) {
+      const amount = Number(value ?? 0);
+      if (!Number.isFinite(amount)) return '0%';
+      const prefix = amount > 0 ? '+' : '';
+      return `${prefix}${amount.toFixed(digits)}%`;
+    }
+
+    function classForValue(value) {
+      const amount = Number(value ?? 0);
+      if (amount > 0) return 'positive';
+      if (amount < 0) return 'negative';
+      return 'neutral';
+    }
+
+    function setConnection(connected) {
+      state.connected = connected;
+      el.connectionDot.classList.toggle('connected', connected);
+      el.connectionLabel.textContent = connected ? 'Connected' : 'Disconnected';
+    }
+
+    function renderClock() {
+      el.liveClock.textContent = new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    }
+
+    function formatDuration(ms) {
+      const totalMinutes = Math.max(0, Math.floor(Number(ms || 0) / 60000));
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor((totalMinutes % 1440) / 60);
+      const minutes = totalMinutes % 60;
+      const parts = [];
+      if (days) parts.push(`${days}d`);
+      if (hours || days) parts.push(`${hours}h`);
+      parts.push(`${minutes}m`);
+      return parts.join(' ');
+    }
+
+    function relativeTime(dateLike) {
+      if (!dateLike) return '—';
+      const target = typeof dateLike === 'number' ? dateLike : new Date(dateLike).getTime();
+      if (!Number.isFinite(target)) return '—';
+
+      const diffMs = target - Date.now();
+      const future = diffMs > 0;
+      const totalMinutes = Math.max(0, Math.round(Math.abs(diffMs) / 60000));
+
+      if (Math.abs(diffMs) < 30000) {
+        return future ? 'in moments' : 'just now';
+      }
+
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor((totalMinutes % 1440) / 60);
+      const minutes = totalMinutes % 60;
+      const parts = [];
+
+      if (days) parts.push(`${days}d`);
+      if (hours) parts.push(`${hours}h`);
+      if (minutes || !parts.length) parts.push(`${minutes}m`);
+
+      return future ? `in ${parts.slice(0, 2).join(' ')}` : `${parts.slice(0, 2).join(' ')} ago`;
+    }
+
+    function formatFeedTime(dateLike) {
+      if (!dateLike) return '--:--';
+      const date = new Date(dateLike);
+      if (Number.isNaN(date.getTime())) return '--:--';
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatTradeTime(dateLike) {
+      if (!dateLike) return '—';
+      const date = new Date(dateLike);
+      if (Number.isNaN(date.getTime())) return '—';
+      return date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function prettifyReason(reason) {
+      if (!reason) return '—';
+      const raw = String(reason).trim();
+      if (REASON_MAP[raw]) return REASON_MAP[raw];
+      return raw
+        .replace(/_/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function mapStrategyReason(entry, decision) {
+      const code = STRATEGY_REASON_MAP[entry?.name]?.[decision];
+      return prettifyReason(code || entry?.reason || '');
+    }
+
+    function getSignalReasonText(signal, summary) {
+      if (!signal || signal.decision === 'HOLD') return '—';
+
+      if (Array.isArray(signal.reasons) && signal.reasons.length) {
+        return signal.reasons.map(prettifyReason).join(' + ');
+      }
+
+      const strategyResults = summary?.latestStrategyResults?.[signal.symbol] || [];
+      const matching = strategyResults.filter((entry) => entry.signal === signal.decision);
+      if (matching.length) {
+        return matching.map((entry) => mapStrategyReason(entry, signal.decision)).join(' + ');
+      }
+
+      return 'No clear reason provided';
+    }
+
+    function tradeResultLabel(trade) {
+      if (trade?.side === 'BUY') return '🛒 Position Opened';
+
+      switch (trade?.reason) {
+        case 'take_profit':
+          return '✅ Take Profit';
+        case 'stop_loss':
+        case 'trailing_stop':
+          return '🛑 Stop Loss';
+        case 'strategy_sell':
+          return '📤 Signal Exit';
+        default:
+          return prettifyReason(trade?.reason || '—');
+      }
+    }
+
+    function getWatchCount(summary) {
+      const runtimeSymbols = summary?.runtimeConfig?.symbols;
+      if (Array.isArray(runtimeSymbols) && runtimeSymbols.length) return runtimeSymbols.length;
+
+      const symbols = new Set([
+        ...Object.keys(summary?.prices || {}),
+        ...Object.keys(summary?.latestStrategyResults || {}),
+        ...(summary?.signalFeed || []).map((signal) => signal.symbol),
+        ...(summary?.latestStatus?.positions || []).map((position) => position.symbol),
+      ].filter(Boolean));
+
+      return symbols.size;
+    }
+
+    // Returns open trades derived from trade history: BUYs without a matching SELL for the same symbol.
+    function getHistoryOpenPositions(trades, prices = {}) {
+      // Walk trades in chronological order (oldest first) so a new BUY after a SELL
+      // correctly re-opens the position. Exclude smoke-test probes entirely.
+      const realTrades = trades
+        .filter((t) => !String(t.note || '').includes('smoke-test'))
+        .slice()
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const openMap = {};
+      for (const t of realTrades) {
+        if (t.side === 'BUY')  openMap[t.symbol] = t;
+        if (t.side === 'SELL') delete openMap[t.symbol];
+      }
+
+      return Object.values(openMap).map((t) => {
+          const entry       = t.entryPrice ?? t.price ?? 0;
+          const currentPrice = prices[t.symbol] ?? null;
+          const qty          = t.qty ?? 0;
+          return {
+            symbol:        t.symbol,
+            qty,
+            entryPrice:    entry,
+            stopLoss:      t.stopLoss ?? t.initialStopLoss ?? 0,
+            takeProfit:    t.takeProfit ?? 0,
+            openedAt:      t.openedAt ?? t.timestamp,
+            currentPrice,
+            unrealizedPnl: currentPrice != null ? (currentPrice - entry) * qty : null,
+            _fromHistory:  true,
+          };
+        });
+    }
+
+    function getPortfolioStats(summary) {
+      const livePosns  = summary?.latestStatus?.positions || [];
+      const allTrades  = state.trades.length ? state.trades : (state.summary?.trades || []);
+      const histPosns  = getHistoryOpenPositions(allTrades, summary?.prices || {});
+      // Merge live + history: live positions are ground truth when bot is running.
+      // Supplement with any history-derived positions the live bot doesn't know about
+      // (e.g. a position that survived a restart but wasn't restored into memory).
+      // If a position was properly closed (SELL in history), it won't appear in histPosns.
+      const liveSymbols = new Set(livePosns.map((p) => p.symbol));
+      const histExtra   = histPosns.filter((p) => !liveSymbols.has(p.symbol));
+      const positions   = [...livePosns, ...histExtra];
+      const maxSlots    = summary?.runtimeConfig?.maxOpenPositions || 0;
+      const cashBalance = Number(summary?.latestStatus?.balance ?? summary?.metrics?.balance ?? 0);
+      const realizedPnl = Number(summary?.metrics?.totalPnL ?? 0);
+      const openMarketValue = positions.reduce((total, position) => {
+        const price = position.currentPrice != null ? Number(position.currentPrice) : Number(position.entryPrice ?? 0);
+        return total + price * Number(position.qty ?? 0);
+      }, 0);
+      const openCostBasis = positions.reduce((total, position) => total + (Number(position.entryPrice ?? 0) * Number(position.qty ?? 0)), 0);
+      const unrealizedPnl = positions.reduce((total, position) => total + Number(position.unrealizedPnl ?? 0), 0);
+      const portfolioValue = cashBalance + openMarketValue;
+      const totalPnl = realizedPnl + unrealizedPnl;
+      const startingBalance = cashBalance + openCostBasis - realizedPnl;
+      const pnlPct = startingBalance > 0 ? (totalPnl / startingBalance) * 100 : 0;
+
+      return {
+        cashBalance,
+        portfolioValue,
+        totalPnl,
+        pnlPct,
+        unrealizedPnl,
+        openCount: positions.length,
+        maxSlots,
+        watchCount: getWatchCount(summary),
+      };
+    }
+
+    function renderHeader(summary) {
+      const mode = String(summary?.mode || 'PAPER').toUpperCase();
+      el.modeBadge.textContent = mode;
+      el.modeBadge.className = `badge ${mode === 'LIVE' ? 'mode-live' : mode === 'TESTNET' ? 'mode-testnet' : 'mode-paper'}`;
+    }
+
+    function renderSummary(summary) {
+      const stats       = getPortfolioStats(summary);
+      const wins        = Number(summary?.metrics?.wins ?? 0);
+      const losses      = Number(summary?.metrics?.losses ?? 0);
+      const closedTrades = wins + losses;
+
+      // Main number = available cash; sub = total portfolio value (cash + open positions)
+      el.portfolioValue.textContent = formatMoney(stats.cashBalance);
+      const posVal   = stats.portfolioValue - stats.cashBalance;
+      const botOnline = summary?.latestStatus != null;
+      if (el.portfolioSub) {
+        if (posVal > 0) {
+          const staleSuffix = !botOnline ? ' · ⚠️ bot offline' : '';
+          el.portfolioSub.textContent = `Portfolio total: ${formatMoney(stats.portfolioValue)} · In positions: ${formatMoney(posVal)}${staleSuffix}`;
+        } else if (stats.openCount > 0 && !botOnline) {
+          el.portfolioSub.textContent = `${stats.openCount} open position${stats.openCount === 1 ? '' : 's'} tracked · ⚠️ bot offline`;
+        } else {
+          el.portfolioSub.textContent = 'No open positions — full balance available';
+        }
+      }
+      // P&L stat card: percentage as main, $ amount in sub-line, hover shows exact dollar
+      const pnlSign = stats.totalPnl >= 0 ? '+' : '';
+      el.totalPnl.textContent = `${pnlSign}${formatPercent(stats.pnlPct)}`;
+      el.totalPnl.className = `stat-main ${classForValue(stats.totalPnl)}`;
+      el.totalPnl.title = `${pnlSign}${formatMoney(Math.abs(stats.totalPnl))} total`;
+      el.totalPnl.style.cursor = 'default';
+      const eurPnl = eurRate ? ` · ${formatEur(stats.totalPnl)}` : '';
+      el.totalPnlSub.textContent = `${formatSignedMoney(stats.totalPnl)} overall${eurPnl}`;
+
+      el.winRate.textContent = `${Number(summary?.metrics?.winRate ?? 0).toFixed(0)}%`;
+      el.winRateSub.textContent = `${closedTrades} closed trade${closedTrades === 1 ? '' : 's'} tracked`;
+      el.openPositionsCount.textContent = `${stats.openCount} / ${stats.maxSlots || stats.watchCount || 0}`;
+    }
+
+    function renderPositions(summary) {
+      const livePosns = summary?.latestStatus?.positions || [];
+      const allTrades = state.trades.length ? state.trades : (state.summary?.trades || []);
+      const histPosns = getHistoryOpenPositions(allTrades, summary?.prices || {});
+      const botOnline = summary?.latestStatus != null;
+      // Merge: live positions are ground truth; supplement with history entries
+      // the live bot doesn't know about (restart didn't restore them).
+      const liveSymbols = new Set(livePosns.map((p) => p.symbol));
+      const histExtra   = histPosns.filter((p) => !liveSymbols.has(p.symbol));
+      const positions   = [...livePosns, ...histExtra];
+      const isStale     = !livePosns.length && histPosns.length > 0 && !botOnline;
+      const hasHistExtra = histExtra.length > 0 && botOnline;
+
+      el.positionsPanel.hidden = positions.length === 0;
+      el.positionsCountLabel.textContent = positions.length
+        ? `${positions.length} open position${positions.length === 1 ? '' : 's'}${isStale ? ' · ⚠️ from history (bot offline)' : ''}${hasHistExtra ? ` · ⚠️ ${histExtra.length} from history (not in live bot)` : ''}`
+        : '';
+
+      if (!positions.length) {
+        el.positionsBody.innerHTML = '';
+        return;
+      }
+
+      el.positionsBody.innerHTML = positions.map((position) => {
+        const entry      = Number(position.entryPrice ?? 0);
+        const qty        = Number(position.qty ?? 0);
+        const costBasis  = entry * qty;
+        const stopLoss   = Number(position.stopLoss ?? 0);
+        const takeProfit = Number(position.takeProfit ?? 0);
+        const stopPct    = entry > 0 ? ((entry - stopLoss) / entry) * 100 : 0;
+        const takePct    = entry > 0 ? ((takeProfit - entry) / entry) * 100 : 0;
+        const unrealized = Number(position.unrealizedPnl ?? 0);
+        const unrealizedPct = costBasis > 0 ? (unrealized / costBasis) * 100 : null;
+        const unrealizedDisplay = unrealizedPct !== null
+          ? `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${unrealizedPct >= 0 ? '+' : ''}${formatPercent(unrealizedPct)}</span>`
+          : '—';
+        const base       = getBaseSymbol(position.symbol);
+        const heldFor    = position.openedAt ? formatDuration(Date.now() - new Date(position.openedAt).getTime()) : '—';
+
+        // Detect break-even: stop loss is within 0.2% of entry price (was moved there by the BE rule)
+        const isBreakEven = entry > 0 && stopLoss > 0 && Math.abs(stopLoss - entry) / entry < 0.002;
+        const protectionHtml = isBreakEven
+          ? `<span class="protection-badge protection-breakeven" title="Stop loss has been moved to entry — this position cannot close at a loss">⚡ Break-even</span>`
+          : stopLoss > 0
+            ? `<span class="protection-badge protection-normal" title="Fixed stop loss at ${formatPercent(-stopPct)} below entry">🛑 ${formatPercent(-stopPct)}</span>`
+            : '—';
+
+        return `
+          <tr data-symbol="${escapeHtml(position.symbol)}" data-entry="${entry}" data-qty="${qty}">
+            <td>
+              <div class="coin-cell">
+                <span class="coin-icon">${escapeHtml(base.slice(0, 4))}</span>
+                <div class="small-stack">
+                  <div class="coin-name">${escapeHtml(base)}</div>
+                  <div class="coin-pair">${escapeHtml(position.symbol)}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <div>${qty > 0 ? formatQty(qty) : '—'}</div>
+              <div class="helper">${costBasis > 0 ? formatMoney(costBasis) : ''}</div>
+            </td>
+            <td>${formatPrice(entry, position.symbol)}</td>
+            <td class="pos-current-price">${formatPrice(position.currentPrice ?? entry, position.symbol)}</td>
+            <td class="pos-unrealized ${classForValue(unrealized)}">${unrealizedDisplay}</td>
+            <td>
+              <div>${formatPrice(stopLoss, position.symbol)}</div>
+              <div class="helper">${formatPercent(-stopPct)}</div>
+            </td>
+            <td>
+              <div>${formatPrice(takeProfit, position.symbol)}</div>
+              <div class="helper">${formatPercent(takePct)}</div>
+            </td>
+            <td>${protectionHtml}</td>
+            <td title="${escapeHtml(position.openedAt || '')}">${escapeHtml(heldFor)}</td>
+            <td>
+              <button class="close-pos-btn" data-symbol="${escapeHtml(position.symbol)}"
+                title="Manually close this position at market price"
+                onclick="confirmClosePosition('${escapeHtml(position.symbol)}')">
+                Close
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderSignals(summary) {
+      const signals = (state.signals.length ? state.signals : (summary?.signalFeed || [])).slice(0, 20);
+
+      if (!signals.length) {
+        el.signalFeed.innerHTML = '<div class="empty-state">No signals yet. Once the bot runs a cycle, the newest buy, sell, and hold decisions will appear here.</div>';
+        return;
+      }
+
+      el.signalFeed.innerHTML = signals.map((signal) => {
+        const confidence = Math.max(0, Math.min(100, Number(signal.confidence ?? 0) * 100));
+        const decision = String(signal.decision || 'HOLD').toUpperCase();
+        const decisionClass = decision.toLowerCase();
+        const reasonText = getSignalReasonText(signal, summary);
+
+        // Strategy badges
+        const strategies = Array.isArray(signal.strategies) ? signal.strategies : [];
+        const strategyBadges = strategies.map(s => `<span class="strategy-badge">${escapeHtml(s)}</span>`).join('');
+
+        // Hover tooltip via data attribute (rendered by global fixed tooltip, escapes overflow)
+        const hints = Array.isArray(signal.triggerHints) ? signal.triggerHints : [];
+        const hintBtn = hints.length ? (() => {
+          const extra = strategies.length > 1 ? `All ${strategies.length} must agree` : '';
+          return `<span class="hint-btn" data-hint="${escapeHtml(JSON.stringify(hints))}" data-hint-extra="${escapeHtml(extra)}">?</span>`;
+        })() : '';
+
+        const blockNote = signal.blockReason ? (() => {
+          const r = String(signal.blockReason).toLowerCase();
+          const cls = r.includes('ranging') || r.includes('adx') ? 'block-regime'
+                    : r.includes('correl') ? 'block-corr'
+                    : 'block-risk';
+          const icon = cls === 'block-regime' ? '📉' : cls === 'block-corr' ? '🔗' : '⚠️';
+          return `<span class="signal-blocked ${cls}">${icon} ${escapeHtml(signal.blockReason)}</span>`;
+        })() : '';
+
+        const icon = decision === 'BUY' ? '🟢' : decision === 'SELL' ? '🔴' : '⚪';
+        const confText = decision !== 'HOLD' ? `${confidence.toFixed(0)}%` : '';
+
+        return `
+          <article class="signal-item ${decisionClass}">
+            <span class="signal-time">${escapeHtml(relativeTime(signal.timestamp))}</span>
+            <strong style="font-size:13px;white-space:nowrap">${escapeHtml((signal.symbol || 'Unknown').split('/')[0])}</strong>
+            <span class="signal-tag ${decisionClass}">${icon} ${escapeHtml(decision)}</span>
+            ${confText ? `<span class="signal-time">${confText}</span>` : ''}
+            <span class="signal-details" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</span>
+            <span class="signal-strategies">${strategyBadges}</span>
+            ${hintBtn}
+            ${blockNote}
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderTrades() {
+      const allTrades = (state.trades.length ? state.trades : (state.summary?.trades || []));
+      const trades = allTrades.slice(0, 20);
+
+      if (!trades.length) {
+        el.tradesBody.innerHTML = '<tr><td colspan="8" class="empty-state">No trades yet. Closed positions and new entries will show up here.</td></tr>';
+        return;
+      }
+
+      el.tradesBody.innerHTML = trades.map((trade) => {
+        const side = String(trade.side || 'SELL').toUpperCase();
+        const sideClass = side === 'BUY' ? 'buy' : side === 'SELL' ? 'sell' : 'hold';
+        const pnl = Number(trade.pnl ?? 0);
+        const price = Number(trade.entryPrice ?? trade.price ?? 0);
+        const qty   = Number(trade.qty ?? 0);
+        const tradeCost = price * qty;
+        const tradeSize = side === 'SELL'
+          ? Number(trade.exitPrice ?? price) * qty
+          : tradeCost;
+        const tradePnlPct = tradeCost > 0 ? (pnl / tradeCost) * 100 : null;
+        const pnlDisplay = side === 'BUY'
+          ? `<span class="neutral">–${formatMoney(tradeCost)}</span>`
+          : tradePnlPct !== null
+            ? `<span title="${formatSignedMoney(pnl)}" style="cursor:default">${formatPercent(tradePnlPct)}</span>`
+            : formatSignedMoney(pnl);
+        const base = getBaseSymbol(trade.symbol);
+        const isSmoke = String(trade.note || '').includes('smoke-test');
+        return `
+          <tr${isSmoke ? ' style="opacity:0.5" title="Smoke-test trade"' : ''}>
+            <td title="${escapeHtml(new Date(trade.timestamp || Date.now()).toLocaleString())}">${escapeHtml(formatTradeTime(trade.timestamp))}${isSmoke ? ' <span style="font-size:0.7em;color:#64748b">🔬</span>' : ''}</td>
+            <td>
+              <div class="coin-cell">
+                <span class="coin-icon">${escapeHtml(base.slice(0, 4))}</span>
+                <div class="small-stack">
+                  <div class="coin-name">${escapeHtml(base)}</div>
+                  <div class="coin-pair">${escapeHtml(trade.symbol || '—')}</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="signal-tag ${sideClass}">${escapeHtml(side)}</span></td>
+            <td title="${qty > 0 ? formatQty(qty) + ' ' + escapeHtml(getBaseSymbol(trade.symbol)) : ''}">${tradeSize > 0 ? formatMoney(tradeSize) : '—'}</td>
+            <td>${trade.entryPrice ? formatPrice(trade.entryPrice, trade.symbol) : trade.price ? formatPrice(trade.price, trade.symbol) : '—'}</td>
+            <td>${trade.exitPrice ? formatPrice(trade.exitPrice, trade.symbol) : '—'}</td>
+            <td class="${classForValue(pnl)}">${pnlDisplay}</td>
+            <td><span class="result-badge">${escapeHtml(tradeResultLabel(trade))}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderFooter(summary) {
+      const runtime = summary?.runtimeConfig || {};
+      // Use the exact next-run timestamp from the backend (aligned to candle close),
+      // falling back to the old estimate only if it hasn't been set yet.
+      const nextCycleTime = summary?.nextRunAt
+        ?? (summary?.lastUpdatedAt && Number(runtime.pollIntervalMs) > 0
+          ? new Date(summary.lastUpdatedAt).getTime() + Number(runtime.pollIntervalMs)
+          : null);
+
+      el.lastCycle.textContent  = relativeTime(summary?.lastUpdatedAt);
+      el.nextCycle.textContent  = nextCycleTime ? relativeTime(nextCycleTime) : '—';
+      el.runningFor.textContent = formatDuration(summary?.uptimeMs ?? 0);
+      el.timeframe.textContent  = runtime.timeframe || '—';
+      el.watching.textContent   = `${getWatchCount(summary)} coin${getWatchCount(summary) === 1 ? '' : 's'}`;
+    }
+
+    function toggleLegend() {
+      const panel  = document.getElementById('legendPanel');
+      const toggle = document.getElementById('legendToggle');
+      const open   = panel.classList.toggle('open');
+      toggle.textContent = open ? '✕ Close' : 'ℹ Legend';
+    }
+
+    function renderFilters(summary) {
+      const inner = document.getElementById('filtersInner');
+      if (!inner) return;
+      const filters  = summary?.activeFilters  || {};
+      const blocked  = summary?.blockedStats   || {};
+      const strats   = (summary?.strategiesConfig || []).map((s) => s.name);
+      const pills    = [];
+
+      // Break-even stop
+      const be = filters.breakEven;
+      if (be) {
+        const pct = be.triggerPct > 0 ? ` +${(be.triggerPct * 100).toFixed(0)}%` : '';
+        pills.push(`<span class="filter-pill ${be.enabled ? 'filter-on' : 'filter-off'}" title="Once price rises ${pct}, the stop loss moves to entry price — locking in break-even">⚡ Break-even${escapeHtml(pct)}</span>`);
+      }
+
+      // Trailing stop
+      const ts = filters.trailingStop;
+      if (ts && ts.pct > 0) {
+        pills.push(`<span class="filter-pill ${ts.enabled ? 'filter-on' : 'filter-off'}" title="Stop loss trails the price upward, locking in gains as the trade moves in our favour">🔻 Trailing ${(ts.pct * 100).toFixed(0)}%</span>`);
+      }
+
+      // Regime filter
+      const rc = filters.regime;
+      if (rc) {
+        pills.push(`<span class="filter-pill ${rc.enabled ? 'filter-on' : 'filter-off'}" title="Blocks new BUY entries when ADX < ${rc.adxThreshold} — the market is ranging/choppy rather than trending">📉 Regime ADX&lt;${rc.adxThreshold}</span>`);
+      }
+
+      // Correlation filter
+      const cc = filters.correlation;
+      if (cc) {
+        pills.push(`<span class="filter-pill ${cc.enabled ? 'filter-on' : 'filter-off'}" title="Skips a BUY if an open position has Pearson r &gt; ${cc.threshold} with the incoming coin — avoids doubling up on the same market move">🔗 Correlation r&gt;${cc.threshold}</span>`);
+      }
+
+      // Blocked stats this session
+      if (blocked.total > 0) {
+        pills.push('<span class="filter-divider"></span>');
+        const parts = [];
+        if (blocked.regime      > 0) parts.push(`${blocked.regime} regime`);
+        if (blocked.correlation > 0) parts.push(`${blocked.correlation} corr`);
+        if (blocked.daily       > 0) parts.push(`${blocked.daily} daily`);
+        if (blocked.risk        > 0) parts.push(`${blocked.risk} risk`);
+        const detail = parts.length ? ` (${parts.join(', ')})` : '';
+        pills.push(`<span class="filter-pill filter-blocked" title="BUY signals blocked by active filters this session">⚠️ ${blocked.total} BUY${blocked.total === 1 ? '' : 's'} blocked${escapeHtml(detail)}</span>`);
+      }
+
+      // Active strategies
+      if (strats.length) {
+        pills.push('<span class="filter-divider"></span>');
+        pills.push(`<span class="filter-pill filter-strategies" title="Technical strategies that each cast a vote on every BUY / SELL decision">📊 ${escapeHtml(strats.join(' · '))}</span>`);
+      }
+
+      inner.innerHTML = pills.join('') || '<span class="filter-pill filter-off">No filter info yet</span>';
+    }
+
+    function render(summary) {
+      state.summary = summary;
+      renderHeader(summary);
+      renderSummary(summary);
+      renderFilters(summary);
+      renderPositions(summary);
+      renderSignals(summary);
+      renderTrades();
+      renderFooter(summary);
+    }
+
+    function mergeTrade(trade) {
+      const key = [trade.timestamp, trade.symbol, trade.side, trade.exitPrice ?? trade.entryPrice ?? trade.price].join('|');
+      const existing = new Set();
+      const merged = [trade, ...state.trades].filter((item) => {
+        const itemKey = [item.timestamp, item.symbol, item.side, item.exitPrice ?? item.entryPrice ?? item.price].join('|');
+        if (existing.has(itemKey)) return false;
+        existing.add(itemKey);
+        return true;
+      });
+      if (!existing.has(key)) merged.unshift(trade);
+      state.trades = merged.slice(0, 50);
+    }
+
+    async function loadInitialState() {
+      const [summary, signals, trades] = await Promise.all([
+        fetchJson('/status'),
+        fetchJson('/signals').catch(() => []),
+        fetchJson('/trades').catch(() => []),
+      ]);
+
+      state.signals = Array.isArray(signals) ? signals.slice(0, 20) : (summary.signalFeed || []).slice(0, 20);
+      state.trades = Array.isArray(trades) ? trades.slice(0, 50) : (summary.trades || []).slice(0, 50);
+      render(summary);
+    }
+
+    function connectEvents() {
+      clearTimeout(state.reconnectTimer);
+      if (state.source) state.source.close();
+
+      const source = new EventSource(endpoint('/events'));
+      state.source = source;
+
+      source.onopen = () => setConnection(true);
+
+      source.addEventListener('cycle', (event) => {
+        const summary = JSON.parse(event.data);
+        state.signals = (summary.signalFeed || []).slice(0, 20);
+        state.trades = (summary.trades || []).slice(0, 50);
+        render(summary);
+      });
+
+      source.addEventListener('trade', (event) => {
+        const trade = JSON.parse(event.data);
+        mergeTrade(trade);
+        renderTrades();
+      });
+
+      source.addEventListener('prices', (event) => {
+        const prices = JSON.parse(event.data); // { "BCH/USDT": 371.5, ... }
+        updatePositionPrices(prices);
+        // also update summary prices cache for history-derived positions
+        if (state.summary) state.summary.prices = { ...(state.summary.prices || {}), ...prices };
+      });
+
+      source.onerror = () => {
+        setConnection(false);
+        source.close();
+        state.reconnectTimer = setTimeout(connectEvents, 3000);
+      };
+    }
+
+    // Surgically update only price + P&L cells for open positions — no full re-render.
+    function updatePositionPrices(prices) {
+      const rows = document.querySelectorAll('#positionsBody tr[data-symbol]');
+      rows.forEach(row => {
+        const symbol = row.dataset.symbol;
+        const price  = prices[symbol];
+        if (!price) return;
+        const entry    = Number(row.dataset.entry);
+        const qty      = Number(row.dataset.qty);
+        const costBasis = entry * qty;
+        const unrealized = (price - entry) * qty;
+        const unrealizedPct = costBasis > 0 ? (unrealized / costBasis) * 100 : null;
+
+        const priceCell = row.querySelector('.pos-current-price');
+        if (priceCell) priceCell.textContent = formatPrice(price, symbol);
+
+        const pnlCell = row.querySelector('.pos-unrealized');
+        if (pnlCell && unrealizedPct !== null) {
+          pnlCell.className = `pos-unrealized ${classForValue(unrealized)}`;
+          pnlCell.innerHTML = `<span title="${formatSignedMoney(unrealized)}" style="cursor:default">${unrealizedPct >= 0 ? '+' : ''}${formatPercent(unrealizedPct)}</span>`;
+        }
+      });
+    }
+
+    renderClock();
+    setInterval(renderClock, 1000);
+    setInterval(() => {
+      if (state.summary) render(state.summary);
+    }, 30000);
+
+    // ── Live price polling every 5s with countdown ────────────────────────────
+    const PRICE_REFRESH_S = 5;
+    let priceCountdown = PRICE_REFRESH_S;
+    const countdownEl  = document.getElementById('priceCountdownSecs');
+    const countdownWrap = document.getElementById('priceRefreshCountdown');
+
+    async function pollPositionPrices() {
+      priceCountdown = PRICE_REFRESH_S;
+      try {
+        const r = await fetch(`${API_BASE}/api/status`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const data = await r.json();
+        const prices = data.prices || {};
+        if (Object.keys(prices).length) updatePositionPrices(prices);
+        if (state.summary) state.summary.prices = { ...(state.summary.prices || {}), ...prices };
+      } catch (_) {}
+    }
+
+    // Tick the countdown every second; fire the poll when it hits 0
+    setInterval(() => {
+      const hasPositions = document.querySelectorAll('#positionsBody tr[data-symbol]').length > 0;
+      if (countdownWrap) countdownWrap.style.display = hasPositions ? 'inline' : 'none';
+      if (!hasPositions) { priceCountdown = PRICE_REFRESH_S; return; }
+      priceCountdown--;
+      if (countdownEl) countdownEl.textContent = Math.max(priceCountdown, 0);
+      if (priceCountdown <= 0) pollPositionPrices();
+    }, 1000);
+
+    // ── Smoke test ─────────────────────────────────────────────────────────
+    let smokeCountdown = null;
+    async function triggerSmokeTest() {
+      const btn = document.getElementById('smokeTestBtn');
+      if (!btn) return;
+      try {
+        const r = await fetch(`${API_BASE}/api/smoke-test`, { method: 'POST' });
+        if (r.status === 409) { btn.textContent = '🔬 Already running…'; return; }
+        if (!r.ok) { btn.textContent = '❌ Failed'; setTimeout(() => { btn.textContent = '🔬 Smoke Test'; }, 3000); return; }
+        let secs = 50; // 45s hold + overhead
+        btn.disabled = true;
+        btn.style.color = '#f59e0b';
+        if (smokeCountdown) clearInterval(smokeCountdown);
+        smokeCountdown = setInterval(() => {
+          secs--;
+          btn.textContent = `🔬 Running… ${secs}s`;
+          if (secs <= 0) {
+            clearInterval(smokeCountdown);
+            btn.textContent = '🔬 Smoke Test';
+            btn.disabled = false;
+            btn.style.color = '#94a3b8';
+          }
+        }, 1000);
+      } catch (e) {
+        btn.textContent = '❌ Error';
+        setTimeout(() => { btn.textContent = '🔬 Smoke Test'; }, 3000);
+      }
+    }
+    window.triggerSmokeTest = triggerSmokeTest;
+
+    async function resetHistory() {
+      if (!confirm('⚠️ This will permanently erase ALL trade history and signal feed.\n\nContinue?')) return;
+      try {
+        const r = await fetch(`${API_BASE}/api/reset-history`, { method: 'POST' });
+        if (!r.ok) { alert('Reset failed'); return; }
+        alert('History cleared. Reloading…');
+        window.location.reload();
+      } catch (e) {
+        alert(`Error: ${e.message}`);
+      }
+    }
+    window.resetHistory = resetHistory;
+
+    // ── Manual close position ──────────────────────────────────────────────
+    async function confirmClosePosition(symbol) {
+      if (!confirm(`Close position: ${symbol} at market price?\n\nThis will place a market SELL order immediately.`)) return;
+      const btn = document.querySelector(`.close-pos-btn[data-symbol="${symbol}"]`);
+      if (btn) { btn.disabled = true; btn.textContent = 'Closing…'; }
+      try {
+        const encoded = encodeURIComponent(symbol);
+        const r = await fetch(`${API_BASE}/api/close-position/${encoded}`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) {
+          alert(`Failed to close ${symbol}: ${data.error ?? r.statusText}`);
+          if (btn) { btn.disabled = false; btn.textContent = 'Close'; }
+          return;
+        }
+        const pnlStr = typeof data.pnl === 'number'
+          ? ` · P&L: ${data.pnl >= 0 ? '+' : ''}$${data.pnl.toFixed(2)}`
+          : '';
+        alert(`✅ ${symbol} closed at $${data.exitPrice?.toFixed?.(4) ?? '?'}${pnlStr}`);
+        // Dashboard will refresh via SSE; remove row immediately as feedback
+        const row = document.querySelector(`#positionsBody tr[data-symbol="${symbol}"]`);
+        if (row) row.remove();
+      } catch (e) {
+        alert(`Error closing ${symbol}: ${e.message}`);
+        if (btn) { btn.disabled = false; btn.textContent = 'Close'; }
+      }
+    }
+    window.confirmClosePosition = confirmClosePosition;
+
+
+    function logLevelColor(line) {
+      if (line.includes(' error:') || line.includes('❌')) return '#f87171';
+      if (line.includes(' warn:')  || line.includes('⚠️')) return '#fb923c';
+      if (line.includes('🔬'))                              return '#818cf8';
+      if (line.includes('✅') || line.includes('BUY '))     return '#4ade80';
+      if (line.includes('SELL '))                           return '#f472b6';
+      return '#94a3b8';
+    }
+    let _logsAbort = null;
+    let _logsDebounce = null;
+
+    async function loadLogs() {
+      const body   = document.getElementById('logsBody');
+      const lines  = document.getElementById('logLines')?.value || 500;
+      const filterRaw = document.getElementById('logFilter')?.value?.trim() || '';
+      const filter = encodeURIComponent(filterRaw);
+      if (!body) return;
+
+      // Cancel any in-flight request so stale responses can't overwrite newer ones
+      if (_logsAbort) { _logsAbort.abort(); }
+      _logsAbort = new AbortController();
+      const signal = _logsAbort.signal;
+
+      try {
+        const r = await fetch(`${API_BASE}/api/logs?lines=${lines}&filter=${filter}`, { cache: 'no-store', signal });
+        const data = await r.json();
+        if (!data.lines?.length) {
+          body.innerHTML = filterRaw
+            ? `<div style="color:#475569">No log entries match <strong style="color:#94a3b8">${escapeHtml(filterRaw)}</strong>.</div>`
+            : '<div style="color:#475569">No log entries found.</div>';
+          return;
+        }
+        body.innerHTML = data.lines.map(line =>
+          `<div style="color:${logLevelColor(line)};border-bottom:1px solid #1e293b;padding:1px 0">${escapeHtml(line)}</div>`
+        ).join('');
+      } catch (e) {
+        if (e.name === 'AbortError') return; // superseded by newer request — ignore
+        body.innerHTML = `<div style="color:#f87171">Failed to load logs: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+    window.loadLogs = loadLogs;
+
+    // Debounced version for the filter input — waits 300 ms after last keystroke
+    function loadLogsDebounced() {
+      clearTimeout(_logsDebounce);
+      _logsDebounce = setTimeout(loadLogs, 300);
+    }
+    window.loadLogsDebounced = loadLogsDebounced;
+
+    // Auto-refresh logs every 15s if logs tab is active
+    setInterval(() => {
+      if (document.getElementById('tab-logs')?.classList.contains('active')) loadLogs();
+    }, 15000);
+    loadLogs();
+
+    // ── Tab navigation ───────────────────────────────────────────────────
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabId));
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.toggle('active', tc.id === `tab-${tabId}`));
+      localStorage.setItem('playai-active-tab', tabId);
+      if (tabId === 'logs') loadLogs();
+      if (tabId === 'tools') renderPnlChart();
+    }
+    window.switchTab = switchTab;
+
+    // Restore tab from localStorage
+    (function restoreTab() {
+      const saved = localStorage.getItem('playai-active-tab');
+      if (saved && document.getElementById(`tab-${saved}`)) switchTab(saved);
+    })();
+
+    // ── P&L Chart ─────────────────────────────────────────────────────────
+    let _pnlChartData = [];
+
+    async function fetchPnlData() {
+      try {
+        const trades = await fetch(`${API_BASE}/api/trades`, { cache: 'no-store' }).then(r => r.json());
+        if (!Array.isArray(trades)) return [];
+        // Only closed trades (SELLs with pnl)
+        const closed = trades
+          .filter(t => t.side === 'SELL' && t.pnl != null)
+          .sort((a, b) => new Date(a.exitTime || a.timestamp).getTime() - new Date(b.exitTime || b.timestamp).getTime());
+        let cumulative = 0;
+        return closed.map(t => {
+          cumulative += Number(t.pnl || 0);
+          return { time: new Date(t.exitTime || t.timestamp), pnl: cumulative, symbol: t.symbol, tradePnl: Number(t.pnl || 0) };
+        });
+      } catch (e) { return []; }
+    }
+
+    function renderPnlChart() {
+      fetchPnlData().then(data => {
+        _pnlChartData = data;
+        drawPnlCanvas(data);
+      });
+    }
+
+    function drawPnlCanvas(data) {
+      const canvas = document.getElementById('pnlCanvas');
+      const totalEl = document.getElementById('pnlTotalValue');
+      if (!canvas) return;
+
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const W = rect.width;
+      const H = rect.height;
+      const pad = { top: 30, right: 20, bottom: 40, left: 65 };
+      const chartW = W - pad.left - pad.right;
+      const chartH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Total display
+      const total = data.length ? data[data.length - 1].pnl : 0;
+      if (totalEl) {
+        const sign = total >= 0 ? '+' : '';
+        totalEl.textContent = `${sign}$${Math.abs(total).toFixed(2)}`;
+        totalEl.style.color = total >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+      }
+
+      if (data.length < 2) {
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '14px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Not enough closed trades to plot chart', W / 2, H / 2);
+        return;
+      }
+
+      const pnls = data.map(d => d.pnl);
+      const minPnl = Math.min(0, ...pnls);
+      const maxPnl = Math.max(0, ...pnls);
+      const range = maxPnl - minPnl || 1;
+      const minTime = data[0].time.getTime();
+      const maxTime = data[data.length - 1].time.getTime();
+      const timeRange = maxTime - minTime || 1;
+
+      function xPos(t) { return pad.left + ((t.getTime() - minTime) / timeRange) * chartW; }
+      function yPos(v) { return pad.top + chartH - ((v - minPnl) / range) * chartH; }
+
+      // Grid lines
+      ctx.strokeStyle = 'rgba(48, 54, 61, 0.5)';
+      ctx.lineWidth = 0.5;
+      const gridLines = 5;
+      for (let i = 0; i <= gridLines; i++) {
+        const y = pad.top + (i / gridLines) * chartH;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + chartW, y);
+        ctx.stroke();
+        // Y label
+        const val = maxPnl - (i / gridLines) * range;
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`$${val.toFixed(2)}`, pad.left - 8, y + 4);
+      }
+
+      // Zero line
+      const zeroY = yPos(0);
+      ctx.strokeStyle = 'rgba(139, 148, 158, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, zeroY);
+      ctx.lineTo(pad.left + chartW, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // X-axis labels
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      const xLabels = Math.min(6, data.length);
+      for (let i = 0; i < xLabels; i++) {
+        const idx = Math.round((i / (xLabels - 1)) * (data.length - 1));
+        const d = data[idx].time;
+        const label = `${d.getMonth() + 1}/${d.getDate()}`;
+        ctx.fillText(label, xPos(d), H - pad.bottom + 20);
+      }
+
+      // Draw line with gradient fill
+      ctx.beginPath();
+      ctx.moveTo(xPos(data[0].time), yPos(data[0].pnl));
+      for (let i = 1; i < data.length; i++) {
+        ctx.lineTo(xPos(data[i].time), yPos(data[i].pnl));
+      }
+
+      // Stroke the line
+      const lineGrad = ctx.createLinearGradient(0, pad.top, 0, pad.top + chartH);
+      lineGrad.addColorStop(0, '#3fb950');
+      lineGrad.addColorStop(1, '#f85149');
+      ctx.strokeStyle = total >= 0 ? '#3fb950' : '#f85149';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Fill area to zero
+      ctx.lineTo(xPos(data[data.length - 1].time), zeroY);
+      ctx.lineTo(xPos(data[0].time), zeroY);
+      ctx.closePath();
+      const fillColor = total >= 0 ? 'rgba(63, 185, 80, 0.1)' : 'rgba(248, 81, 73, 0.1)';
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+
+      // Store chart params for tooltip
+      canvas._chartParams = { data, xPos, yPos, pad, W, H, chartW, chartH };
+    }
+
+    // Tooltip on hover
+    (function setupPnlTooltip() {
+      const canvas = document.getElementById('pnlCanvas');
+      const tooltip = document.getElementById('pnlTooltip');
+      if (!canvas || !tooltip) return;
+
+      canvas.addEventListener('mousemove', (e) => {
+        const params = canvas._chartParams;
+        if (!params || !params.data.length) { tooltip.style.display = 'none'; return; }
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        if (mx < params.pad.left || mx > params.W - params.pad.right) { tooltip.style.display = 'none'; return; }
+
+        // Find closest data point
+        let closest = 0;
+        let closestDist = Infinity;
+        for (let i = 0; i < params.data.length; i++) {
+          const dx = Math.abs(params.xPos(params.data[i].time) - mx);
+          if (dx < closestDist) { closestDist = dx; closest = i; }
+        }
+        const d = params.data[closest];
+        const sign = d.pnl >= 0 ? '+' : '';
+        tooltip.innerHTML = `<div><strong>${d.time.toLocaleDateString()}</strong></div><div>Cumulative: ${sign}$${d.pnl.toFixed(2)}</div><div style="color:var(--muted)">${d.symbol} ${d.tradePnl >= 0 ? '+' : ''}$${d.tradePnl.toFixed(2)}</div>`;
+        tooltip.style.display = 'block';
+        const tx = Math.min(mx + 12, params.W - 160);
+        const ty = Math.max(my - 60, 4);
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      });
+
+      canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    })();
+
+    // Auto-refresh P&L chart every 60s if visible
+    setInterval(() => {
+      if (document.getElementById('tab-tools')?.classList.contains('active')) renderPnlChart();
+    }, 60000);
+
+    // Redraw on resize
+    window.addEventListener('resize', () => {
+      if (document.getElementById('tab-tools')?.classList.contains('active') && _pnlChartData.length) {
+        drawPnlCanvas(_pnlChartData);
+      }
+    });
+
+    // ── Deposit Tracker ───────────────────────────────────────────────────────
+    async function loadDeposits() {
+      try {
+        const deposits = await fetch(`${API_BASE}/api/deposits`).then(r => r.json());
+        const list = document.getElementById('depositList');
+        const totalEl = document.getElementById('depositTotal');
+        const roiEl = document.getElementById('depositROI');
+        if (!Array.isArray(deposits)) return;
+
+        const total = deposits.reduce((s, d) => s + d.amount, 0);
+        totalEl.textContent = `$${total.toFixed(2)}`;
+
+        // Compute true ROI: (portfolio total value - total deposited) / total deposited
+        // portfolioValue shows cash only; portfolioSub has the full value including open positions
+        const subText = document.getElementById('portfolioSub')?.textContent || '';
+        const totalMatch = subText.match(/Portfolio total:\s*\$([0-9,.]+)/);
+        const cashText = document.getElementById('portfolioValue')?.textContent || '';
+        const cashBalance = parseFloat(cashText.replace(/[^0-9.-]/g, '')) || 0;
+        const portfolioTotal = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : cashBalance;
+        if (total > 0 && portfolioTotal > 0) {
+          const roi = ((portfolioTotal - total) / total * 100).toFixed(1);
+          roiEl.textContent = `${roi >= 0 ? '+' : ''}${roi}%`;
+          roiEl.style.color = roi >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+        } else {
+          roiEl.textContent = '—';
+          roiEl.style.color = 'var(--muted)';
+        }
+
+        if (!deposits.length) {
+          list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">No deposits recorded yet.</div>';
+          return;
+        }
+
+        list.innerHTML = deposits.slice().reverse().map(d => {
+          const date = d.date || new Date(d.timestamp).toISOString().slice(0, 10);
+          const displayDate = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+          const sign = d.amount >= 0 ? '+' : '';
+          const color = d.amount >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">
+            <span>${displayDate}${d.note ? ' — <span style="color:var(--muted)">' + d.note + '</span>' : ''}</span>
+            <span style="display:flex;align-items:center;gap:12px">
+              <strong style="color:${color}">${sign}$${Math.abs(d.amount).toFixed(2)}</strong>
+              <button onclick="removeDeposit(${d.id})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px" title="Remove">×</button>
+            </span>
+          </div>`;
+        }).join('');
+      } catch (e) { /* silent */ }
+    }
+
+    async function addDeposit() {
+      const amountEl = document.getElementById('depositAmount');
+      const noteEl = document.getElementById('depositNote');
+      const dateEl = document.getElementById('depositDate');
+      const amount = parseFloat(amountEl.value);
+      if (!amount || isNaN(amount)) { amountEl.focus(); return; }
+      const date = dateEl.value || new Date().toISOString().slice(0, 10);
+      await fetch(`${API_BASE}/api/deposits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, note: noteEl.value.trim(), date }),
+      });
+      amountEl.value = '';
+      noteEl.value = '';
+      dateEl.value = '';
+      loadDeposits();
+    }
+    window.addDeposit = addDeposit;
+
+    async function removeDeposit(id) {
+      if (!confirm('Remove this deposit entry?')) return;
+      await fetch(`${API_BASE}/api/deposits/${id}`, { method: 'DELETE' });
+      loadDeposits();
+    }
+    window.removeDeposit = removeDeposit;
+
+    // Load deposits when tools tab opens
+    const origSwitchTab = window.switchTab;
+    window.switchTab = function(tabId) {
+      origSwitchTab(tabId);
+      if (tabId === 'tools') {
+        loadDeposits();
+        const dateEl = document.getElementById('depositDate');
+        if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0, 10);
+      }
+    };
+    // Initial load if tools tab is active
+    if (document.getElementById('tab-tools')?.classList.contains('active')) loadDeposits();
+
+    loadInitialState()
+      .catch(() => {
+        el.signalFeed.innerHTML = '<div class="empty-state">Could not load the dashboard. Make sure the bot is running on http://localhost:3001.</div>';
+        el.tradesBody.innerHTML = '<tr><td colspan="7" class="empty-state">Waiting for the dashboard server on localhost:3001.</td></tr>';
+      })
+      .finally(connectEvents);
