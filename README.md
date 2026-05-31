@@ -6,7 +6,7 @@ Trades a **37-coin USDC portfolio** on 12h candles using a voting signal engine 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
 **Performance (4 years, 37 coins, realistic fills + slippage):**  
-`Y2: +87.1% · Sharpe 2.15 · Max DD −7.2% · WR 63.6%`  
+`Annual: +152% · Sharpe 2.33 · Max DD −7.2% · WR 63.6%`  
 `Full OOS: +1912% · Sortino 10.33 · Max DD −13.0% · WR 62.8%`
 
 📖 **[Strategy Documentation](STRATEGY.md)** — signals, filters, sizing, exits  
@@ -79,11 +79,13 @@ Live at `http://localhost:3001` — three tabs:
 | `npm run backtest:portfolio` | Full 37-coin portfolio backtest |
 | `npm run download-history` | Download candle history from Binance |
 | `npm run optimize` | Per-symbol strategy optimizer |
+| `npm run compare` | Strategy comparison across symbols |
 | `npm test` | Unit tests |
 | `npm run test:connection` | Verify Binance API connectivity |
 
 ### Backtest Flags
 ```bash
+# All filters are MANDATORY for valid results:
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
   --mtf4h --regimeSizing --confSizing \
   --slots 3 --candles 730 --budget 1000
@@ -114,7 +116,7 @@ Max 3 concurrent positions (~33% capital each), sized by ATR and confidence.
 | Entry | ADX < 15 (chop) | Size halved |
 | In-trade | Stop-loss (5%) | Market sell |
 | In-trade | Take-profit (12%) | Market sell |
-| In-trade | Break-even (+5%) | SL locked at entry |
+| In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
 
 ---
 
@@ -123,10 +125,12 @@ Max 3 concurrent positions (~33% capital each), sized by ATR and confidence.
 | Path | Contents |
 |------|----------|
 | `data/dashboard_persist.json` | Dashboard state, positions |
+| `data/position_state.json` | Stop-loss / HWM / entry per position (survives restarts) |
 | `data/deposits.json` | Deposit tracker |
+| `data/filtered_optimization_results.json` | Per-symbol optimizer results (pass/fail) |
 | `data/candles/` | Cached OHLCV data |
 | `logs/trades.csv` | Trade journal |
-| `logs/app.log` | Runtime log (gitignored) |
+| `logs/app-YYYY-MM-DD.log` | Runtime log (DailyRotateFile, 50 MB max, 30 d retention) |
 
 All state files are bind-mounted in Docker. `git pull` restores everything on a new server.
 

@@ -18,7 +18,7 @@ PAPER_MODE=false
 ```bash
 npm run test:connection
 ```
-You should see "✅ Connection successful!" and your testnet USDT balance.
+You should see "✅ Connection successful!" and your testnet balance.
 
 ## Step 4: Start Live (Testnet) Trading
 ```bash
@@ -27,9 +27,10 @@ npm start
 
 ## Testnet Limitations
 - Testnet resets periodically (balances may disappear)
-- Not all trading pairs are available
+- Not all trading pairs are available (USDC pairs may be missing)
 - Market data may lag real Binance data
-- Recommended test pairs: BTC/USDT, ETH/USDT
+- Recommended test pairs: BTC/USDT, ETH/USDT (testnet may not have USDC pairs)
+- Position state (`data/position_state.json`) persists locally and will restore SL/HWM on restart
 
 ## Moving to Real Live Trading
 1. Get real API keys from https://www.binance.com/en/my/settings/api-management

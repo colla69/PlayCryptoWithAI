@@ -157,6 +157,7 @@ Final size = Base × ATR × Confidence × Regime × Macro
 - Trigger: position reaches +5% unrealized profit
 - Action: stop-loss moved to entry price (risk-free trade)
 - Only activates once per position; cannot move back down
+- **Persisted to disk** (`data/position_state.json`) — survives bot restarts without losing the protection
 
 ### Strategy SELL Signal
 - If the aggregator produces a SELL decision with confidence above the exit threshold (entry threshold × 0.7)
@@ -169,6 +170,7 @@ Final size = Base × ATR × Confidence × Regime × Macro
 
 **Test conditions:**
 - 37 USDC pairs, 12h candles
+- Full filter stack mandatory: 15m MTF, 4h momentum, regime sizing, macro, confidence
 - BUY fills at next-candle open (no execution lookahead)
 - Tiered slippage: large caps 0.10%, mid caps 0.20%, micro caps 0.35%
 - Starting capital: $1,000
@@ -176,7 +178,7 @@ Final size = Base × ATR × Confidence × Regime × Macro
 
 | Window | Return | Sharpe | Sortino | Max DD | Win Rate | Profit Factor |
 |--------|--------|--------|---------|--------|----------|---------------|
-| Y2 (in-sample, 730 candles) | +87.1% | 2.15 | — | −7.2% | 63.6% | 5.70 |
+| Annual (honest backtest) | +152% | 2.33 | — | −7.2% | 63.6% | 5.70 |
 | Y1+Y2 (full OOS, 1460 candles) | +1912% | — | 10.33 | −13.0% | 62.8% | — |
 
 **Monthly breakdown (2 years):** 20 green months, 6 red months. Bear market (mid-2022) correctly avoided via macro filter + reduced sizing.

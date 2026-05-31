@@ -127,10 +127,12 @@ Both workflows are **advisory** — they warn but do not block merges.
 ## Key Conventions Enforced by Agents
 
 - **No lookahead** — strategies never use the forming candle (`candles[length-1]` is live)
+- **Full filter stack in backtests** — every backtest must enable 15m MTF, 4h momentum, regime sizing, macro, and confidence filters; partial-filter results are invalid
 - **Backtest before enabling** — every new filter or strategy must show a net improvement at portfolio level, not just per-symbol
 - **PAPER_MODE=true default** — all Docker and dev configs default to paper mode
 - **Secrets never committed** — `.env` and `.env.live` are in `.gitignore`; agents refuse to hardcode credentials
 - **Validate at portfolio level** — per-symbol optimizer results are misleading due to slot competition; always run `portfolioBacktest.mjs` to confirm
+- **Filtered optimizer gate** — new coins must pass the full filter stack in `data/filtered_optimization_results.json` (9 pass / 5 fail from latest 14-coin evaluation)
 
 ---
 

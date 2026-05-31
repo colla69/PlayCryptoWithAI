@@ -24,8 +24,9 @@ Architecture, data flow, module responsibilities, and deployment.
 │  │  Executor    │    │  Dashboard        │    │  State           │  │
 │  │              │    │                  │    │                  │  │
 │  │  PaperTrader │    │  Express + SSE   │    │  JSON files      │  │
-│  │  LiveTrader  │    │  3-tab UI        │    │  Trade CSV       │  │
-│  │  OCO orders  │    │  Deposit tracker │    │  Candle cache    │  │
+│  │  LiveTrader  │    │  3-tab UI        │    │  position_state  │  │
+│  │  OCO orders  │    │  Deposit tracker │    │  Trade CSV       │  │
+│  │  State save  │    │  512KB log tail  │    │  Candle cache    │  │
 │  └──────────────┘    └──────────────────┘    └──────────────────┘  │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -45,7 +46,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | Strategy Builder | `utils/strategyBuilder.js` | Per-symbol strategy/risk selection from config |
 | Risk Manager | `risk/index.js` | Daily loss limit, trade gating |
 | Paper Trader | `executor/paperTrader.js` | Simulated order execution |
-| Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking |
+| Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking, position state persistence |
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
 | OCO Orders | `exchange/ocoOrders.js` | Server-side SL/TP for Lambda deployment |
 | Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache |
@@ -53,7 +54,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | Indicators | `utils/indicators.js` | EMA, ATR, ADX, RSI, Bollinger, etc. |
 | Correlation | `utils/correlation.js` | Pearson correlation matrix builder |
 | Logger | `utils/logger.js` | Winston logger + CSV trade appender |
-| Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD |
+| Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD, dated log reader (512KB tail) |
 | Dashboard State | `dashboard/dashboardState.js` | In-memory state for SSE broadcasts |
 
 ### Backtesting (`src/backtester/`)
@@ -113,12 +114,12 @@ Architecture, data flow, module responsibilities, and deployment.
 
 6. trader.execute(symbol, decision, price, effectiveRisk)
      → createOrder(symbol, 'market', 'buy', qty)
-     → position tracked in memory + persisted
+     → position tracked in memory + persisted to data/position_state.json
 
 7. Risk check (existing positions):
    price ≤ stopLoss?     → market sell (stop_loss)
    price ≥ takeProfit?   → market sell (take_profit)
-   price ≥ entry × 1.05? → stopLoss = entryPrice (break_even)
+   price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
 ```
 
 ### Position Sync (startup + every 5 min)
@@ -127,8 +128,11 @@ Architecture, data flow, module responsibilities, and deployment.
 1. fetchBalance() → all asset quantities
 2. For each symbol: if balance > MIN_RESTORE_NOTIONAL ($5)
 3. Find entry price from trade history (walk newest BUY)
-4. Reconstruct position object (entry, SL, TP, qty)
-5. If no history match → create synthetic entry at current price
+4. Load persisted state from data/position_state.json (SL, HWM, entry)
+5. Reconstruct position object (entry, SL, TP, qty)
+6. If persisted state exists → restore exact SL/HWM (no data loss on restart)
+7. If no persisted state → heuristic: apply break-even if price > entry × 1.05
+8. If no history match → create synthetic entry at current price
 ```
 
 ---
@@ -140,10 +144,12 @@ Architecture, data flow, module responsibilities, and deployment.
 | File | Format | Contents |
 |------|--------|----------|
 | `data/dashboard_persist.json` | JSON | Dashboard state (positions, signals, trades) |
+| `data/position_state.json` | JSON | Per-position stop-loss, HWM, entry price (survives restarts) |
 | `data/deposits.json` | JSON | Deposit tracker entries |
+| `data/filtered_optimization_results.json` | JSON | Per-symbol optimizer results (9 pass, 5 fail from latest run) |
 | `data/candles/*.json` | JSON | Cached OHLCV data (12h, 15m, 4h) |
 | `logs/trades.csv` | CSV | Full trade journal |
-| `logs/app.log` | Text | Runtime log (winston) |
+| `logs/app-YYYY-MM-DD.log` | JSON lines | Runtime log (DailyRotateFile, 50 MB/file, 30 d retention) |
 
 ### Lambda Mode (S3)
 
@@ -230,6 +236,8 @@ config
 | Fixed SL/TP over trailing | Trailing gives back profits on retracements |
 | Market orders | Guaranteed fill; slippage acceptable on 12h timeframe |
 | No database | JSON files sufficient for <100 trades/month; simple backup (git) |
+| Position state persistence | SL/HWM/entry saved to disk on every change; survives restarts without losing break-even protection |
+| DailyRotateFile logging | 50 MB max per file, 30-day retention; dashboard reads today's dated file with 512 KB tail for speed |
 | OCO for Lambda | Exchange handles exits 24/7 without running process |
 
 ---
