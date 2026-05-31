@@ -1,3 +1,4 @@
+import '../types.js'; // JSDoc type definitions
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 
@@ -27,6 +28,13 @@ export class LiveTrader {
     this.totalPnL = 0;
   }
 
+  /**
+   * @param {string} symbol
+   * @param {'BUY'|'SELL'|'HOLD'} decision
+   * @param {number} currentPrice
+   * @param {RiskConfig} [riskOverride]
+   * @returns {Promise<TradeResult|null>}
+   */
   async execute(symbol, decision, currentPrice, riskOverride) {
     const price = roundPrice(currentPrice);
 

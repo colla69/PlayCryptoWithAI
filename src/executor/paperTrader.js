@@ -1,3 +1,4 @@
+import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
@@ -17,6 +18,13 @@ export class PaperTrader {
     this.totalPnL = 0;
   }
 
+  /**
+   * @param {string} symbol
+   * @param {'BUY'|'SELL'|'HOLD'} decision
+   * @param {number} currentPrice
+   * @param {RiskConfig} [riskOverride]
+   * @returns {TradeResult|null}
+   */
   execute(symbol, decision, currentPrice, riskOverride) {
     const price = roundPrice(currentPrice);
     const riskResult = this.#checkRisk(symbol, price);

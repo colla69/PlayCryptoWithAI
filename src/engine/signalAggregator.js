@@ -1,3 +1,4 @@
+import '../types.js'; // JSDoc type definitions
 import signalBus from '../signals/signalBus.js';
 import logger from '../utils/logger.js';
 
@@ -136,6 +137,12 @@ export class SignalAggregator {
     return 1;
   }
 
+  /**
+   * @param {Candle[]} candles
+   * @param {string} symbol
+   * @param {object} [config]
+   * @returns {AggregatorResult}
+   */
   aggregate(candles, symbol, config = this.config) {
     const activeConfig = this.updateConfig(config);
     const signals = this.strategies.map((strategy) => strategy.analyze(candles));
