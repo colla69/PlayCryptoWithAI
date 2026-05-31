@@ -123,6 +123,8 @@ async function runCycle(symbol) {
     dashboardState.updateCandles(symbol, freshCandles);
     const candles = dashboardState.getCandles(symbol);
 
+    logger.debug(`[CYCLE] ${symbol}: starting cycle, candles=${candles.length} lastClose=${Number(candles.at(-1).close).toFixed(8)} lastTs=${new Date(candles.at(-1).timestamp).toISOString()}`);
+
     const aggregator = symbolAggregators[symbol];
     const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
     const result = aggregator.aggregate(candles, symbol, symSignalConfig);
@@ -284,6 +286,8 @@ async function runCycle(symbol) {
     // ── MTF reduce: apply if filter chose to reduce rather than block ────────────
     if (mtfSizeFactor < 1.0) positionPct *= mtfSizeFactor;
 
+    logger.debug(`[CYCLE] ${symbol}: sizing positionPct=${positionPct.toFixed(4)} (base=${symRisk.maxPositionPct} atr=${config.atr?.enabled ? (medianATRPct ?? 'n/a') : 'off'} regime=${config.regimeSizing?.enabled ? 'on' : 'off'} conf=${config.confSizing?.enabled ? (result.confidence ?? 0).toFixed(2) : 'off'} macro=${config.macroFilter?.enabled ? (btcMacroBull ? 'bull' : 'bear') : 'off'} mtf=${mtfSizeFactor < 1.0 ? mtfSizeFactor.toFixed(2) : '1.0'})`);
+
     const effectiveRisk = { ...symRisk, maxPositionPct: positionPct };
 
     if (!tradeCheck.allowed) {
@@ -292,6 +296,7 @@ async function runCycle(symbol) {
       tradeResult = await trader.execute(symbol, result.decision, currentPrice, effectiveRisk);
 
       if (tradeResult) {
+        logger.info(`[CYCLE] ${symbol}: TRADE EXECUTED → ${tradeResult.side} qty=${tradeResult.qty ?? 'n/a'} price=${tradeResult.entryPrice ?? tradeResult.exitPrice ?? 'n/a'}`);
         if (typeof tradeResult.pnl === 'number' && tradeResult.side === 'SELL') {
           riskManager.recordTrade(tradeResult.pnl);
         }
@@ -356,18 +361,34 @@ async function runAllSymbols() {
     // Refresh correlation matrix each cycle — new candles may have arrived
     correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation);
 
+    // Log correlation pairs above threshold
+    if (config.correlation?.enabled) {
+      const threshold = config.correlation.threshold ?? 0.8;
+      const pairs = [];
+      const syms = config.symbols;
+      for (let i = 0; i < syms.length; i++) {
+        for (let j = i + 1; j < syms.length; j++) {
+          const r = correlationMatrix[syms[i]]?.[syms[j]] ?? 0;
+          if (r > threshold) pairs.push(`${syms[i].split('/')[0]}/${syms[j].split('/')[0]}=${r.toFixed(2)}`);
+        }
+      }
+      if (pairs.length) logger.debug(`[CYCLE] Correlated pairs (r>${threshold}): ${pairs.join(', ')}`);
+    }
+
     // ATR sizing: compute portfolio median ATR% so each symbol can be scaled relative to it
     if (config.atr?.enabled) {
       const atrPcts = config.symbols
         .map((sym) => computeATRPct(dashboardState.getCandles(sym), config.atr.period))
         .filter((v) => v != null && v > 0);
       medianATRPct = atrPcts.length ? medianOfArray(atrPcts) : null;
+      logger.debug(`[CYCLE] ATR sizing: medianATRPct=${medianATRPct != null ? (medianATRPct * 100).toFixed(2) + '%' : 'n/a'} (${atrPcts.length} symbols)`);
     }
 
     // Macro filter: check BTC vs EMA(200) to determine portfolio-level bear phase
     if (config.macroFilter?.enabled) {
       const prevBull = btcMacroBull;
       btcMacroBull = isBullTrend(dashboardState.getCandles('BTC/USDC'), config.macroFilter.emaPeriod ?? 200);
+      logger.debug(`[CYCLE] BTC macro: bull=${btcMacroBull} EMA${config.macroFilter.emaPeriod ?? 200}`);
       if (btcMacroBull !== prevBull) {
         const factor = (config.macroFilter.sizeReduceFactor ?? 0.5) * 100;
         logger.warn(

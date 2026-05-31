@@ -1,3 +1,5 @@
+import logger from '../utils/logger.js';
+
 const MIDNIGHT_CHECK_INTERVAL_MS = 60_000;
 
 function getDayKey(date = new Date()) {
@@ -63,6 +65,7 @@ export class RiskManager {
     const hasOpenPosition = positions.some((position) => position.symbol === symbol);
 
     if (hasOpenPosition) {
+      logger.debug(`[RISK] ${symbol}: canTrade=true (managing existing position) decision=${decision}`);
       return { allowed: true, reason: 'Managing existing position' };
     }
 
@@ -72,27 +75,33 @@ export class RiskManager {
       : this.config.minConfidence;
     const normalizedConfidence = Number(confidence ?? 0);
     if (normalizedConfidence < minConf) {
-      return {
+      const result = {
         allowed: false,
         reason: `Confidence ${normalizedConfidence.toFixed(2)} below minimum ${minConf.toFixed(2)}`,
       };
+      logger.debug(`[RISK] ${symbol}: canTrade=false conf=${normalizedConfidence.toFixed(2)}<${minConf.toFixed(2)} positions=${positions.length}/${this.config.maxOpenPositions} dailyPnL=${this.dailyPnL.toFixed(2)} blocked=${this.blocked}`);
+      return result;
     }
 
     if (positions.length >= this.config.maxOpenPositions) {
-      return {
+      const result = {
         allowed: false,
         reason: `Open positions ${positions.length}/${this.config.maxOpenPositions} limit reached`,
       };
+      logger.debug(`[RISK] ${symbol}: canTrade=false maxPositions positions=${positions.length}/${this.config.maxOpenPositions} dailyPnL=${this.dailyPnL.toFixed(2)}`);
+      return result;
     }
 
     if (this.#dailyLossLimitExceeded()) {
       this.blocked = true;
+      logger.debug(`[RISK] ${symbol}: canTrade=false dailyLossLimit dailyPnL=${this.dailyPnL.toFixed(2)} maxLoss=${(this.config.initialBalance * this.config.maxDailyLossPct).toFixed(2)}`);
       return {
         allowed: false,
         reason: `Daily loss limit reached (${this.dailyPnL.toFixed(2)})`,
       };
     }
 
+    logger.debug(`[RISK] ${symbol}: canTrade=true decision=${decision} conf=${normalizedConfidence.toFixed(2)} positions=${positions.length}/${this.config.maxOpenPositions} dailyPnL=${this.dailyPnL.toFixed(2)}`);
     return { allowed: true, reason: 'Trade allowed' };
   }
 
@@ -107,14 +116,18 @@ export class RiskManager {
     this.dailyPnL = Number((this.dailyPnL + numericPnL).toFixed(2));
     this.tradesCount += 1;
     this.blocked = this.#dailyLossLimitExceeded();
+    logger.debug(`[RISK] recordTrade pnl=${numericPnL.toFixed(2)} dailyPnL=${this.dailyPnL.toFixed(2)} trades=${this.tradesCount} blocked=${this.blocked}`);
     return this.getDailyStats();
   }
 
   resetDailyStats() {
+    const prevPnL = this.dailyPnL;
+    const prevTrades = this.tradesCount;
     this.dailyPnL = 0;
     this.tradesCount = 0;
     this.blocked = false;
     this.currentDayKey = getDayKey();
+    logger.info(`[RISK] Day rollover — resetting daily stats (prev: pnl=${prevPnL.toFixed(2)} trades=${prevTrades})`);
     return this.getDailyStats();
   }
 

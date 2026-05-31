@@ -1,30 +1,51 @@
 import fs from 'fs';
 import path from 'path';
 import { createLogger, format, transports } from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 
 const logsDir = path.join(process.cwd(), 'logs');
-const appLogPath = path.join(logsDir, 'app.log');
 const tradesCsvPath = path.join(logsDir, 'trades.csv');
 
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
+const consoleLevel = process.env.CONSOLE_LOG_LEVEL || process.env.LOG_LEVEL || 'info';
+const fileLevel = process.env.FILE_LOG_LEVEL || 'debug';
+
 const logger = createLogger({
-  level: process.env.LOG_LEVEL || 'info',
+  level: 'debug', // capture everything; transports filter by their own level
   format: format.combine(format.timestamp(), format.errors({ stack: true })),
   transports: [
     new transports.Console({
+      level: consoleLevel,
       format: format.combine(
         format.colorize({ all: true }),
         format.printf(({ level, message, timestamp }) => `${timestamp} ${level}: ${message}`),
       ),
     }),
-    new transports.File({
-      filename: appLogPath,
+    new DailyRotateFile({
+      level: fileLevel,
+      dirname: logsDir,
+      filename: 'app-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '50m',
+      maxFiles: '30d',
       format: format.combine(
         format.timestamp(),
-        format.printf(({ level, message, timestamp, stack }) => `${timestamp} ${level}: ${stack || message}`),
+        format.json(),
+      ),
+    }),
+    new DailyRotateFile({
+      level: 'error',
+      dirname: logsDir,
+      filename: 'error-%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '50m',
+      maxFiles: '30d',
+      format: format.combine(
+        format.timestamp(),
+        format.json(),
       ),
     }),
   ],

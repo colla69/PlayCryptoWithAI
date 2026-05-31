@@ -64,6 +64,8 @@ export class PaperTrader {
       return null;
     }
 
+    logger.debug(`[PAPER] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
+
     this.#updateTrailingStop(symbol, currentPrice);
 
     // Track latest price for status reporting
@@ -83,10 +85,12 @@ export class PaperTrader {
       const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
         ? 'trailing_stop'
         : 'stop_loss';
+      logger.info(`[PAPER] ${symbol}: ${reason} triggered price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)}`);
       return this.#closePosition(symbol, currentPrice, reason);
     }
 
     if (currentPrice >= position.takeProfit) {
+      logger.info(`[PAPER] ${symbol}: take_profit triggered price=${currentPrice.toFixed(8)} TP=${position.takeProfit.toFixed(8)}`);
       return this.#closePosition(symbol, currentPrice, 'take_profit');
     }
 
@@ -122,6 +126,8 @@ export class PaperTrader {
       return null;
     }
 
+    logger.debug(`[PAPER] ${symbol}: sizing balance=${this.balance.toFixed(2)} maxPositionPct=${risk.maxPositionPct.toFixed(4)} allocation=${allocation.toFixed(2)} qty=${qty.toFixed(8)} cost=${cost.toFixed(2)}`);
+
     const initialStopLoss = roundPrice(price * (1 - risk.stopLossPct));
     const timestamp = new Date().toISOString();
     const position = {
@@ -141,6 +147,7 @@ export class PaperTrader {
     logger.info(
       `[PAPER] BUY ${symbol} qty=${qty.toFixed(8)} price=${price.toFixed(8)} balance=${this.balance.toFixed(2)}`,
     );
+    logger.debug(`[PAPER] ${symbol}: position opened SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} trailingPct=${risk.trailingStopPct ?? 'off'}`);
 
     appendTrade({
       timestamp,
@@ -174,14 +181,18 @@ export class PaperTrader {
     const proceeds = roundMoney(position.qty * price);
     const costBasis = roundMoney(position.qty * position.entryPrice);
     const pnl = roundMoney(proceeds - costBasis);
+    const pnlPct = position.entryPrice > 0 ? ((price - position.entryPrice) / position.entryPrice * 100).toFixed(2) : '0.00';
+    const durationMs = Date.now() - (position.openedAt ? new Date(position.openedAt).getTime() : Date.now());
+    const durationHrs = (durationMs / 3_600_000).toFixed(1);
 
     this.balance = roundMoney(this.balance + proceeds);
     this.totalPnL = roundMoney(this.totalPnL + pnl);
     this.positions.delete(symbol);
 
     logger.info(
-      `[PAPER] SELL ${symbol} qty=${position.qty.toFixed(8)} price=${price.toFixed(8)} pnl=${pnl.toFixed(2)} reason=${reason} balance=${this.balance.toFixed(2)}`,
+      `[PAPER] SELL ${symbol} qty=${position.qty.toFixed(8)} price=${price.toFixed(8)} pnl=${pnl.toFixed(2)} pnl%=${pnlPct}% reason=${reason} held=${durationHrs}h balance=${this.balance.toFixed(2)}`,
     );
+    logger.debug(`[PAPER] ${symbol}: closed entry=${position.entryPrice.toFixed(8)} exit=${price.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} initialSL=${position.initialStopLoss.toFixed(8)} finalSL=${position.stopLoss.toFixed(8)}`);
 
     const timestamp = new Date().toISOString();
 
@@ -223,7 +234,9 @@ export class PaperTrader {
     const nextStopLoss = roundPrice(currentPrice * (1 - position.trailingStopPct));
 
     if (nextStopLoss > position.stopLoss) {
+      const prevSL = position.stopLoss;
       position.stopLoss = nextStopLoss;
+      logger.debug(`[PAPER] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${nextStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
       return position;
     }
 

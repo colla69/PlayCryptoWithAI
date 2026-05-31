@@ -144,12 +144,14 @@ export class SignalAggregator {
     const algoWeight = Math.max(0, Number(activeConfig.algoWeight ?? 1));
     let totalWeight = 0;
 
-    for (const result of signals) {
+    for (let i = 0; i < signals.length; i++) {
+      const result = signals[i];
       votes[result.signal] = (votes[result.signal] ?? 0) + algoWeight;
       // HOLD votes don't contribute to totalWeight — they represent absence of
       // conviction, not conviction about holding. This prevents 2/3 HOLD + 1/3 BUY
       // from diluting the BUY confidence down to 33%.
       if (result.signal !== 'HOLD') totalWeight += algoWeight;
+      logger.debug(`[AGG] ${symbol}: strategy[${i}]=${this.strategies[i]?.name ?? 'unknown'} → ${result.signal} conf=${(result.confidence ?? 0).toFixed(2)} "${result.reason ?? ''}"`);
     }
 
     for (const externalSignal of externalSignals) {
@@ -158,6 +160,8 @@ export class SignalAggregator {
       votes[externalSignal.signal] = (votes[externalSignal.signal] ?? 0) + weightedVote;
       if (externalSignal.signal !== 'HOLD') totalWeight += weightedVote;
     }
+
+    logger.debug(`[AGG] ${symbol}: votes BUY=${votes.BUY.toFixed(2)} SELL=${votes.SELL.toFixed(2)} HOLD=${votes.HOLD.toFixed(2)} total_weight=${totalWeight.toFixed(2)} external=${externalSignals.length}`);
 
     const rankedSignals = Object.entries(votes).sort((a, b) => b[1] - a[1]);
     const [winningSignal = 'HOLD', winningVotes = 0] = rankedSignals[0] ?? [];
@@ -169,6 +173,7 @@ export class SignalAggregator {
       : 0;
 
     if (tie || winningSignal === 'HOLD' || confidence < this.minimumConfidence) {
+      logger.debug(`[AGG] ${symbol}: decision=HOLD confidence=${confidence.toFixed(2)} tie=${tie} belowMin=${confidence < this.minimumConfidence} (minConf=${this.minimumConfidence})`);
       return {
         decision: 'HOLD',
         confidence,
@@ -177,6 +182,7 @@ export class SignalAggregator {
       };
     }
 
+    logger.debug(`[AGG] ${symbol}: decision=${winningSignal} confidence=${confidence.toFixed(2)} tie=${tie}`);
     return {
       decision: winningSignal,
       confidence,

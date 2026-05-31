@@ -504,4 +504,25 @@ if (result.trades.length > 0) {
     }
   }
 }
+
+// ── Trade duration analysis ────────────────────────────────────────────────────
+if (result.trades.length > 0) {
+  const durTrades = result.trades.filter(t => t.entryTime && t.exitTime);
+  if (durTrades.length > 0) {
+    const durations = durTrades.map(t => (t.exitTime - t.entryTime) / 3600000);
+    durations.sort((a, b) => a - b);
+    const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
+    const med = durations[Math.floor(durations.length / 2)];
+    const winners = durTrades.filter(t => t.pnl > 0);
+    const losers = durTrades.filter(t => t.pnl <= 0);
+    const avgWin = winners.length ? winners.map(t => (t.exitTime - t.entryTime) / 3600000).reduce((a, b) => a + b, 0) / winners.length : 0;
+    const avgLose = losers.length ? losers.map(t => (t.exitTime - t.entryTime) / 3600000).reduce((a, b) => a + b, 0) / losers.length : 0;
+
+    console.log(`  Trade Duration:`);
+    console.log(`    Average:  ${(avg / 24).toFixed(1)} days (${avg.toFixed(0)}h)`);
+    console.log(`    Median:   ${(med / 24).toFixed(1)} days (${med.toFixed(0)}h)`);
+    console.log(`    Range:    ${(durations[0] / 24).toFixed(1)}d – ${(durations.at(-1) / 24).toFixed(1)}d`);
+    console.log(`    Winners:  ${(avgWin / 24).toFixed(1)} days avg | Losers: ${(avgLose / 24).toFixed(1)} days avg`);
+  }
+}
 console.log('');

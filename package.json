@@ -21,6 +21,7 @@
     "express": "^5.2.1",
     "node-telegram-bot-api": "^0.67.0",
     "technicalindicators": "latest",
-    "winston": "latest"
+    "winston": "latest",
+    "winston-daily-rotate-file": "^5.0.0"
   }
 }

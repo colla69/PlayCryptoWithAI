@@ -59,6 +59,8 @@ export class LiveTrader {
         return null;
       }
 
+      logger.debug(`[LIVE] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
+
       await this.#updateTrailingStop(symbol, currentPrice);
 
       // Break-even: once price rises enough above entry, lock stop at entry price
@@ -75,10 +77,12 @@ export class LiveTrader {
         const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
           ? 'trailing_stop'
           : 'stop_loss';
+        logger.info(`[LIVE] ${symbol}: ${reason} triggered price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)}`);
         return this.#closePosition(symbol, currentPrice, reason);
       }
 
       if (currentPrice >= position.takeProfit) {
+        logger.info(`[LIVE] ${symbol}: take_profit triggered price=${currentPrice.toFixed(8)} TP=${position.takeProfit.toFixed(8)}`);
         return this.#closePosition(symbol, currentPrice, 'take_profit');
       }
 
@@ -279,6 +283,8 @@ export class LiveTrader {
         // Use fallback values — don't abort the trade on a limits-fetch failure
       }
 
+      logger.debug(`[LIVE] ${symbol}: sizing balance=${freeQuote.toFixed(2)} maxPositionPct=${risk.maxPositionPct.toFixed(4)} allocation=${allocation.toFixed(2)} rawQty=${rawQty.toFixed(8)} qty=${qty} notional=${notional.toFixed(2)} minNotional=${minNotional} minQty=${minQty}`);
+
       if (qty <= 0 || qty < minQty) {
         logger.warn(`[LIVE] ${symbol}: BUY skipped, qty ${qty} below exchange minQty ${minQty}`);
         return null;
@@ -290,6 +296,7 @@ export class LiveTrader {
       }
 
       const order = await createOrder(symbol, 'market', 'buy', qty);
+      logger.debug(`[LIVE] ${symbol}: BUY order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
       const entryPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
       const reportedQty = Number(order.filled ?? order.amount ?? qty);
       const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
@@ -317,6 +324,7 @@ export class LiveTrader {
       logger.info(
         `[LIVE] BUY ${symbol} qty=${filledQty.toFixed(8)} price=${entryPrice.toFixed(8)} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
       );
+      logger.debug(`[LIVE] ${symbol}: position opened SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} trailingPct=${trailingStopPct ?? 'off'}`);
 
       appendTrade({
         timestamp,
@@ -356,19 +364,17 @@ export class LiveTrader {
         return null;
       }
 
+      const durationMs = Date.now() - (position.openedAt ? new Date(position.openedAt).getTime() : Date.now());
+      const durationHrs = (durationMs / 3_600_000).toFixed(1);
+      logger.debug(`[LIVE] ${symbol}: closing position reason=${reason} entry=${position.entryPrice.toFixed(8)} refPrice=${referencePrice.toFixed(8)} qty=${position.qty.toFixed(8)} held=${durationHrs}h HWM=${position.highWaterMark.toFixed(8)}`);
+
       // Use the actual free balance and apply Binance's lot-size step truncation.
-      // On a BUY, Binance deducts fees from the base asset, so the wallet holds
-      // slightly less than order.filled reported.  Additionally, ccxt silently
-      // truncates qty to the market's stepSize before submission — doing it
-      // ourselves first means we sell the maximum the exchange will accept and
-      // can log any unavoidable dust up front.
       const base = symbol.split('/')[0];
       let sellQty = position.qty;
       try {
         const bal = await fetchBalance();
         const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
         if (freeBase > 0) {
-          // Truncate to exchange step size — this is the true maximum sellable qty
           const maxSellable = await amountToPrecision(symbol, freeBase);
           const dust = roundQty(freeBase - maxSellable);
           if (dust > 0) {
@@ -384,10 +390,12 @@ export class LiveTrader {
       }
 
       const order = await createOrder(symbol, 'market', 'sell', sellQty);
+      logger.debug(`[LIVE] ${symbol}: SELL order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
       const exitPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
       const proceeds = roundMoney(sellQty * exitPrice);
       const costBasis = roundMoney(position.qty * position.entryPrice);
       const pnl = roundMoney(proceeds - costBasis);
+      const pnlPct = position.entryPrice > 0 ? ((exitPrice - position.entryPrice) / position.entryPrice * 100).toFixed(2) : '0.00';
       const timestamp = new Date().toISOString();
       const balanceAfter = await this.#fetchQuoteBalance();
 
@@ -395,7 +403,7 @@ export class LiveTrader {
       this.positions.delete(symbol);
 
       logger.info(
-        `[LIVE] SELL ${symbol} qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} reason=${reason} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
+        `[LIVE] SELL ${symbol} qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} pnl%=${pnlPct}% reason=${reason} held=${durationHrs}h balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
       );
 
       appendTrade({
@@ -465,7 +473,9 @@ export class LiveTrader {
     const nextStopLoss = roundPrice(currentPrice * (1 - position.trailingStopPct));
 
     if (nextStopLoss > position.stopLoss) {
+      const prevSL = position.stopLoss;
       position.stopLoss = nextStopLoss;
+      logger.debug(`[LIVE] ${symbol}: trailing stop updated ${prevSL.toFixed(8)} → ${nextStopLoss.toFixed(8)} (HWM=${position.highWaterMark.toFixed(8)})`);
       return position;
     }
 
