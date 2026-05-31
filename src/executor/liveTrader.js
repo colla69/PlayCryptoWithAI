@@ -212,7 +212,13 @@ export class LiveTrader {
             if (saved.highWaterMark > position.highWaterMark) {
               position.highWaterMark = roundPrice(saved.highWaterMark);
             }
-            logger.info(`[LIVE] ${symbol}: restored persisted stop-loss=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}`);
+            // Safety: if state says BE was locked, guarantee stop >= entry even if
+            // saved.stopLoss was somehow corrupted to a lower value
+            if (saved.breakEvenLocked && position.stopLoss < position.entryPrice) {
+              position.stopLoss = roundPrice(position.entryPrice * 1.002);
+              logger.warn(`[LIVE] ${symbol}: breakEvenLocked flag set but stop was below entry — forced BE lock`);
+            }
+            logger.info(`[LIVE] ${symbol}: restored persisted stop-loss=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}${saved.breakEvenLocked ? ' (BE locked)' : ''}`);
           } else {
             // No persisted state — use heuristic: if price is above BE trigger, lock BE
             if (breakEvenTriggerPct > 0 && currentPrice >= entryPrice * (1 + breakEvenTriggerPct)) {
@@ -223,6 +229,9 @@ export class LiveTrader {
               if (trailStop > position.stopLoss) {
                 position.stopLoss = trailStop;
               }
+            }
+            if (position.stopLoss <= position.initialStopLoss) {
+              logger.warn(`[LIVE] ${symbol}: no persisted state found — using initial stop-loss (heuristic failed)`);
             }
           }
 
@@ -259,6 +268,8 @@ export class LiveTrader {
     } catch (err) {
       logger.error(`[LIVE] restorePositionsFromExchange failed: ${err.message}`);
     }
+    // Immediately persist restored state so it's saved even before next risk check
+    if (restored > 0) this.#savePositionState();
     return restored;
   }
 
@@ -503,7 +514,7 @@ export class LiveTrader {
     return error instanceof Error ? error.message : String(error);
   }
 
-  /** Persist current position stop-loss/HWM state to disk. */
+  /** Persist current position stop-loss/HWM state to disk (atomic write). */
   #savePositionState() {
     try {
       const state = {};
@@ -513,9 +524,16 @@ export class LiveTrader {
           highWaterMark: pos.highWaterMark,
           initialStopLoss: pos.initialStopLoss,
           entryPrice: pos.entryPrice,
+          breakEvenLocked: pos.stopLoss >= pos.entryPrice,
         };
       }
-      fs.writeFileSync(POSITION_STATE_FILE, JSON.stringify(state, null, 2));
+      const json = JSON.stringify(state, null, 2);
+      // Atomic write: tmp → rename prevents corruption on crash/kill
+      const tmpFile = POSITION_STATE_FILE + '.tmp';
+      fs.writeFileSync(tmpFile, json);
+      fs.renameSync(tmpFile, POSITION_STATE_FILE);
+      // Also write a backup so we have redundancy
+      fs.writeFileSync(POSITION_STATE_FILE + '.bak', json);
     } catch (e) {
       logger.debug(`[LIVE] position state save failed: ${e.message}`);
     }
@@ -523,12 +541,19 @@ export class LiveTrader {
 
   /** Load persisted position state (stop-loss levels that survive restarts). */
   static loadPositionState() {
-    try {
-      if (!fs.existsSync(POSITION_STATE_FILE)) return {};
-      return JSON.parse(fs.readFileSync(POSITION_STATE_FILE, 'utf8'));
-    } catch {
-      return {};
+    // Try primary file first, then backup if primary is corrupt/missing
+    for (const file of [POSITION_STATE_FILE, POSITION_STATE_FILE + '.bak']) {
+      try {
+        if (!fs.existsSync(file)) continue;
+        const content = fs.readFileSync(file, 'utf8').trim();
+        if (!content || content === '{}') continue;
+        const parsed = JSON.parse(content);
+        if (Object.keys(parsed).length > 0) return parsed;
+      } catch {
+        // try next file
+      }
     }
+    return {};
   }
 }
 
