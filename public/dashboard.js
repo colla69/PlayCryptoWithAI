@@ -492,12 +492,15 @@
       }).join('');
     }
 
-    async function loadSignalHistory() {
+    window._signalPage = 1;
+    async function loadSignalHistory(page) {
       const body = document.getElementById('signalHistoryBody');
       if (!body) return;
+      if (typeof page === 'number' && page >= 1) window._signalPage = page;
       const symbolFilter = document.getElementById('signalFilterSymbol')?.value || '';
       const decisionFilter = document.getElementById('signalFilterDecision')?.value || '';
-      const params = new URLSearchParams({ limit: '500' });
+      const pageSize = document.getElementById('signalPageSize')?.value || '100';
+      const params = new URLSearchParams({ page: String(window._signalPage), pageSize });
       if (symbolFilter) params.set('symbol', symbolFilter);
       if (decisionFilter) params.set('decision', decisionFilter);
 
@@ -514,7 +517,19 @@
       }
 
       try {
-        const data = await fetchJson(`/api/signal-history?${params}`);
+        const res = await fetchJson(`/api/signal-history?${params}`);
+        const data = res.items || [];
+        const total = res.total || 0;
+        const totalPages = res.totalPages || 1;
+
+        // Update pagination controls
+        const pageInfo = document.getElementById('signalPageInfo');
+        const prevBtn = document.getElementById('signalPrevBtn');
+        const nextBtn = document.getElementById('signalNextBtn');
+        if (pageInfo) pageInfo.textContent = `Page ${window._signalPage} of ${totalPages} (${total} signals)`;
+        if (prevBtn) prevBtn.disabled = window._signalPage <= 1;
+        if (nextBtn) nextBtn.disabled = window._signalPage >= totalPages;
+
         if (!data.length) {
           body.innerHTML = '<tr><td colspan="7" class="empty-state">No signals recorded yet. Signals will appear after the first cycle runs.</td></tr>';
           return;

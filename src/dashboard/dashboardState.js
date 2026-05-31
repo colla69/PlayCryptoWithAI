@@ -108,7 +108,7 @@ class DashboardState {
     scheduleHistorySave(this.signalHistory);
   }
 
-  getSignalHistory(limit = 500, symbolFilter = null, decisionFilter = null) {
+  getSignalHistory(limit = MAX_SIGNAL_HISTORY, symbolFilter = null, decisionFilter = null) {
     let history = this.signalHistory;
     if (symbolFilter) history = history.filter(s => s.symbol === symbolFilter);
     if (decisionFilter) history = history.filter(s => s.decision === decisionFilter.toUpperCase());
