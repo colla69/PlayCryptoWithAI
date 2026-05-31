@@ -1257,28 +1257,33 @@
         return;
       }
 
-      const recent = data;
-      const pnls = recent.map(d => d.pnl);
-      const maxPnl = Math.max(0, ...pnls);
+      // Compute cumulative daily P&L for the line
+      let cumulative = 0;
+      const points = data.map(d => {
+        cumulative += d.pnl;
+        return { date: d.date, cumPnl: cumulative, dayPnl: d.pnl, trades: d.trades, wins: d.wins, realized: d.realized, unrealized: d.unrealized };
+      });
+
+      const pnls = points.map(p => p.cumPnl);
       const minPnl = Math.min(0, ...pnls);
+      const maxPnl = Math.max(0, ...pnls);
       const range = (maxPnl - minPnl) || 1;
 
-      const barW = Math.max(4, (chartW / recent.length) - 3);
-      const gap = (chartW - barW * recent.length) / (recent.length + 1);
-
+      function xPos(i) { return pad.left + (i / Math.max(points.length - 1, 1)) * chartW; }
       function yPos(v) { return pad.top + chartH - ((v - minPnl) / range) * chartH; }
       const zeroY = yPos(0);
 
       // Grid lines
       ctx.strokeStyle = 'rgba(48, 54, 61, 0.5)';
       ctx.lineWidth = 0.5;
-      for (let i = 0; i <= 4; i++) {
-        const y = pad.top + (i / 4) * chartH;
+      const gridLines = 5;
+      for (let i = 0; i <= gridLines; i++) {
+        const y = pad.top + (i / gridLines) * chartH;
         ctx.beginPath();
         ctx.moveTo(pad.left, y);
         ctx.lineTo(pad.left + chartW, y);
         ctx.stroke();
-        const val = maxPnl - (i / 4) * range;
+        const val = maxPnl - (i / gridLines) * range;
         ctx.fillStyle = '#8b949e';
         ctx.font = '11px Inter, sans-serif';
         ctx.textAlign = 'right';
@@ -1286,7 +1291,7 @@
       }
 
       // Zero line
-      ctx.strokeStyle = 'rgba(139, 148, 158, 0.6)';
+      ctx.strokeStyle = 'rgba(139, 148, 158, 0.4)';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
@@ -1295,31 +1300,44 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Bars
-      for (let i = 0; i < recent.length; i++) {
-        const d = recent[i];
-        const x = pad.left + gap + i * (barW + gap);
-        const barH = Math.abs((d.pnl / range) * chartH);
-        const y = d.pnl >= 0 ? zeroY - barH : zeroY;
-
-        ctx.fillStyle = d.pnl >= 0 ? 'rgba(63, 185, 80, 0.8)' : 'rgba(248, 81, 73, 0.8)';
-        ctx.fillRect(x, y, barW, Math.max(barH, 1));
+      // X-axis date labels
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      const xLabels = Math.min(6, points.length);
+      for (let i = 0; i < xLabels; i++) {
+        const idx = Math.round((i / (xLabels - 1)) * (points.length - 1));
+        ctx.fillText(points[idx].date.slice(5), xPos(idx), H - pad.bottom + 20);
       }
 
-      // X-axis date labels (show ~6 labels evenly spaced)
-      ctx.fillStyle = '#8b949e';
-      ctx.font = '10px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      const labelCount = Math.min(6, recent.length);
-      for (let i = 0; i < labelCount; i++) {
-        const idx = Math.round((i / (labelCount - 1)) * (recent.length - 1));
-        const x = pad.left + gap + idx * (barW + gap) + barW / 2;
-        const label = recent[idx].date.slice(5); // MM-DD
-        ctx.fillText(label, x, H - pad.bottom + 16);
+      // Draw line
+      ctx.beginPath();
+      ctx.moveTo(xPos(0), yPos(points[0].cumPnl));
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(xPos(i), yPos(points[i].cumPnl));
+      }
+      const total = points[points.length - 1].cumPnl;
+      ctx.strokeStyle = total >= 0 ? '#3fb950' : '#f85149';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Fill area to zero
+      ctx.lineTo(xPos(points.length - 1), zeroY);
+      ctx.lineTo(xPos(0), zeroY);
+      ctx.closePath();
+      ctx.fillStyle = total >= 0 ? 'rgba(63, 185, 80, 0.1)' : 'rgba(248, 81, 73, 0.1)';
+      ctx.fill();
+
+      // Data points
+      for (let i = 0; i < points.length; i++) {
+        ctx.beginPath();
+        ctx.arc(xPos(i), yPos(points[i].cumPnl), 3, 0, Math.PI * 2);
+        ctx.fillStyle = points[i].dayPnl >= 0 ? '#3fb950' : '#f85149';
+        ctx.fill();
       }
 
       // Store for tooltip
-      canvas._chartParams = { data: recent, pad, W, H, chartW, chartH, barW, gap, zeroY, range, minPnl, maxPnl };
+      canvas._chartParams = { data: points, xPos, yPos, pad, W, H, chartW, chartH };
     }
 
     // Tooltip for daily P&L
@@ -1335,20 +1353,22 @@
         const mx = e.clientX - rect.left;
         if (mx < p.pad.left || mx > p.W - p.pad.right) { tooltip.style.display = 'none'; return; }
 
-        // Find which bar we're over
-        const relX = mx - p.pad.left;
-        const idx = Math.floor(relX / (p.barW + p.gap));
-        if (idx < 0 || idx >= p.data.length) { tooltip.style.display = 'none'; return; }
-
-        const d = p.data[idx];
-        const sign = d.pnl >= 0 ? '+' : '';
+        // Find closest data point
+        let closest = 0, closestDist = Infinity;
+        for (let i = 0; i < p.data.length; i++) {
+          const dx = Math.abs(p.xPos(i) - mx);
+          if (dx < closestDist) { closestDist = dx; closest = i; }
+        }
+        const d = p.data[closest];
+        const sign = d.dayPnl >= 0 ? '+' : '';
+        const cumSign = d.cumPnl >= 0 ? '+' : '';
         const wr = d.trades > 0 ? ((d.wins / d.trades) * 100).toFixed(0) : '—';
         const realStr = d.realized ? `Realized: ${d.realized >= 0 ? '+' : ''}$${Math.abs(d.realized).toFixed(2)}` : '';
-        const unrealStr = d.unrealized ? ` · Open: ${d.unrealized >= 0 ? '+' : ''}$${Math.abs(d.unrealized).toFixed(2)}` : '';
-        tooltip.innerHTML = `<div><strong>${d.date}</strong></div><div>Total: ${sign}$${Math.abs(d.pnl).toFixed(2)}</div><div style="color:var(--muted)">${realStr}${unrealStr}</div><div style="color:var(--muted)">${d.trades} trade${d.trades !== 1 ? 's' : ''} · ${wr}% WR</div>`;
+        const unrealStr = d.unrealized ? ` · Open: ${d.unrealized >= 0 ? '+' : '-'}$${Math.abs(d.unrealized).toFixed(2)}` : '';
+        tooltip.innerHTML = `<div><strong>${d.date}</strong></div><div>Day: ${sign}$${Math.abs(d.dayPnl).toFixed(2)}</div><div>Cumulative: ${cumSign}$${Math.abs(d.cumPnl).toFixed(2)}</div><div style="color:var(--muted)">${realStr}${unrealStr}</div><div style="color:var(--muted)">${d.trades} trade${d.trades !== 1 ? 's' : ''} · ${wr}% WR</div>`;
         tooltip.style.display = 'block';
-        tooltip.style.left = Math.min(mx + 12, p.W - 160) + 'px';
-        tooltip.style.top = Math.max(e.clientY - rect.top - 60, 4) + 'px';
+        tooltip.style.left = Math.min(mx + 12, p.W - 180) + 'px';
+        tooltip.style.top = Math.max(e.clientY - rect.top - 80, 4) + 'px';
       });
 
       canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
