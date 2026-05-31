@@ -164,7 +164,7 @@
     }
 
     .page {
-      padding-top: 24px;
+      padding-top: 16px;
       padding-bottom: 24px;
     }
 
@@ -698,8 +698,11 @@
     .tab-bar {
       display: flex;
       gap: 0;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 24px;
+      border-top: 1px solid var(--border);
+      max-width: 1452px;
+      margin: 0 auto;
+      padding-left: 20px;
+      padding-right: 20px;
     }
 
     .tab-btn {
@@ -882,14 +885,14 @@
         <span class="clock" id="liveClock">--:--:--</span>
       </div>
     </div>
-  </header>
-
-  <main class="page">
     <nav class="tab-bar">
       <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 Dashboard</button>
       <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">🛠 Tools</button>
       <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 Logs</button>
     </nav>
+  </header>
+
+  <main class="page">
 
     <div id="tab-dashboard" class="tab-content active">
     <section class="summary-grid">
