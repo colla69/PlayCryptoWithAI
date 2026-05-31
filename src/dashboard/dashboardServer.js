@@ -301,6 +301,7 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
 
   // ── Daily P&L (persisted) ──────────────────────────────────────────────────
   const dailyPnlFile = path.resolve(process.cwd(), 'data', 'daily_pnl.json');
+  const tradesCsvFile = path.join(logsDir, 'trades.csv');
 
   function loadDailyPnl() {
     try { return JSON.parse(fs.readFileSync(dailyPnlFile, 'utf8')); }
@@ -310,6 +311,43 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   function saveDailyPnl(data) {
     fs.mkdirSync(path.dirname(dailyPnlFile), { recursive: true });
     fs.writeFileSync(dailyPnlFile, JSON.stringify(data, null, 2));
+  }
+
+  /** Parse trades.csv and rebuild daily P&L from full history. */
+  function rebuildDailyPnlFromCsv() {
+    if (!fs.existsSync(tradesCsvFile)) return {};
+    const raw = fs.readFileSync(tradesCsvFile, 'utf8');
+    const lines = raw.trim().split('\n').slice(1); // skip header
+    const byDay = {};
+    for (const line of lines) {
+      const cols = line.split(',');
+      if (cols.length < 6) continue;
+      const [timestamp, , side, , , pnlStr] = cols;
+      if (side !== 'SELL') continue;
+      const pnl = Number(pnlStr);
+      if (!Number.isFinite(pnl)) continue;
+      const day = (timestamp || '').slice(0, 10);
+      if (!day) continue;
+      if (!byDay[day]) byDay[day] = { pnl: 0, trades: 0, wins: 0 };
+      byDay[day].pnl += pnl;
+      byDay[day].trades++;
+      if (pnl > 0) byDay[day].wins++;
+    }
+    // Round values
+    for (const d of Object.values(byDay)) d.pnl = Math.round(d.pnl * 100) / 100;
+    return byDay;
+  }
+
+  // On startup: rebuild from trades.csv if daily_pnl.json is missing or empty
+  {
+    const existing = loadDailyPnl();
+    if (!Object.keys(existing).length) {
+      const rebuilt = rebuildDailyPnlFromCsv();
+      if (Object.keys(rebuilt).length) {
+        saveDailyPnl(rebuilt);
+        logger.info(`[DASHBOARD] Rebuilt daily P&L from trades.csv: ${Object.keys(rebuilt).length} days`);
+      }
+    }
   }
 
   /** Rebuild daily P&L from trades and merge with persisted history. */
