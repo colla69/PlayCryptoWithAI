@@ -1343,7 +1343,9 @@
         const d = p.data[idx];
         const sign = d.pnl >= 0 ? '+' : '';
         const wr = d.trades > 0 ? ((d.wins / d.trades) * 100).toFixed(0) : '—';
-        tooltip.innerHTML = `<div><strong>${d.date}</strong></div><div>${sign}$${Math.abs(d.pnl).toFixed(2)}</div><div style="color:var(--muted)">${d.trades} trade${d.trades !== 1 ? 's' : ''} · ${wr}% WR</div>`;
+        const realStr = d.realized ? `Realized: ${d.realized >= 0 ? '+' : ''}$${Math.abs(d.realized).toFixed(2)}` : '';
+        const unrealStr = d.unrealized ? ` · Open: ${d.unrealized >= 0 ? '+' : ''}$${Math.abs(d.unrealized).toFixed(2)}` : '';
+        tooltip.innerHTML = `<div><strong>${d.date}</strong></div><div>Total: ${sign}$${Math.abs(d.pnl).toFixed(2)}</div><div style="color:var(--muted)">${realStr}${unrealStr}</div><div style="color:var(--muted)">${d.trades} trade${d.trades !== 1 ? 's' : ''} · ${wr}% WR</div>`;
         tooltip.style.display = 'block';
         tooltip.style.left = Math.min(mx + 12, p.W - 160) + 'px';
         tooltip.style.top = Math.max(e.clientY - rect.top - 60, 4) + 'px';

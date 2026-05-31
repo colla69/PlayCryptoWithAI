@@ -353,10 +353,11 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   /** Rebuild daily P&L from trades and merge with persisted history. */
   function computeDailyPnl() {
     const persisted = loadDailyPnl();
-    const trades = dashboardState.getSummary().trades ?? [];
+    const summary = dashboardState.getSummary();
+    const trades = summary.trades ?? [];
     const sells = trades.filter(t => t.side === 'SELL' && t.pnl != null);
 
-    // Group by date
+    // Group closed trades by date
     const byDay = {};
     for (const t of sells) {
       const day = (t.exitTime || t.timestamp || '').slice(0, 10);
@@ -373,15 +374,24 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
       merged[day] = { pnl: Math.round(data.pnl * 100) / 100, trades: data.trades, wins: data.wins };
     }
 
+    // Add today's unrealized P&L from open positions
+    const today = new Date().toISOString().slice(0, 10);
+    const positions = summary.latestStatus?.positions ?? [];
+    const unrealized = positions.reduce((sum, p) => sum + (Number(p.unrealizedPnl) || 0), 0);
+    if (unrealized !== 0 || positions.length > 0) {
+      if (!merged[today]) merged[today] = { pnl: 0, trades: 0, wins: 0 };
+      merged[today].unrealized = Math.round(unrealized * 100) / 100;
+    }
+
     saveDailyPnl(merged);
     return merged;
   }
 
   app.get('/api/daily-pnl', (_req, res) => {
     const data = computeDailyPnl();
-    // Return sorted array
+    // Return sorted array — total = realized + unrealized
     const sorted = Object.entries(data)
-      .map(([date, v]) => ({ date, ...v }))
+      .map(([date, v]) => ({ date, pnl: Math.round(((v.pnl || 0) + (v.unrealized || 0)) * 100) / 100, realized: v.pnl || 0, unrealized: v.unrealized || 0, trades: v.trades, wins: v.wins }))
       .sort((a, b) => a.date.localeCompare(b.date));
     res.json(sorted);
   });
