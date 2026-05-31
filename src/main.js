@@ -160,11 +160,16 @@ async function runCycle(symbol) {
     let blockReason = null;
     let mtfSizeFactor = 1.0;
     if (result.decision === 'BUY') {
-      // Use cached MTF candles — falls back to live fetch if cache is empty
-      const cachedFetchOHLCV = (sym, tf, limit) => {
-        if (tf === '15m' && mtf15mCache.has(sym)) return Promise.resolve(mtf15mCache.get(sym).slice(-(limit ?? 20)));
-        if (tf === '4h' && mtf4hCache.has(sym)) return Promise.resolve(mtf4hCache.get(sym).slice(-(limit ?? 30)));
-        return fetchOHLCV(sym, tf, limit);
+      // Use cached MTF candles — falls back to live fetch and warms cache
+      const cachedFetchOHLCV = async (sym, tf, limit) => {
+        if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
+        if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
+        const fresh = await fetchOHLCV(sym, tf, limit);
+        if (fresh.length) {
+          const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
+          cache.set(sym, fresh);
+        }
+        return fresh;
       };
       const filterResult = await runEntryFilters({
         symbol, candles, openPositions: currentStatus.positions,
