@@ -95,7 +95,29 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   };
 
   const sendTrades = (_req, res) => {
-    res.json(dashboardState.getSummary().trades ?? []);
+    // Read directly from trades.csv — no persistence dependency
+    const csvPath = path.join(logsDir, 'trades.csv');
+    if (!fs.existsSync(csvPath)) return res.json([]);
+    try {
+      const raw = fs.readFileSync(csvPath, 'utf8');
+      const lines = raw.trim().split('\n').slice(1); // skip header
+      const trades = [];
+      for (const line of lines) {
+        const cols = line.split(',');
+        if (cols.length < 7) continue;
+        const [timestamp, symbol, side, price, qty, pnl, balance] = cols;
+        trades.push({
+          timestamp, symbol, side,
+          entryPrice: side === 'BUY' ? Number(price) : undefined,
+          exitPrice: side === 'SELL' ? Number(price) : undefined,
+          exitTime: side === 'SELL' ? timestamp : undefined,
+          qty: Number(qty),
+          pnl: side === 'SELL' ? Number(pnl) : undefined,
+          balance: Number(balance),
+        });
+      }
+      res.json(trades);
+    } catch { res.json([]); }
   };
 
   const sendCandles = (symbol, res) => {
@@ -334,25 +356,13 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
     res.json({ ok: true });
   });
 
-  // ── Daily P&L (persisted) ──────────────────────────────────────────────────
-  const dailyPnlFile = path.resolve(process.cwd(), 'data', 'daily_pnl.json');
+  // ── Daily P&L — computed directly from trades.csv ──────────────────────────
   const tradesCsvFile = path.join(logsDir, 'trades.csv');
 
-  function loadDailyPnl() {
-    try { return JSON.parse(fs.readFileSync(dailyPnlFile, 'utf8')); }
-    catch { return {}; }
-  }
-
-  function saveDailyPnl(data) {
-    fs.mkdirSync(path.dirname(dailyPnlFile), { recursive: true });
-    fs.writeFileSync(dailyPnlFile, JSON.stringify(data, null, 2));
-  }
-
-  /** Parse trades.csv and rebuild daily P&L from full history. */
-  function rebuildDailyPnlFromCsv() {
-    if (!fs.existsSync(tradesCsvFile)) return {};
+  function computeDailyPnlFromCsv() {
+    if (!fs.existsSync(tradesCsvFile)) return [];
     const raw = fs.readFileSync(tradesCsvFile, 'utf8');
-    const lines = raw.trim().split('\n').slice(1); // skip header
+    const lines = raw.trim().split('\n').slice(1);
     const byDay = {};
     for (const line of lines) {
       const cols = line.split(',');
@@ -368,67 +378,31 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
       byDay[day].trades++;
       if (pnl > 0) byDay[day].wins++;
     }
-    // Round values
-    for (const d of Object.values(byDay)) d.pnl = Math.round(d.pnl * 100) / 100;
-    return byDay;
-  }
-
-  // On startup: rebuild from trades.csv if daily_pnl.json is missing or empty
-  {
-    const existing = loadDailyPnl();
-    if (!Object.keys(existing).length) {
-      const rebuilt = rebuildDailyPnlFromCsv();
-      if (Object.keys(rebuilt).length) {
-        saveDailyPnl(rebuilt);
-        logger.info(`[DASHBOARD] Rebuilt daily P&L from trades.csv: ${Object.keys(rebuilt).length} days`);
-      }
-    }
-  }
-
-  /** Rebuild daily P&L from trades and merge with persisted history. */
-  function computeDailyPnl() {
-    const persisted = loadDailyPnl();
-    const summary = dashboardState.getSummary();
-    const trades = summary.trades ?? [];
-    const sells = trades.filter(t => t.side === 'SELL' && t.pnl != null);
-
-    // Group closed trades by date
-    const byDay = {};
-    for (const t of sells) {
-      const day = (t.exitTime || t.timestamp || '').slice(0, 10);
-      if (!day) continue;
-      if (!byDay[day]) byDay[day] = { pnl: 0, trades: 0, wins: 0 };
-      byDay[day].pnl += Number(t.pnl || 0);
-      byDay[day].trades++;
-      if (Number(t.pnl || 0) > 0) byDay[day].wins++;
-    }
-
-    // Merge: persisted days that have no trades in current session stay intact
-    const merged = { ...persisted };
-    for (const [day, data] of Object.entries(byDay)) {
-      merged[day] = { pnl: Math.round(data.pnl * 100) / 100, trades: data.trades, wins: data.wins };
-    }
 
     // Add today's unrealized P&L from open positions
     const today = new Date().toISOString().slice(0, 10);
+    const summary = dashboardState.getSummary();
     const positions = summary.latestStatus?.positions ?? [];
     const unrealized = positions.reduce((sum, p) => sum + (Number(p.unrealizedPnl) || 0), 0);
     if (unrealized !== 0 || positions.length > 0) {
-      if (!merged[today]) merged[today] = { pnl: 0, trades: 0, wins: 0 };
-      merged[today].unrealized = Math.round(unrealized * 100) / 100;
+      if (!byDay[today]) byDay[today] = { pnl: 0, trades: 0, wins: 0 };
+      byDay[today].unrealized = Math.round(unrealized * 100) / 100;
     }
 
-    saveDailyPnl(merged);
-    return merged;
+    return Object.entries(byDay)
+      .map(([date, v]) => ({
+        date,
+        pnl: Math.round(((v.pnl || 0) + (v.unrealized || 0)) * 100) / 100,
+        realized: Math.round((v.pnl || 0) * 100) / 100,
+        unrealized: v.unrealized || 0,
+        trades: v.trades,
+        wins: v.wins,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   app.get('/api/daily-pnl', (_req, res) => {
-    const data = computeDailyPnl();
-    // Return sorted array — total = realized + unrealized
-    const sorted = Object.entries(data)
-      .map(([date, v]) => ({ date, pnl: Math.round(((v.pnl || 0) + (v.unrealized || 0)) * 100) / 100, realized: v.pnl || 0, unrealized: v.unrealized || 0, trades: v.trades, wins: v.wins }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    res.json(sorted);
+    res.json(computeDailyPnlFromCsv());
   });
 
   app.get(['/api/logs', '/logs-data'], (req, res) => {
