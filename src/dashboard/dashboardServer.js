@@ -302,9 +302,38 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   app.get(['/api/logs', '/logs-data'], (req, res) => {
     const lines  = Math.min(parseInt(req.query.lines ?? 500, 10), 5000);
     const filter = String(req.query.filter ?? '').toLowerCase();
-    const logFile = path.join(logsDir, 'app.log');
+
+    // Logger uses DailyRotateFile: app-YYYY-MM-DD.log (+ .1, .2 for size rotations).
+    // Find today's log first, fall back to most recent app-*.log, then legacy app.log.
+    const today = new Date().toISOString().slice(0, 10);
+    let logFile = path.join(logsDir, `app-${today}.log`);
+    if (!fs.existsSync(logFile)) {
+      const candidates = fs.readdirSync(logsDir)
+        .filter(f => /^app-\d{4}-\d{2}-\d{2}\.log$/.test(f))
+        .sort()
+        .reverse();
+      logFile = candidates.length
+        ? path.join(logsDir, candidates[0])
+        : path.join(logsDir, 'app.log');
+    }
     if (!fs.existsSync(logFile)) return res.json({ lines: [] });
-    const raw   = fs.readFileSync(logFile, 'utf8');
+
+    // Read only the tail of the file (last ~512KB) to avoid loading 50MB+ into memory.
+    const stat = fs.statSync(logFile);
+    const TAIL_BYTES = 512 * 1024;
+    let raw;
+    if (stat.size <= TAIL_BYTES) {
+      raw = fs.readFileSync(logFile, 'utf8');
+    } else {
+      const fd = fs.openSync(logFile, 'r');
+      const buf = Buffer.alloc(TAIL_BYTES);
+      fs.readSync(fd, buf, 0, TAIL_BYTES, stat.size - TAIL_BYTES);
+      fs.closeSync(fd);
+      // Drop the first partial line
+      const str = buf.toString('utf8');
+      raw = str.slice(str.indexOf('\n') + 1);
+    }
+
     let entries = raw.trim().split('\n').filter(Boolean);
     if (filter) entries = entries.filter(l => l.toLowerCase().includes(filter));
     res.json({ lines: entries.slice(-lines).reverse() });
