@@ -169,15 +169,24 @@ export class LiveTrader {
           let entryPrice = currentPrice; // fallback
           let entryTime = null;
           let foundEntry = false;
-          for (let i = 0; i < tradeHistory.length; i++) {
-            const t = tradeHistory[i];
-            if (t.symbol !== symbol) continue;
-            if (t.side === 'SELL') break; // a SELL before BUY means no open position from history
-            if (t.side === 'BUY') {
-              entryPrice = roundPrice(Number(t.price ?? currentPrice));
-              entryTime = t.openedAt ?? t.timestamp ?? null;
-              foundEntry = true;
-              break;
+
+          // If position_state.json knows this symbol, it's been tracked before — use that
+          const saved = savedState[symbol];
+          if (saved && saved.entryPrice > 0) {
+            entryPrice = roundPrice(saved.entryPrice);
+            entryTime = saved.openedAt ?? null;
+            foundEntry = true;
+          } else {
+            for (let i = 0; i < tradeHistory.length; i++) {
+              const t = tradeHistory[i];
+              if (t.symbol !== symbol) continue;
+              if (t.side === 'SELL') break;
+              if (t.side === 'BUY') {
+                entryPrice = roundPrice(Number(t.price ?? currentPrice));
+                entryTime = t.openedAt ?? t.timestamp ?? null;
+                foundEntry = true;
+                break;
+              }
             }
           }
 
@@ -207,7 +216,6 @@ export class LiveTrader {
           };
 
           // Re-apply break-even and trailing stop from persisted state or heuristic.
-          const saved = savedState[symbol];
           if (saved && saved.stopLoss > 0) {
             position.stopLoss = roundPrice(saved.stopLoss);
             if (saved.highWaterMark > position.highWaterMark) {
