@@ -196,7 +196,7 @@ export class LiveTrader {
             breakEvenTriggerPct,
             pnl: roundMoney((currentPrice - entryPrice) * roundQty(qty)),
             pnlPct: roundMoney(((currentPrice - entryPrice) / entryPrice) * 100),
-            entryTime: Date.now(),
+            entryTime: entryTime ? new Date(entryTime).getTime() : (savedState[symbol]?.openedAt ? new Date(savedState[symbol].openedAt).getTime() : Date.now()),
             // Internal fields expected by checkRisk / trailing stop
             initialStopLoss: roundPrice(entryPrice * (1 - stopLossPct)),
             highWaterMark: roundPrice(currentPrice),
@@ -228,11 +228,14 @@ export class LiveTrader {
               beLocked = true;
             } else {
               try {
-                const posAgeMs = entryTime ? Date.now() - new Date(entryTime).getTime() : 7 * 24 * 3600_000;
+                const openedAtMs = position.entryTime;
+                const posAgeMs = openedAtMs ? Date.now() - openedAtMs : 7 * 24 * 3600_000;
                 const candleCount = Math.min(500, Math.max(42, Math.ceil(posAgeMs / (4 * 3600_000))));
                 const candles = await fetchOHLCV(symbol, '4h', candleCount);
                 if (candles && candles.length > 0) {
                   for (const c of candles) {
+                    // Only consider candles after the trade was opened
+                    if (openedAtMs && c.timestamp < openedAtMs) continue;
                     if (c.high >= beLevel) {
                       beLocked = true;
                       break;
