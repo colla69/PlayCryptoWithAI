@@ -164,15 +164,21 @@ export class LiveTrader {
           const notional = qty * currentPrice;
           if (notional < MIN_RESTORE_NOTIONAL) continue;
 
-          // Get entry price from persisted position state (primary source)
-          const saved = savedState[symbol];
+          // Find entry price from trade history: walk newest-first
+          // Stop at first SELL (no open position) or first BUY (entry price found)
           let entryPrice = currentPrice; // fallback
           let entryTime = null;
           let foundEntry = false;
-          if (saved && saved.entryPrice > 0) {
-            entryPrice = roundPrice(saved.entryPrice);
-            entryTime = saved.openedAt ?? null;
-            foundEntry = true;
+          for (let i = 0; i < tradeHistory.length; i++) {
+            const t = tradeHistory[i];
+            if (t.symbol !== symbol) continue;
+            if (t.side === 'SELL') break; // a SELL before BUY means no open position from history
+            if (t.side === 'BUY') {
+              entryPrice = roundPrice(Number(t.price ?? currentPrice));
+              entryTime = t.openedAt ?? t.timestamp ?? null;
+              foundEntry = true;
+              break;
+            }
           }
 
           const risk = getRiskForSymbol(symbol);
@@ -201,6 +207,7 @@ export class LiveTrader {
           };
 
           // Re-apply break-even and trailing stop from persisted state or heuristic.
+          const saved = savedState[symbol];
           if (saved && saved.stopLoss > 0) {
             position.stopLoss = roundPrice(saved.stopLoss);
             if (saved.highWaterMark > position.highWaterMark) {
