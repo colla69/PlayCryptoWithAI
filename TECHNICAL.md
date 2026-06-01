@@ -24,10 +24,16 @@ Architecture, data flow, module responsibilities, and deployment.
 │  │  Executor    │    │  Dashboard        │    │  State           │  │
 │  │              │    │                  │    │                  │  │
 │  │  PaperTrader │    │  Express + SSE   │    │  JSON files      │  │
-│  │  LiveTrader  │    │  3-tab UI        │    │  position_state  │  │
+│  │  LiveTrader  │    │  4-tab UI        │    │  position_state  │  │
 │  │  OCO orders  │    │  Deposit tracker │    │  Trade CSV       │  │
 │  │  State save  │    │  512KB log tail  │    │  Candle cache    │  │
 │  └──────────────┘    └──────────────────┘    └──────────────────┘  │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  Notifications (src/notifications/telegramNotifier.js)        │  │
+│  │  Send-only Telegram bot — BUY/SELL/Startup alerts             │  │
+│  │  No-op if TELEGRAM_TOKEN / TELEGRAM_CHANNEL_IDS unset         │  │
+│  └──────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -56,6 +62,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | Logger | `utils/logger.js` | Winston logger + CSV trade appender |
 | Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD, dated log reader (512KB tail) |
 | Dashboard State | `dashboard/dashboardState.js` | In-memory state for SSE broadcasts |
+| Persistence | `dashboard/persistence.js` | Debounced JSON write for dashboard state + signal history |
+| Notifications | `notifications/telegramNotifier.js` | Send-only Telegram bot (BUY/SELL/startup alerts); no-op if unconfigured |
 
 ### Backtesting (`src/backtester/`)
 
@@ -112,13 +120,15 @@ Architecture, data flow, module responsibilities, and deployment.
    base × ATR × confidence × regime × macro → effectiveRisk
 
 6. trader.execute(symbol, decision, price, effectiveRisk)
-     → createOrder(symbol, 'market', 'buy', qty)
-     → position tracked in memory + persisted to data/position_state.json
+      → createOrder(symbol, 'market', 'buy', qty)
+      → position tracked in memory + persisted to data/position_state.json
+      → notifyTrade() → Telegram alert (if configured)
 
 7. Risk check (existing positions):
-   price ≤ stopLoss?     → market sell (stop_loss)
-   price ≥ takeProfit?   → market sell (take_profit)
-   price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
+    price ≤ stopLoss?     → market sell (stop_loss)
+    price ≥ takeProfit?   → market sell (take_profit)
+    price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
+    All closes → notifyTrade() → Telegram alert (if configured)
 ```
 
 ### Fast Risk-Check Loop (every 2 min)
@@ -156,9 +166,50 @@ Architecture, data flow, module responsibilities, and deployment.
 8. If no history match → create synthetic entry at current price
 ```
 
+### Trade Loading on Startup
+
+```
+1. Load trades from data/dashboard_persist.json (primary source)
+2. Fallback: parse logs/trades.csv if persist file missing or empty
+3. Merge deduplicated trades into dashboardState
+4. Both /api/trades and /api/daily-pnl read from dashboard_persist.json
+```
+
+### Telegram Notifications
+
+```
+1. initNotifier(TELEGRAM_TOKEN, TELEGRAM_CHANNEL_IDS) at startup
+2. If token/chatIds missing → module becomes no-op (no errors)
+3. On BUY:  broadcast 🟢 BUY {symbol} with price, qty, size
+4. On SELL: broadcast 🔴 SELL {symbol} with price, P&L, duration, note
+5. On startup: broadcast 🤖 Bot Started with mode + symbol count
+6. Triggers: cycle trades, risk-loop closes, manual closes
+```
+
 ---
 
-## Persistence
+## Dashboard API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/status` | Full dashboard summary (positions, metrics, signals) |
+| GET | `/api/signals` | Current signal feed |
+| GET | `/api/signal-history` | Paginated signal history (`page`, `pageSize`, `symbol`, `decision`) |
+| GET | `/api/trades` | Trade history from `dashboard_persist.json` |
+| GET | `/api/daily-pnl` | Daily P&L breakdown (realized + unrealized) |
+| GET | `/api/health` | Uptime, cycle count, version |
+| GET | `/api/symbols` | Configured symbol list |
+| GET | `/api/strategies` | Strategy registry |
+| GET | `/api/candles` | Cached candles for a symbol |
+| GET | `/api/deposits` | Deposit list |
+| POST | `/api/deposits` | Add deposit entry |
+| DELETE | `/api/deposits/:id` | Remove deposit entry |
+| POST | `/api/backtest` | Run on-demand backtest |
+| POST | `/api/close-position/:symbol` | Manual position close |
+| POST | `/api/refresh-balance` | Trigger immediate position sync + balance update |
+| POST | `/api/smoke-test` | Run connectivity smoke test |
+| GET | `/api/logs` | Log tail (filtered, paginated) |
+| GET | `/stream` | SSE event stream (cycle updates, heartbeat) |
 
 ### Local Mode (Docker / bare metal)
 
@@ -166,7 +217,8 @@ Architecture, data flow, module responsibilities, and deployment.
 |------|--------|----------|
 | `data/dashboard_persist.json` | JSON | Dashboard state (positions, signals, trades) |
 | `data/position_state.json` | JSON | Per-position stop-loss, HWM, entry price (survives restarts) |
-| `data/deposits.json` | JSON | Deposit tracker entries |
+| `data/signal_history.json` | JSON | Full signal decision history (max 5000 entries, paginated via API) |
+| `data/deposits.json` | JSON | Deposit tracker entries (gitignored, runtime-only) |
 | `data/filtered_optimization_results.json` | JSON | Per-symbol optimizer results (9 pass, 5 fail from latest run) |
 | `data/candles/*.json` | JSON | Cached OHLCV data (12h, 15m, 4h) |
 | `logs/trades.csv` | CSV | Full trade journal |

@@ -45,12 +45,13 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 ## Dashboard
 
-Live at `http://localhost:3001` — three tabs:
+Live at `http://localhost:3001` — four tabs:
 
 | Tab | Contents |
 |-----|----------|
-| **Dashboard** | Positions, P&L, trade history, signal feed, manual close buttons |
-| **Tools** | P&L equity curve, deposit tracker with True ROI |
+| **Dashboard** | Positions, P&L, trade history, manual close buttons |
+| **Signals** | Full signal history with symbol/decision filters, paginated (50–1000) |
+| **Tools** | P&L equity curve, deposit tracker with True ROI, 🔄 Refresh Balance |
 | **Logs** | Full log viewer with filter and search |
 
 ---
@@ -66,7 +67,8 @@ Live at `http://localhost:3001` — three tabs:
 | `SMOKE_TEST` | `true` | `false` = skip startup connectivity check |
 | `DASHBOARD_PORT` | `3001` | Dashboard HTTP port |
 | `LOG_LEVEL` | `info` | Winston log level |
-| `TELEGRAM_TOKEN` | — | Optional: Telegram notifications |
+| `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
+| `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
 
 ---
 
@@ -137,9 +139,10 @@ Max 3 concurrent positions (~33% capital each), sized by ATR and confidence.
 
 | Path | Contents |
 |------|----------|
-| `data/dashboard_persist.json` | Dashboard state, positions |
+| `data/dashboard_persist.json` | Dashboard state, positions, trades |
 | `data/position_state.json` | Stop-loss / HWM / entry per position (survives restarts) |
-| `data/deposits.json` | Deposit tracker |
+| `data/signal_history.json` | Signal decision history (max 5000 entries) |
+| `data/deposits.json` | Deposit tracker (gitignored, runtime-only) |
 | `data/filtered_optimization_results.json` | Per-symbol optimizer results (pass/fail) |
 | `data/candles/` | Cached OHLCV data |
 | `logs/trades.csv` | Trade journal |
