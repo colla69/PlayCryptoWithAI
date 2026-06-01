@@ -880,8 +880,8 @@
     </div>
     <nav class="tab-bar">
       <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 Dashboard</button>
-      <button class="tab-btn" data-tab="signals" onclick="switchTab('signals')">📡 Signals</button>
       <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">🛠 Tools</button>
+      <button class="tab-btn" data-tab="signals" onclick="switchTab('signals')">📡 Signals</button>
       <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">📜 Logs</button>
     </nav>
   </header>
@@ -1029,61 +1029,6 @@
 
     </div><!-- /tab-dashboard -->
 
-    <div id="tab-signals" class="tab-content">
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">📡 Signal History</div>
-            <div class="panel-subtitle">Every buy, sell, and hold decision from each cycle</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <select id="signalFilterSymbol" onchange="loadSignalHistory(1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
-              <option value="">All Coins</option>
-            </select>
-            <select id="signalFilterDecision" onchange="loadSignalHistory(1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
-              <option value="">All Decisions</option>
-              <option value="BUY">BUY</option>
-              <option value="SELL">SELL</option>
-              <option value="HOLD">HOLD</option>
-            </select>
-            <select id="signalPageSize" onchange="loadSignalHistory(1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
-              <option value="50">50</option>
-              <option value="100" selected>100</option>
-              <option value="200">200</option>
-              <option value="500">500</option>
-              <option value="1000">1000</option>
-            </select>
-            <button onclick="loadSignalHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer">↺ Refresh</button>
-          </div>
-        </div>
-        <div class="table-wrap" style="max-height:calc(100vh - 200px);overflow-y:auto;overflow-x:auto">
-          <table>
-            <thead style="position:sticky;top:0;z-index:1;background:var(--panel)">
-              <tr>
-                <th>Time</th>
-                <th>Coin</th>
-                <th>Decision</th>
-                <th>Confidence</th>
-                <th>Strategies</th>
-                <th>Reason</th>
-                <th>Blocked</th>
-              </tr>
-            </thead>
-            <tbody id="signalHistoryBody">
-              <tr><td colspan="7" class="loading">Loading signal history…</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div id="signalPagination" style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;font-size:12px;color:var(--muted)">
-          <span id="signalPageInfo">—</span>
-          <div style="display:flex;gap:6px">
-            <button id="signalPrevBtn" onclick="loadSignalHistory(window._signalPage - 1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer" disabled>← Prev</button>
-            <button id="signalNextBtn" onclick="loadSignalHistory(window._signalPage + 1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer" disabled>Next →</button>
-          </div>
-        </div>
-      </section>
-    </div><!-- /tab-signals -->
-
     <div id="tab-tools" class="tab-content">
       <section class="panel">
         <div class="panel-header">
@@ -1157,6 +1102,61 @@
         <div id="depositList" style="margin-top:12px;max-height:200px;overflow-y:auto"></div>
       </section>
     </div><!-- /tab-tools -->
+
+    <div id="tab-signals" class="tab-content">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">📡 Signal History</div>
+            <div class="panel-subtitle">Every buy, sell, and hold decision from each cycle</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="signalFilterSymbol" onchange="loadSignalHistory(1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
+              <option value="">All Coins</option>
+            </select>
+            <select id="signalFilterDecision" onchange="loadSignalHistory(1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
+              <option value="">All Decisions</option>
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+              <option value="HOLD">HOLD</option>
+            </select>
+            <select id="signalPageSize" onchange="loadSignalHistory(1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 8px;border-radius:6px;font-size:12px">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+            <button onclick="loadSignalHistory()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer">↺ Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height:calc(100vh - 200px);overflow-y:auto;overflow-x:auto">
+          <table>
+            <thead style="position:sticky;top:0;z-index:1;background:var(--panel)">
+              <tr>
+                <th>Time</th>
+                <th>Coin</th>
+                <th>Decision</th>
+                <th>Confidence</th>
+                <th>Strategies</th>
+                <th>Reason</th>
+                <th>Blocked</th>
+              </tr>
+            </thead>
+            <tbody id="signalHistoryBody">
+              <tr><td colspan="7" class="loading">Loading signal history…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="signalPagination" style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;font-size:12px;color:var(--muted)">
+          <span id="signalPageInfo">—</span>
+          <div style="display:flex;gap:6px">
+            <button id="signalPrevBtn" onclick="loadSignalHistory(window._signalPage - 1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer" disabled>← Prev</button>
+            <button id="signalNextBtn" onclick="loadSignalHistory(window._signalPage + 1)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer" disabled>Next →</button>
+          </div>
+        </div>
+      </section>
+    </div><!-- /tab-signals -->
 
     <div id="tab-logs" class="tab-content">
     <!-- ── Logs panel ─────────────────────────────────────────────────────── -->
