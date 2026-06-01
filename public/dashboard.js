@@ -296,49 +296,8 @@
     }
 
     // Returns open trades derived from trade history: BUYs without a matching SELL for the same symbol.
-    function getHistoryOpenPositions(trades, prices = {}) {
-      // Walk trades in chronological order (oldest first) so a new BUY after a SELL
-      // correctly re-opens the position. Exclude smoke-test probes entirely.
-      const realTrades = trades
-        .filter((t) => !String(t.note || '').includes('smoke-test'))
-        .slice()
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-      const openMap = {};
-      for (const t of realTrades) {
-        if (t.side === 'BUY')  openMap[t.symbol] = t;
-        if (t.side === 'SELL') delete openMap[t.symbol];
-      }
-
-      return Object.values(openMap).map((t) => {
-          const entry       = t.entryPrice ?? t.price ?? 0;
-          const currentPrice = prices[t.symbol] ?? null;
-          const qty          = t.qty ?? 0;
-          return {
-            symbol:        t.symbol,
-            qty,
-            entryPrice:    entry,
-            stopLoss:      t.stopLoss ?? t.initialStopLoss ?? 0,
-            takeProfit:    t.takeProfit ?? 0,
-            openedAt:      t.openedAt ?? t.timestamp,
-            currentPrice,
-            unrealizedPnl: currentPrice != null ? (currentPrice - entry) * qty : null,
-            _fromHistory:  true,
-          };
-        });
-    }
-
     function getPortfolioStats(summary) {
-      const livePosns  = summary?.latestStatus?.positions || [];
-      const allTrades  = state.trades.length ? state.trades : (state.summary?.trades || []);
-      const histPosns  = getHistoryOpenPositions(allTrades, summary?.prices || {});
-      // Merge live + history: live positions are ground truth when bot is running.
-      // Supplement with any history-derived positions the live bot doesn't know about
-      // (e.g. a position that survived a restart but wasn't restored into memory).
-      // If a position was properly closed (SELL in history), it won't appear in histPosns.
-      const liveSymbols = new Set(livePosns.map((p) => p.symbol));
-      const histExtra   = histPosns.filter((p) => !liveSymbols.has(p.symbol));
-      const positions   = [...livePosns, ...histExtra];
+      const positions  = summary?.latestStatus?.positions || [];
       const maxSlots    = summary?.runtimeConfig?.maxOpenPositions || 0;
       const cashBalance = Number(summary?.latestStatus?.balance ?? summary?.metrics?.balance ?? 0);
       const realizedPnl = Number(summary?.metrics?.totalPnL ?? 0);
@@ -406,21 +365,12 @@
     }
 
     function renderPositions(summary) {
-      const livePosns = summary?.latestStatus?.positions || [];
-      const allTrades = state.trades.length ? state.trades : (state.summary?.trades || []);
-      const histPosns = getHistoryOpenPositions(allTrades, summary?.prices || {});
+      const positions = summary?.latestStatus?.positions || [];
       const botOnline = summary?.latestStatus != null;
-      // Merge: live positions are ground truth; supplement with history entries
-      // the live bot doesn't know about (restart didn't restore them).
-      const liveSymbols = new Set(livePosns.map((p) => p.symbol));
-      const histExtra   = histPosns.filter((p) => !liveSymbols.has(p.symbol));
-      const positions   = [...livePosns, ...histExtra];
-      const isStale     = !livePosns.length && histPosns.length > 0 && !botOnline;
-      const hasHistExtra = histExtra.length > 0 && botOnline;
 
       el.positionsPanel.hidden = positions.length === 0;
       el.positionsCountLabel.textContent = positions.length
-        ? `${positions.length} open position${positions.length === 1 ? '' : 's'}${isStale ? ' · ⚠️ from history (bot offline)' : ''}${hasHistExtra ? ` · ⚠️ ${histExtra.length} from history (not in live bot)` : ''}`
+        ? `${positions.length} open position${positions.length === 1 ? '' : 's'}`
         : '';
 
       if (!positions.length) {
