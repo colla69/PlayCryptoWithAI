@@ -84,6 +84,15 @@ class DashboardState {
     scheduleSave(this.trades, this.signalFeed);
   }
 
+  deleteTrade(timestamp) {
+    const idx = this.trades.findIndex(t => t.timestamp === timestamp);
+    if (idx === -1) return false;
+    this.trades.splice(idx, 1);
+    this.#touch();
+    scheduleSave(this.trades, this.signalFeed);
+    return true;
+  }
+
   pushSignal(signal) {
     if (!signal) {
       return;

@@ -654,6 +654,21 @@
       white-space: nowrap;
     }
 
+    .del-trade-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .del-trade-btn:hover {
+      color: var(--red-bright);
+      border-color: var(--red-bright);
+    }
+
     .footer-strip {
       padding-top: 2px;
       padding-bottom: 20px;
@@ -1000,10 +1015,11 @@
                 <th>Exit</th>
                 <th>P&amp;L</th>
                 <th>Result</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="tradesBody">
-              <tr><td colspan="8" class="loading">Loading trade history…</td></tr>
+              <tr><td colspan="9" class="loading">Loading trade history…</td></tr>
             </tbody>
           </table>
         </div>

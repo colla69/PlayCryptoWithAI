@@ -514,7 +514,7 @@
       const trades = allTrades.slice(0, 20);
 
       if (!trades.length) {
-        el.tradesBody.innerHTML = '<tr><td colspan="8" class="empty-state">No trades yet. Closed positions and new entries will show up here.</td></tr>';
+        el.tradesBody.innerHTML = '<tr><td colspan="9" class="empty-state">No trades yet. Closed positions and new entries will show up here.</td></tr>';
         return;
       }
 
@@ -536,6 +536,7 @@
             : formatSignedMoney(pnl);
         const base = getBaseSymbol(trade.symbol);
         const isSmoke = String(trade.note || '').includes('smoke-test');
+        const tsEncoded = encodeURIComponent(trade.timestamp || '');
         return `
           <tr${isSmoke ? ' style="opacity:0.5" title="Smoke-test trade"' : ''}>
             <td title="${escapeHtml(new Date(trade.timestamp || Date.now()).toLocaleString())}">${escapeHtml(formatTradeTime(trade.timestamp))}${isSmoke ? ' <span style="font-size:0.7em;color:#64748b">🔬</span>' : ''}</td>
@@ -554,10 +555,31 @@
             <td>${trade.exitPrice ? formatPrice(trade.exitPrice, trade.symbol) : '—'}</td>
             <td class="${classForValue(pnl)}">${pnlDisplay}</td>
             <td><span class="result-badge">${escapeHtml(tradeResultLabel(trade))}</span></td>
+            <td><button class="del-trade-btn" data-ts="${tsEncoded}" title="Delete this trade">✕</button></td>
           </tr>
         `;
       }).join('');
+
+      // Attach delete handlers
+      el.tradesBody.querySelectorAll('.del-trade-btn').forEach(btn => {
+        btn.addEventListener('click', () => deleteTrade(btn.dataset.ts));
+      });
     }
+
+    async function deleteTrade(tsEncoded) {
+      const ts = decodeURIComponent(tsEncoded);
+      if (!confirm(`Delete this trade entry?\n\n${ts}`)) return;
+      try {
+        const r = await fetch(`${API_BASE}/api/trades/${tsEncoded}`, { method: 'DELETE' });
+        if (r.ok) {
+          state.trades = state.trades.filter(t => t.timestamp !== ts);
+          renderTrades();
+        } else {
+          alert('Failed to delete trade');
+        }
+      } catch { alert('Failed to delete trade'); }
+    }
+    window.deleteTrade = deleteTrade;
 
     function renderFooter(summary) {
       const runtime = summary?.runtimeConfig || {};

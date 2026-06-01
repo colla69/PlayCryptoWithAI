@@ -130,6 +130,13 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
 
   app.get(['/api/trades', '/trades'], sendTrades);
 
+  app.delete('/api/trades/:timestamp', (req, res) => {
+    const ts = decodeURIComponent(req.params.timestamp);
+    const deleted = dashboardState.deleteTrade(ts);
+    if (!deleted) return res.status(404).json({ error: 'trade not found' });
+    res.json({ ok: true });
+  });
+
   app.get('/api/health', (_req, res) => {
     const summary = dashboardState.getSummary();
     res.json({
