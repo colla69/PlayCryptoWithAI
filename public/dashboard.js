@@ -417,6 +417,7 @@
               <div>${qty > 0 ? formatQty(qty) : '—'}</div>
               <div class="helper">${costBasis > 0 ? formatMoney(costBasis) : ''}</div>
             </td>
+            <td>${formatMoney((position.currentPrice ?? entry) * qty)}</td>
             <td>${formatPrice(entry, position.symbol)}</td>
             <td class="pos-current-price">${formatPrice(position.currentPrice ?? entry, position.symbol)}</td>
             <td class="pos-unrealized ${classForValue(unrealized)}">${unrealizedDisplay}</td>
