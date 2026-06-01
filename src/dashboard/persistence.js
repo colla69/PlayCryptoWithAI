@@ -28,11 +28,11 @@ let _saveTimer = null;
  * Debounced async write — called after every pushTrade / pushSignal.
  * Writes at most once per 500 ms to avoid hammering disk during bulk updates.
  */
-export function scheduleSave(trades, signalFeed) {
+export function scheduleSave(trades, signalFeed, suppressedSynthetics = []) {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-    const data = JSON.stringify({ trades, signalFeed });
+    const data = JSON.stringify({ trades, signalFeed, suppressedSynthetics });
     writeFile(STATE_FILE, data, 'utf8', () => {});
   }, 500);
 }

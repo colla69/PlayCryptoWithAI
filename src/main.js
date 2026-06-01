@@ -698,6 +698,10 @@ riskManager.seedFromHistory(dashboardState.getSummary().trades);
 // matching BUY in the trade log (e.g. manual buy, history cleared, first run).
 // Writes a synthetic BUY to both the CSV log and the dashboard trade feed.
 function recordSyntheticTrade(trade) {
+  if (dashboardState.isSyntheticSuppressed(trade.symbol)) {
+    logger.info(`[LIVE] ${trade.symbol}: synthetic BUY suppressed (previously deleted)`);
+    return;
+  }
   appendTrade(trade);
   dashboardState.pushTrade(trade);
   logger.info(`[LIVE] ${trade.symbol}: synthetic BUY added to history (entry=${trade.price} qty=${trade.qty})`);

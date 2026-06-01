@@ -53,6 +53,8 @@ class DashboardState {
       pollIntervalMs: null,
       symbols: [],
     };
+    // Symbols whose synthetic BUY was deleted — never re-create on restore
+    this.suppressedSynthetics = new Set(saved?.suppressedSynthetics ?? []);
     // Active filter configuration (set at startup from config)
     this.activeFilters = {};
     // Running tally of blocked BUY signals this session
@@ -70,6 +72,11 @@ class DashboardState {
       return;
     }
 
+    // A real BUY clears any suppression so future restores work normally
+    if (trade.side === 'BUY' && trade.symbol && this.suppressedSynthetics.has(trade.symbol)) {
+      this.suppressedSynthetics.delete(trade.symbol);
+    }
+
     pushWithLimit(
       this.trades,
       {
@@ -81,16 +88,30 @@ class DashboardState {
       MAX_TRADES,
     );
     this.#touch();
-    scheduleSave(this.trades, this.signalFeed);
+    scheduleSave(this.trades, this.signalFeed, [...this.suppressedSynthetics]);
   }
 
   deleteTrade(timestamp) {
     const idx = this.trades.findIndex(t => t.timestamp === timestamp);
     if (idx === -1) return false;
+    const removed = this.trades[idx];
     this.trades.splice(idx, 1);
+    // Suppress synthetic recreation for deleted BUY entries
+    if (removed.side === 'BUY' && removed.symbol) {
+      this.suppressedSynthetics.add(removed.symbol);
+    }
     this.#touch();
-    scheduleSave(this.trades, this.signalFeed);
+    scheduleSave(this.trades, this.signalFeed, [...this.suppressedSynthetics]);
     return true;
+  }
+
+  isSyntheticSuppressed(symbol) {
+    return this.suppressedSynthetics.has(symbol);
+  }
+
+  clearSuppression(symbol) {
+    this.suppressedSynthetics.delete(symbol);
+    scheduleSave(this.trades, this.signalFeed, [...this.suppressedSynthetics]);
   }
 
   pushSignal(signal) {
@@ -114,7 +135,7 @@ class DashboardState {
 
     this.#touch();
     this.#pushSignalHistory(entry);
-    scheduleSave(this.trades, this.signalFeed);
+    scheduleSave(this.trades, this.signalFeed, [...this.suppressedSynthetics]);
   }
 
   #pushSignalHistory(signal) {
@@ -261,7 +282,8 @@ class DashboardState {
   clearHistory() {
     this.trades = [];
     this.signalFeed = [];
-    scheduleSave(this.trades, this.signalFeed);
+    this.suppressedSynthetics.clear();
+    scheduleSave(this.trades, this.signalFeed, []);
     this.#touch();
   }
 
