@@ -200,6 +200,12 @@ Every change is measured honestly before it ships:
 - **Walk-forward harness** (`runWalkForward.mjs`) — forward-only equity concatenation for honest
   out-of-sample numbers.
 - **Monte Carlo trade shuffle** — SE bands on Sharpe / MaxDD / return; rejects fragile changes.
+- **Stress stoplight** (`runBaseline.mjs --stoplight`) — runs the standard + natural BTC-drawdown
+  windows and assigns each a 🟢/🟡/🔴 verdict (🔴 if DD ≤ −15% or Sharpe < 0.8). Exits non-zero on
+  red so it can gate CI. Current overall: 🟢 GREEN.
+- **Live drift monitor** (`src/monitor/driftMonitor.js`) — each cycle compares the rolling 30-day
+  live per-trade Sharpe against the backtest reference and warns when they diverge beyond 2 standard
+  errors (Lo 2002). Log-only until `monitor.driftRefSharpe` is configured.
 
 **Cardinal rule:** if a change worsens risk-adjusted metrics vs the committed baseline, it is
 **reverted, not patched**.

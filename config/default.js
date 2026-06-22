@@ -630,6 +630,19 @@ export default {
     tightenBy: 0.05,
     loosenBy:  0.05,
   },
+  // ── Live drift monitor (Phase 8) ──────────────────────────────────────────
+  // Each cycle, compare the rolling per-trade live Sharpe to the backtest
+  // reference and warn when they diverge beyond `zThreshold` standard errors.
+  // driftRefSharpe is a PER-TRADE Sharpe (not the daily-equity one printed by
+  // runBaseline). Leave null for log-only observability; set it from a per-trade
+  // backtest stat to enable alerts.
+  monitor: {
+    enabled: true,
+    windowDays: 30,
+    minTrades: 10,
+    zThreshold: 2,
+    driftRefSharpe: null,
+  },
   // ── Correlation filter — moved to risk.correlation block at top of file
   // (Phase 7 revisit with confidence-weighted aggregator + tighter threshold).
   // The OLD rejected impl was a routing filter; new impl is a hard cap on the

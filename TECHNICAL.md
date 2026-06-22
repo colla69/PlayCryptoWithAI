@@ -81,6 +81,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | `deflatedSharpe.js` | Deflated/Probabilistic Sharpe (Bailey & López de Prado) — multiple-testing correction |
 | `baselineFramework.js` | Reusable multi-window baseline runner (full live filter stack) |
 | `walkForward.js` | Forward-only walk-forward harness + Monte Carlo trade shuffle |
+| `stressReport.js` | Pure stoplight verdict (🟢/🟡/🔴) over stress windows — used by `runBaseline --stoplight` |
+| `../monitor/driftMonitor.js` | Live vs backtest per-trade Sharpe drift detection (Lo 2002 SE) |
 
 ### Scripts (`src/scripts/`)
 

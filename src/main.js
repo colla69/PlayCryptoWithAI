@@ -10,6 +10,7 @@ import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
 import { calcPositionAgingExit, calcWeeklyDDBreaker } from './risk/portfolioRisk.js';
+import { computeLiveStats, evaluateDrift } from './monitor/driftMonitor.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
@@ -455,6 +456,27 @@ async function runAllSymbols() {
         weeklyPnLPct: ddBreaker.weeklyPnLPct ?? 0,
         cooldownEndsAt: ddBreaker.cooldownEndsAt ?? null,
       });
+    }
+
+    // ── Live drift monitor (Phase 8) ────────────────────────────────────────
+    // Compare rolling per-trade live performance vs the backtest reference;
+    // warn + notify when it drifts beyond the statistical band. Log-only until
+    // monitor.driftRefSharpe is configured.
+    const monCfg = config.monitor ?? {};
+    if (monCfg.enabled !== false) {
+      const live = computeLiveStats(dashboardState.getTrades(), { windowDays: monCfg.windowDays ?? 30 });
+      const drift = evaluateDrift({
+        liveSharpe: live.sharpe,
+        refSharpe: monCfg.driftRefSharpe ?? null,
+        nLive: live.n,
+        zThreshold: monCfg.zThreshold ?? 2,
+        minTrades: monCfg.minTrades ?? 10,
+      });
+      if (drift.alert) {
+        logger.warn(`[DRIFT] ${drift.reason} — live ${(live.winRate*100).toFixed(0)}% WR, mean ${(live.meanReturn*100).toFixed(2)}%/trade`);
+      } else {
+        logger.debug(`[DRIFT] ${drift.reason} (n=${live.n}, WR ${(live.winRate*100).toFixed(0)}%)`);
+      }
     }
 
     if (bearPolicy.shouldCashExitOpen) {

@@ -29,10 +29,12 @@ import {
 } from '../backtester/baselineFramework.js';
 import { loadFearGreedHistory } from '../data/fearGreed.js';
 import { refreshMarketContext } from '../data/marketContext.js';
+import { summarizeStress, LEVEL_EMOJI } from '../backtester/stressReport.js';
 
 const argv = process.argv.slice(2);
 let phaseTag = 'p0';
 let includeStress = false;
+let stoplight = false;
 let budget = 1000;
 let nTrials = 16280; // 37 symbols × 220 combos × 2 conf thresholds (per-symbol optimizer search space)
 let symbolsOverride = null;
@@ -41,6 +43,7 @@ for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--phase'           && argv[i+1]) { phaseTag = argv[++i]; continue; }
   if (a === '--include-stress')                { includeStress = true; continue; }
+  if (a === '--stoplight')                      { stoplight = true; includeStress = true; continue; }
   if (a === '--budget'          && argv[i+1]) { budget = Number(argv[++i]); continue; }
   if (a === '--nTrials'         && argv[i+1]) { nTrials = Number(argv[++i]); continue; }
   if (a === '--symbols'         && argv[i+1]) { symbolsOverride = argv[++i].split(',').map((s) => s.trim()); continue; }
@@ -139,6 +142,32 @@ console.log(`  Wrote ${outPath}`);
 console.log(`  Wrote ${summaryPath}`);
 console.log('══════════════════════════════════════════════════════════════════\n');
 console.log(summary);
+
+// ── Stress stoplight report (Phase 8) ─────────────────────────────────────────
+if (stoplight) {
+  const report = summarizeStress(results);
+  const reportPath = outPath.replace('.json', '_stoplight.json');
+  writeFileSync(reportPath, JSON.stringify({
+    phase: phaseTag,
+    generated_at: new Date().toISOString(),
+    git: gitMeta(),
+    overall: report.overall,
+    counts: report.counts,
+    rows: report.rows,
+  }, null, 2));
+
+  console.log(`\n┌─ Stress stoplight ${'─'.repeat(46)}`);
+  for (const row of report.rows) {
+    const emoji = LEVEL_EMOJI[row.level] ?? '⚪';
+    const id = String(row.id).padEnd(24);
+    console.log(`│ ${emoji} ${id} ${row.reasons.join('; ')}`);
+  }
+  const { green, yellow, red, na, skipped } = report.counts;
+  console.log(`└─ overall ${LEVEL_EMOJI[report.overall]} ${report.overall.toUpperCase()}  `
+    + `(🟢${green} 🟡${yellow} 🔴${red} ⚪${na} ⏭️${skipped})`);
+  console.log(`  Wrote ${reportPath}\n`);
+  if (report.overall === 'red') process.exitCode = 1; // non-zero so CI can gate on it
+}
 
 function renderSummary(out) {
   const lines = [];
