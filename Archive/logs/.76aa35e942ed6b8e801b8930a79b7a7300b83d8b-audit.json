@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "/home/cola/IdeaProjects/PlayCryptoWithAI/logs/.76aa35e942ed6b8e801b8930a79b7a7300b83d8b-audit.json",
+    "files": [
+        {
+            "date": 1782066956557,
+            "name": "/home/cola/IdeaProjects/PlayCryptoWithAI/logs/app-2026-06-21.log",
+            "hash": "6c6e66eb9b29b0d12560a2b43e6659095c96658a8a6d1b51fcb0c52cd2802a65"
+        }
+    ],
+    "hashType": "sha256"
+}

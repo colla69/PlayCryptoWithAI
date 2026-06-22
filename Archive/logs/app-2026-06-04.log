@@ -1,0 +1,951 @@
+{"level":"debug","message":"[CYCLE] ATR sizing: medianATRPct=3.52% (37 symbols)","timestamp":"2026-06-04T00:00:19.235Z"}
+{"level":"debug","message":"[CYCLE] BTC macro: bull=false EMA200","timestamp":"2026-06-04T00:00:19.238Z"}
+{"level":"debug","message":"[CYCLE] BTC/USDC: starting cycle, candles=737 lastClose=64170.03000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.533Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 71151.0480 vs slow 73338.8784)\"","timestamp":"2026-06-04T00:00:19.538Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 72677.8345)\"","timestamp":"2026-06-04T00:00:19.538Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: strategy[2]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T00:00:19.538Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.538Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.538Z"}
+{"level":"debug","message":"[CYCLE] XRP/USDC: starting cycle, candles=737 lastClose=1.20110000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.553Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: strategy[0]=unknown → BUY conf=0.50 \"Price 1.2357 ≤ lower BB 1.2362 (bw 11.4%)\"","timestamp":"2026-06-04T00:00:19.571Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: strategy[1]=unknown → BUY conf=0.62 \"Stoch K=16.3 crossed above D=5.5 in oversold zone\"","timestamp":"2026-06-04T00:00:19.572Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: strategy[2]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 1.2865 vs slow 1.3164)\"","timestamp":"2026-06-04T00:00:19.572Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: votes BUY=2.00 SELL=0.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T00:00:19.572Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: decision=BUY confidence=1.00 tie=false","timestamp":"2026-06-04T00:00:19.572Z"}
+{"level":"debug","message":"[CYCLE] LINK/USDC: starting cycle, candles=737 lastClose=8.34500000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.621Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: strategy[0]=unknown → HOLD conf=0.20 \"Price 8.5270 inside BB [8.4817–9.6771]\"","timestamp":"2026-06-04T00:00:19.637Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: strategy[1]=unknown → BUY conf=0.61 \"Stoch K=17.2 crossed above D=8.2 in oversold zone\"","timestamp":"2026-06-04T00:00:19.637Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: strategy[2]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 9.1128)\"","timestamp":"2026-06-04T00:00:19.637Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.637Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T00:00:19.637Z"}
+{"level":"debug","message":"[CYCLE] BNB/USDC: starting cycle, candles=737 lastClose=620.91000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.653Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: strategy[0]=unknown → HOLD conf=0.56 \"%R -92.2 oversold — still falling, wait\"","timestamp":"2026-06-04T00:00:19.664Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: strategy[1]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T00:00:19.665Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T00:00:19.665Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.665Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.665Z"}
+{"level":"debug","message":"[CYCLE] LTC/USDC: starting cycle, candles=737 lastClose=47.13000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.668Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: strategy[0]=unknown → BUY conf=0.52 \"Price 48.1700 ≤ lower BB 48.2764 (bw 11.8%)\"","timestamp":"2026-06-04T00:00:19.677Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: strategy[1]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 50.2582 vs slow 51.5988)\"","timestamp":"2026-06-04T00:00:19.678Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: strategy[2]=unknown → HOLD conf=0.20 \"%R -77.8 neutral\"","timestamp":"2026-06-04T00:00:19.678Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.678Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:19.678Z"}
+{"level":"debug","message":"[CYCLE] NEAR/USDC: starting cycle, candles=737 lastClose=2.82100000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.690Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[0]=unknown → HOLD conf=0.52 \"RSI 71.7 overbought — still rising, wait\"","timestamp":"2026-06-04T00:00:19.701Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[1]=unknown → SELL conf=0.56 \"Price 2.9300 ≥ upper BB 2.8825 (bw 30.8%)\"","timestamp":"2026-06-04T00:00:19.701Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[2]=unknown → HOLD conf=0.20 \"Stoch K=97.8 D=88.1 — no crossover in extreme zone\"","timestamp":"2026-06-04T00:00:19.701Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[3]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T00:00:19.701Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: votes BUY=0.00 SELL=1.00 HOLD=3.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.701Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: decision=HOLD confidence=3.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T00:00:19.701Z"}
+{"level":"debug","message":"[CYCLE] TRX/USDC: starting cycle, candles=737 lastClose=0.33300000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.712Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: strategy[0]=unknown → BUY conf=0.71 \"CCI -127.4 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T00:00:19.732Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Stoch K=0.0 D=2.9 — no crossover in extreme zone\"","timestamp":"2026-06-04T00:00:19.732Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: strategy[2]=unknown → HOLD conf=0.20 \"StochRSI K=0.0 D=2.9 — no extreme crossover\"","timestamp":"2026-06-04T00:00:19.732Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.732Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T00:00:19.732Z"}
+{"level":"debug","message":"[CYCLE] BCH/USDC: starting cycle, candles=737 lastClose=243.70000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.737Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: strategy[0]=unknown → BUY conf=0.52 \"Price 248.9000 ≤ lower BB 251.3275 (bw 36.7%)\"","timestamp":"2026-06-04T00:00:19.746Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:19.746Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: strategy[2]=unknown → HOLD conf=0.60 \"%R -100.0 oversold — still falling, wait\"","timestamp":"2026-06-04T00:00:19.746Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.746Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:19.746Z"}
+{"level":"debug","message":"[CYCLE] ACH/USDC: starting cycle, candles=737 lastClose=0.00593000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.753Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 39.1 neutral\"","timestamp":"2026-06-04T00:00:19.778Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 0.0060 inside BB [0.0059–0.0066]\"","timestamp":"2026-06-04T00:00:19.778Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: strategy[2]=unknown → BUY conf=0.67 \"CCI -118.6 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T00:00:19.779Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.779Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T00:00:19.779Z"}
+{"level":"debug","message":"[CYCLE] CRV/USDC: starting cycle, candles=737 lastClose=0.20390000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.788Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: strategy[0]=unknown → SELL conf=0.62 \"ADX 29.7 downtrend (-DI 32.0 > +DI 19.3)\"","timestamp":"2026-06-04T00:00:19.796Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: strategy[1]=unknown → HOLD conf=0.20 \"StochRSI K=82.6 D=41.1 — no extreme crossover\"","timestamp":"2026-06-04T00:00:19.797Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T00:00:19.797Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.797Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:19.797Z"}
+{"level":"debug","message":"[CYCLE] ENS/USDC: starting cycle, candles=737 lastClose=5.39000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.798Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: strategy[0]=unknown → HOLD conf=0.20 \"Price 5.5900 inside BB [5.3992–6.4068]\"","timestamp":"2026-06-04T00:00:19.801Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 6.2237)\"","timestamp":"2026-06-04T00:00:19.801Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: strategy[2]=unknown → BUY conf=0.62 \"Support 5.5950 (2×)\"","timestamp":"2026-06-04T00:00:19.801Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.801Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:19.801Z"}
+{"level":"debug","message":"[CYCLE] GMX/USDC: starting cycle, candles=737 lastClose=6.25000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.803Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 44.8 neutral\"","timestamp":"2026-06-04T00:00:19.814Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 6.3800 inside BB [6.0424–6.9336]\"","timestamp":"2026-06-04T00:00:19.814Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: strategy[2]=unknown → HOLD conf=0.20 \"CCI -40.3 neutral\"","timestamp":"2026-06-04T00:00:19.814Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.814Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.7)","timestamp":"2026-06-04T00:00:19.814Z"}
+{"level":"debug","message":"[CYCLE] LSK/USDC: starting cycle, candles=397 lastClose=0.10800000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.821Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: strategy[0]=unknown → HOLD conf=0.20 \"MACD -0.0028 vs signal -0.0029 hist:0.0001\"","timestamp":"2026-06-04T00:00:19.826Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MFI 60.5 neutral\"","timestamp":"2026-06-04T00:00:19.826Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: strategy[2]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 0.1187)\"","timestamp":"2026-06-04T00:00:19.826Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.826Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.826Z"}
+{"level":"debug","message":"[CYCLE] JTO/USDC: starting cycle, candles=737 lastClose=0.63920000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.828Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: strategy[0]=unknown → HOLD conf=0.90 \"CCI 241.2 overbought — still rising, wait\"","timestamp":"2026-06-04T00:00:19.842Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR uptrend continues (SAR 0.4765)\"","timestamp":"2026-06-04T00:00:19.843Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T00:00:19.843Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.843Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.843Z"}
+{"level":"debug","message":"[CYCLE] LDO/USDC: starting cycle, candles=737 lastClose=0.29690000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.850Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: strategy[0]=unknown → SELL conf=0.70 \"MACD crossed below signal (below zero) hist:-0.0000\"","timestamp":"2026-06-04T00:00:19.857Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: strategy[1]=unknown → SELL conf=0.62 \"ADX 27.2 downtrend (-DI 35.0 > +DI 20.4)\"","timestamp":"2026-06-04T00:00:19.857Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: strategy[2]=unknown → HOLD conf=0.20 \"%R -69.2 neutral\"","timestamp":"2026-06-04T00:00:19.857Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: votes BUY=0.00 SELL=2.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T00:00:19.857Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: decision=SELL confidence=1.00 tie=false","timestamp":"2026-06-04T00:00:19.857Z"}
+{"level":"debug","message":"[CYCLE] MANTA/USDC: starting cycle, candles=737 lastClose=0.07951000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.859Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 50.2 neutral\"","timestamp":"2026-06-04T00:00:19.873Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 0.0771 inside BB [0.0728–0.0814]\"","timestamp":"2026-06-04T00:00:19.873Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: strategy[2]=unknown → HOLD conf=0.20 \"CCI -6.8 neutral\"","timestamp":"2026-06-04T00:00:19.873Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.873Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.7)","timestamp":"2026-06-04T00:00:19.873Z"}
+{"level":"debug","message":"[CYCLE] PAXG/USDC: starting cycle, candles=737 lastClose=4446.33000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.888Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: strategy[0]=unknown → SELL conf=0.70 \"MACD crossed below signal (below zero) hist:-0.5789\"","timestamp":"2026-06-04T00:00:19.891Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: strategy[1]=unknown → HOLD conf=0.10 \"ADX 17.4 < 20 — ranging, skip\"","timestamp":"2026-06-04T00:00:19.891Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: strategy[2]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 4564.3685)\"","timestamp":"2026-06-04T00:00:19.891Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.891Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:19.892Z"}
+{"level":"debug","message":"[CYCLE] SUI/USDC: starting cycle, candles=737 lastClose=0.82570000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.893Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: strategy[0]=unknown → BUY conf=0.63 \"RSI 28.1 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T00:00:19.898Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: strategy[1]=unknown → BUY conf=0.68 \"Stoch K=13.6 crossed above D=4.6 in oversold zone\"","timestamp":"2026-06-04T00:00:19.898Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: strategy[2]=unknown → BUY conf=0.69 \"MFI 15.4 oversold ↑ volume reversal confirmed\"","timestamp":"2026-06-04T00:00:19.898Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: votes BUY=3.00 SELL=0.00 HOLD=0.00 total_weight=3.00 external=0","timestamp":"2026-06-04T00:00:19.898Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: decision=BUY confidence=1.00 tie=false","timestamp":"2026-06-04T00:00:19.898Z"}
+{"level":"debug","message":"[CYCLE] PIXEL/USDC: starting cycle, candles=737 lastClose=0.00673000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.916Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0069 vs slow 0.0069)\"","timestamp":"2026-06-04T00:00:19.918Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: strategy[1]=unknown → HOLD conf=0.10 \"ADX 16.8 < 20 — ranging, skip\"","timestamp":"2026-06-04T00:00:19.918Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T00:00:19.918Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.918Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.918Z"}
+{"level":"debug","message":"[CYCLE] TIA/USDC: starting cycle, candles=737 lastClose=0.36900000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.935Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"CCI -95.3 neutral\"","timestamp":"2026-06-04T00:00:19.939Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MACD -0.0113 vs signal -0.0066 hist:-0.0048\"","timestamp":"2026-06-04T00:00:19.939Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: strategy[2]=unknown → HOLD conf=0.20 \"HA flipped but prior streak too short (2 < 3)\"","timestamp":"2026-06-04T00:00:19.939Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.939Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.939Z"}
+{"level":"debug","message":"[CYCLE] VANRY/USDC: starting cycle, candles=737 lastClose=0.00418100 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.962Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0045 vs slow 0.0046)\"","timestamp":"2026-06-04T00:00:19.964Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MACD -0.0002 vs signal -0.0002 hist:0.0000\"","timestamp":"2026-06-04T00:00:19.964Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: strategy[2]=unknown → SELL conf=0.64 \"ADX 28.5 downtrend (-DI 28.1 > +DI 16.8)\"","timestamp":"2026-06-04T00:00:19.964Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:19.964Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:19.965Z"}
+{"level":"debug","message":"[CYCLE] SOL/USDC: starting cycle, candles=737 lastClose=71.69000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.976Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: strategy[0]=unknown → BUY conf=0.58 \"Price 75.0400 ≤ lower BB 75.9491 (bw 13.9%)\"","timestamp":"2026-06-04T00:00:19.988Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: strategy[1]=unknown → BUY conf=0.65 \"%R -89.9 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T00:00:19.989Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: strategy[2]=unknown → BUY conf=0.55 \"StochRSI K=21.5 crossed above D=7.2 in oversold ↑\"","timestamp":"2026-06-04T00:00:19.989Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: votes BUY=3.00 SELL=0.00 HOLD=0.00 total_weight=3.00 external=0","timestamp":"2026-06-04T00:00:19.989Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: decision=BUY confidence=1.00 tie=false","timestamp":"2026-06-04T00:00:19.989Z"}
+{"level":"debug","message":"[CYCLE] THETA/USDC: starting cycle, candles=737 lastClose=0.18200000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:19.991Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 45.4 neutral\"","timestamp":"2026-06-04T00:00:19.994Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: strategy[1]=unknown → HOLD conf=0.20 \"CCI -40.7 neutral\"","timestamp":"2026-06-04T00:00:19.994Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: strategy[2]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:19.994Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:19.994Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:19.994Z"}
+{"level":"debug","message":"[CYCLE] ADA/USDC: starting cycle, candles=737 lastClose=0.20070000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.003Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: strategy[0]=unknown → BUY conf=0.64 \"RSI 27.4 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T00:00:20.008Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: strategy[1]=unknown → BUY conf=0.53 \"Price 0.2159 ≤ lower BB 0.2170 (bw 14.0%)\"","timestamp":"2026-06-04T00:00:20.008Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: strategy[2]=unknown → BUY conf=1.00 \"CCI -205.7 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T00:00:20.008Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: votes BUY=3.00 SELL=0.00 HOLD=0.00 total_weight=3.00 external=0","timestamp":"2026-06-04T00:00:20.008Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: decision=BUY confidence=1.00 tie=false","timestamp":"2026-06-04T00:00:20.008Z"}
+{"level":"debug","message":"[CYCLE] AVAX/USDC: starting cycle, candles=737 lastClose=8.05900000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.019Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 32.3 neutral\"","timestamp":"2026-06-04T00:00:20.021Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MACD -0.2111 vs signal -0.1544 hist:-0.0567\"","timestamp":"2026-06-04T00:00:20.021Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: strategy[2]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 9.0042)\"","timestamp":"2026-06-04T00:00:20.021Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.021Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.021Z"}
+{"level":"debug","message":"[CYCLE] DOGE/USDC: starting cycle, candles=737 lastClose=0.09148000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.056Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0982 vs slow 0.1004)\"","timestamp":"2026-06-04T00:00:20.057Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 0.1006)\"","timestamp":"2026-06-04T00:00:20.057Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: strategy[2]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T00:00:20.057Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.057Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.057Z"}
+{"level":"debug","message":"[CYCLE] INJ/USDC: starting cycle, candles=737 lastClose=6.50500000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.066Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: strategy[0]=unknown → BUY conf=0.86 \"ADX 51.6 uptrend (+DI 29.9 > -DI 15.6)\"","timestamp":"2026-06-04T00:00:20.071Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV above EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:20.071Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: strategy[2]=unknown → HOLD conf=0.20 \"StochRSI K=39.4 D=58.6 — no extreme crossover\"","timestamp":"2026-06-04T00:00:20.071Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:20.071Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:20.071Z"}
+{"level":"debug","message":"[CYCLE] ETH/USDC: starting cycle, candles=737 lastClose=1815.04000000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.078Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: strategy[0]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 1994.4706)\"","timestamp":"2026-06-04T00:00:20.079Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MFI 66.1 neutral\"","timestamp":"2026-06-04T00:00:20.079Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T00:00:20.079Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.079Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.079Z"}
+{"level":"debug","message":"[CYCLE] WLD/USDC: starting cycle, candles=737 lastClose=0.54460000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.090Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: strategy[0]=unknown → SELL conf=0.66 \"Price 0.4985 ≥ upper BB 0.4635 (bw 62.0%)\"","timestamp":"2026-06-04T00:00:20.094Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: strategy[1]=unknown → HOLD conf=0.90 \"CCI 224.6 overbought — still rising, wait\"","timestamp":"2026-06-04T00:00:20.094Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: strategy[2]=unknown → BUY conf=0.78 \"ADX 38.5 uptrend (+DI 57.9 > -DI 18.5)\"","timestamp":"2026-06-04T00:00:20.094Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: votes BUY=1.00 SELL=1.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T00:00:20.094Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: decision=HOLD confidence=0.50 tie=true belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.094Z"}
+{"level":"debug","message":"[CYCLE] PEPE/USDC: starting cycle, candles=737 lastClose=0.00000312 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.119Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0000 vs slow 0.0000)\"","timestamp":"2026-06-04T00:00:20.120Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: strategy[1]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 0.0000)\"","timestamp":"2026-06-04T00:00:20.120Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: strategy[2]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:20.120Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.120Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.120Z"}
+{"level":"debug","message":"[CYCLE] TON/USDC: starting cycle, candles=737 lastClose=1.90600000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.150Z"}
+{"level":"debug","message":"[AGG] TON/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 1.9343 vs slow 1.9154)\"","timestamp":"2026-06-04T00:00:20.153Z"}
+{"level":"debug","message":"[AGG] TON/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV above EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:20.153Z"}
+{"level":"debug","message":"[AGG] TON/USDC: strategy[2]=unknown → HOLD conf=0.20 \"StochRSI K=69.0 D=69.3 — no extreme crossover\"","timestamp":"2026-06-04T00:00:20.153Z"}
+{"level":"debug","message":"[AGG] TON/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.153Z"}
+{"level":"debug","message":"[AGG] TON/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.153Z"}
+{"level":"debug","message":"[CYCLE] RENDER/USDC: starting cycle, candles=737 lastClose=2.15600000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.163Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 2.1020 vs slow 2.0590)\"","timestamp":"2026-06-04T00:00:20.165Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV above EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:20.165Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: strategy[2]=unknown → HOLD conf=0.89 \"%R -0.3 overbought — still rising, wait\"","timestamp":"2026-06-04T00:00:20.165Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.165Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.165Z"}
+{"level":"debug","message":"[CYCLE] ENA/USDC: starting cycle, candles=737 lastClose=0.11190000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.179Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 61.5 neutral\"","timestamp":"2026-06-04T00:00:20.183Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: strategy[1]=unknown → SELL conf=0.51 \"Price 0.1035 ≥ upper BB 0.1032 (bw 25.1%)\"","timestamp":"2026-06-04T00:00:20.183Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: strategy[2]=unknown → HOLD conf=0.69 \"CCI 148.6 overbought — still rising, wait\"","timestamp":"2026-06-04T00:00:20.183Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T00:00:20.183Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T00:00:20.183Z"}
+{"level":"debug","message":"[CYCLE] ICP/USDC: starting cycle, candles=737 lastClose=3.11600000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.193Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 61.5 neutral\"","timestamp":"2026-06-04T00:00:20.197Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 3.0210 inside BB [2.5000–3.0462]\"","timestamp":"2026-06-04T00:00:20.197Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: strategy[2]=unknown → HOLD conf=0.20 \"Stoch K=85.1 D=87.3 — no crossover in extreme zone\"","timestamp":"2026-06-04T00:00:20.197Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.197Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.197Z"}
+{"level":"debug","message":"[CYCLE] APT/USDC: starting cycle, candles=737 lastClose=0.81100000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.208Z"}
+{"level":"debug","message":"[AGG] APT/USDC: strategy[0]=unknown → BUY conf=0.51 \"Price 0.8560 ≤ lower BB 0.8569 (bw 16.2%)\"","timestamp":"2026-06-04T00:00:20.212Z"}
+{"level":"debug","message":"[AGG] APT/USDC: strategy[1]=unknown → BUY conf=0.55 \"Stoch K=21.5 crossed above D=11.2 in oversold zone\"","timestamp":"2026-06-04T00:00:20.212Z"}
+{"level":"debug","message":"[AGG] APT/USDC: strategy[2]=unknown → HOLD conf=0.20 \"MFI 52.5 neutral\"","timestamp":"2026-06-04T00:00:20.212Z"}
+{"level":"debug","message":"[AGG] APT/USDC: votes BUY=2.00 SELL=0.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T00:00:20.212Z"}
+{"level":"debug","message":"[AGG] APT/USDC: decision=BUY confidence=1.00 tie=false","timestamp":"2026-06-04T00:00:20.212Z"}
+{"level":"debug","message":"[CYCLE] ARB/USDC: starting cycle, candles=737 lastClose=0.09280000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.230Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 34.8 neutral\"","timestamp":"2026-06-04T00:00:20.232Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: strategy[1]=unknown → HOLD conf=0.20 \"%R -75.9 neutral\"","timestamp":"2026-06-04T00:00:20.232Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: strategy[2]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T00:00:20.232Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.232Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.232Z"}
+{"level":"debug","message":"[CYCLE] JUP/USDC: starting cycle, candles=737 lastClose=0.20030000 lastTs=2026-06-04T00:00:00.000Z","timestamp":"2026-06-04T00:00:20.264Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: strategy[0]=unknown → HOLD conf=0.20 \"Price 0.2052 inside BB [0.1725–0.2116]\"","timestamp":"2026-06-04T00:00:20.273Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: strategy[1]=unknown → HOLD conf=0.51 \"CCI 102.6 overbought — still rising, wait\"","timestamp":"2026-06-04T00:00:20.273Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: strategy[2]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T00:00:20.273Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T00:00:20.273Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T00:00:20.273Z"}
+{"level":"info","message":"[RISK] Day rollover — resetting daily stats (prev: pnl=0.00 trades=0)","timestamp":"2026-06-04T00:00:20.290Z"}
+{"level":"debug","message":"[CYCLE] BTC/USDC: sizing positionPct=0.1086 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:20.290Z"}
+{"level":"info","message":"BTC/USDC: decision=HOLD confidence=0% price=64170.03000000 external_signals=0","timestamp":"2026-06-04T00:00:20.291Z"}
+{"level":"info","message":"BTC/USDC: No EMA crossover (fast 71151.0480 vs slow 73338.8784) | PSAR downtrend continues (SAR 72677.8345) | HA bearish continuation","timestamp":"2026-06-04T00:00:20.291Z"}
+{"level":"info","message":"XRP/USDC: BUY suppressed — MTF misaligned (15m: 42% green < 50% required)","timestamp":"2026-06-04T00:00:20.593Z"}
+{"level":"debug","message":"[CYCLE] XRP/USDC: sizing positionPct=0.2125 (base=0.15 atr=0.03515450067174207 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:20.594Z"}
+{"level":"info","message":"XRP/USDC: trade blocked - MTF misaligned (15m: 42% green < 50% required)","timestamp":"2026-06-04T00:00:20.594Z"}
+{"level":"info","message":"XRP/USDC: decision=BUY confidence=100% price=1.20110000 external_signals=0","timestamp":"2026-06-04T00:00:20.594Z"}
+{"level":"info","message":"XRP/USDC: Price 1.2357 ≤ lower BB 1.2362 (bw 11.4%) | Stoch K=16.3 crossed above D=5.5 in oversold zone | No EMA crossover (fast 1.2865 vs slow 1.3164)","timestamp":"2026-06-04T00:00:20.594Z"}
+{"level":"debug","message":"[CYCLE] LINK/USDC: sizing positionPct=0.1998 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:20.678Z"}
+{"level":"info","message":"LINK/USDC: decision=HOLD confidence=200% price=8.34500000 external_signals=0","timestamp":"2026-06-04T00:00:20.678Z"}
+{"level":"info","message":"LINK/USDC: Price 8.5270 inside BB [8.4817–9.6771] | Stoch K=17.2 crossed above D=8.2 in oversold zone | Supertrend downtrend continues (ST 9.1128)","timestamp":"2026-06-04T00:00:20.679Z"}
+{"level":"debug","message":"[CYCLE] BNB/USDC: sizing positionPct=0.0470 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:20.883Z"}
+{"level":"info","message":"BNB/USDC: decision=HOLD confidence=0% price=620.91000000 external_signals=0","timestamp":"2026-06-04T00:00:20.884Z"}
+{"level":"info","message":"BNB/USDC: %R -92.2 oversold — still falling, wait | HA bearish continuation | No significant S/R zone nearby","timestamp":"2026-06-04T00:00:20.884Z"}
+{"level":"debug","message":"[CYCLE] LTC/USDC: sizing positionPct=0.2332 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:21.079Z"}
+{"level":"info","message":"LTC/USDC: decision=HOLD confidence=200% price=47.13000000 external_signals=0","timestamp":"2026-06-04T00:00:21.079Z"}
+{"level":"info","message":"LTC/USDC: Price 48.1700 ≤ lower BB 48.2764 (bw 11.8%) | No EMA crossover (fast 50.2582 vs slow 51.5988) | %R -77.8 neutral","timestamp":"2026-06-04T00:00:21.079Z"}
+{"level":"debug","message":"[CYCLE] NEAR/USDC: sizing positionPct=0.0877 (base=0.15 atr=0.03515450067174207 regime=on conf=3.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:21.282Z"}
+{"level":"info","message":"NEAR/USDC: decision=HOLD confidence=300% price=2.82100000 external_signals=0","timestamp":"2026-06-04T00:00:21.282Z"}
+{"level":"info","message":"NEAR/USDC: RSI 71.7 overbought — still rising, wait | Price 2.9300 ≥ upper BB 2.8825 (bw 30.8%) | Stoch K=97.8 D=88.1 — no crossover in extreme zone | No significant S/R zone nearby","timestamp":"2026-06-04T00:00:21.282Z"}
+{"level":"debug","message":"[CYCLE] TRX/USDC: sizing positionPct=0.2925 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:21.487Z"}
+{"level":"info","message":"TRX/USDC: decision=HOLD confidence=200% price=0.33300000 external_signals=0","timestamp":"2026-06-04T00:00:21.488Z"}
+{"level":"info","message":"TRX/USDC: CCI -127.4 oversold ↑ reversal confirmed | Stoch K=0.0 D=2.9 — no crossover in extreme zone | StochRSI K=0.0 D=2.9 — no extreme crossover","timestamp":"2026-06-04T00:00:21.488Z"}
+{"level":"debug","message":"[CYCLE] BCH/USDC: sizing positionPct=0.1129 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:21.683Z"}
+{"level":"info","message":"BCH/USDC: decision=HOLD confidence=200% price=243.70000000 external_signals=0","timestamp":"2026-06-04T00:00:21.683Z"}
+{"level":"info","message":"BCH/USDC: Price 248.9000 ≤ lower BB 251.3275 (bw 36.7%) | OBV below EMA-20 — no cross | %R -100.0 oversold — still falling, wait","timestamp":"2026-06-04T00:00:21.683Z"}
+{"level":"debug","message":"[CYCLE] ACH/USDC: sizing positionPct=0.1816 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:21.874Z"}
+{"level":"info","message":"ACH/USDC: decision=HOLD confidence=200% price=0.00593000 external_signals=0","timestamp":"2026-06-04T00:00:21.874Z"}
+{"level":"info","message":"ACH/USDC: RSI 39.1 neutral | Price 0.0060 inside BB [0.0059–0.0066] | CCI -118.6 oversold ↑ reversal confirmed","timestamp":"2026-06-04T00:00:21.874Z"}
+{"level":"debug","message":"[CYCLE] CRV/USDC: sizing positionPct=0.1997 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:22.079Z"}
+{"level":"info","message":"CRV/USDC: decision=HOLD confidence=200% price=0.20390000 external_signals=0","timestamp":"2026-06-04T00:00:22.079Z"}
+{"level":"info","message":"CRV/USDC: ADX 29.7 downtrend (-DI 32.0 > +DI 19.3) | StochRSI K=82.6 D=41.1 — no extreme crossover | No significant S/R zone nearby","timestamp":"2026-06-04T00:00:22.079Z"}
+{"level":"debug","message":"[CYCLE] ENS/USDC: sizing positionPct=0.1148 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:22.280Z"}
+{"level":"info","message":"ENS/USDC: decision=HOLD confidence=200% price=5.39000000 external_signals=0","timestamp":"2026-06-04T00:00:22.280Z"}
+{"level":"info","message":"ENS/USDC: Price 5.5900 inside BB [5.3992–6.4068] | PSAR downtrend continues (SAR 6.2237) | Support 5.5950 (2×)","timestamp":"2026-06-04T00:00:22.280Z"}
+{"level":"debug","message":"[CYCLE] GMX/USDC: sizing positionPct=0.0610 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:22.478Z"}
+{"level":"info","message":"GMX/USDC: decision=HOLD confidence=0% price=6.25000000 external_signals=0","timestamp":"2026-06-04T00:00:22.479Z"}
+{"level":"info","message":"GMX/USDC: RSI 44.8 neutral | Price 6.3800 inside BB [6.0424–6.9336] | CCI -40.3 neutral","timestamp":"2026-06-04T00:00:22.479Z"}
+{"level":"debug","message":"[CYCLE] LSK/USDC: sizing positionPct=0.0570 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:22.681Z"}
+{"level":"info","message":"LSK/USDC: decision=HOLD confidence=0% price=0.10800000 external_signals=0","timestamp":"2026-06-04T00:00:22.681Z"}
+{"level":"info","message":"LSK/USDC: MACD -0.0028 vs signal -0.0029 hist:0.0001 | MFI 60.5 neutral | PSAR downtrend continues (SAR 0.1187)","timestamp":"2026-06-04T00:00:22.682Z"}
+{"level":"debug","message":"[CYCLE] JTO/USDC: sizing positionPct=0.0316 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:22.879Z"}
+{"level":"info","message":"JTO/USDC: decision=HOLD confidence=0% price=0.63920000 external_signals=0","timestamp":"2026-06-04T00:00:22.879Z"}
+{"level":"info","message":"JTO/USDC: CCI 241.2 overbought — still rising, wait | PSAR uptrend continues (SAR 0.4765) | No significant S/R zone nearby","timestamp":"2026-06-04T00:00:22.879Z"}
+{"level":"debug","message":"[RISK] LDO/USDC: canTrade=true decision=SELL conf=1.00 positions=1/3 dailyPnL=0.00","timestamp":"2026-06-04T00:00:23.080Z"}
+{"level":"debug","message":"[CYCLE] LDO/USDC: sizing positionPct=0.1493 (base=0.15 atr=0.03515450067174207 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:23.080Z"}
+{"level":"info","message":"[LIVE] LDO/USDC: SELL skipped, no open position","timestamp":"2026-06-04T00:00:23.080Z"}
+{"level":"info","message":"LDO/USDC: decision=SELL confidence=100% price=0.29690000 external_signals=0","timestamp":"2026-06-04T00:00:23.081Z"}
+{"level":"info","message":"LDO/USDC: MACD crossed below signal (below zero) hist:-0.0000 | ADX 27.2 downtrend (-DI 35.0 > +DI 20.4) | %R -69.2 neutral","timestamp":"2026-06-04T00:00:23.081Z"}
+{"level":"debug","message":"[CYCLE] MANTA/USDC: sizing positionPct=0.0375 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:23.283Z"}
+{"level":"info","message":"MANTA/USDC: decision=HOLD confidence=0% price=0.07951000 external_signals=0","timestamp":"2026-06-04T00:00:23.284Z"}
+{"level":"info","message":"MANTA/USDC: RSI 50.2 neutral | Price 0.0771 inside BB [0.0728–0.0814] | CCI -6.8 neutral","timestamp":"2026-06-04T00:00:23.284Z"}
+{"level":"debug","message":"[CYCLE] PAXG/USDC: sizing positionPct=0.2250 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:23.479Z"}
+{"level":"info","message":"PAXG/USDC: decision=HOLD confidence=200% price=4446.33000000 external_signals=0","timestamp":"2026-06-04T00:00:23.480Z"}
+{"level":"info","message":"PAXG/USDC: MACD crossed below signal (below zero) hist:-0.5789 | ADX 17.4 < 20 — ranging, skip | Supertrend downtrend continues (ST 4564.3685)","timestamp":"2026-06-04T00:00:23.480Z"}
+{"level":"info","message":"SUI/USDC: BUY suppressed — 4h momentum bearish (score=35% < 45% required)","timestamp":"2026-06-04T00:00:23.691Z"}
+{"level":"debug","message":"[CYCLE] SUI/USDC: sizing positionPct=0.1550 (base=0.15 atr=0.03515450067174207 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:23.693Z"}
+{"level":"info","message":"SUI/USDC: trade blocked - 4h momentum bearish (score=35% < 45% required)","timestamp":"2026-06-04T00:00:23.693Z"}
+{"level":"info","message":"SUI/USDC: decision=BUY confidence=100% price=0.82570000 external_signals=0","timestamp":"2026-06-04T00:00:23.693Z"}
+{"level":"info","message":"SUI/USDC: RSI 28.1 oversold ↑ reversal confirmed | Stoch K=13.6 crossed above D=4.6 in oversold zone | MFI 15.4 oversold ↑ volume reversal confirmed","timestamp":"2026-06-04T00:00:23.693Z"}
+{"level":"debug","message":"[CYCLE] PIXEL/USDC: sizing positionPct=0.0380 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:23.879Z"}
+{"level":"info","message":"PIXEL/USDC: decision=HOLD confidence=0% price=0.00673000 external_signals=0","timestamp":"2026-06-04T00:00:23.879Z"}
+{"level":"info","message":"PIXEL/USDC: No EMA crossover (fast 0.0069 vs slow 0.0069) | ADX 16.8 < 20 — ranging, skip | No significant S/R zone nearby","timestamp":"2026-06-04T00:00:23.879Z"}
+{"level":"debug","message":"[CYCLE] TIA/USDC: sizing positionPct=0.0166 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:24.072Z"}
+{"level":"info","message":"TIA/USDC: decision=HOLD confidence=0% price=0.36900000 external_signals=0","timestamp":"2026-06-04T00:00:24.072Z"}
+{"level":"info","message":"TIA/USDC: CCI -95.3 neutral | MACD -0.0113 vs signal -0.0066 hist:-0.0048 | HA flipped but prior streak too short (2 < 3)","timestamp":"2026-06-04T00:00:24.073Z"}
+{"level":"debug","message":"[CYCLE] VANRY/USDC: sizing positionPct=0.1098 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:24.279Z"}
+{"level":"info","message":"VANRY/USDC: decision=HOLD confidence=200% price=0.00418100 external_signals=0","timestamp":"2026-06-04T00:00:24.279Z"}
+{"level":"info","message":"VANRY/USDC: No EMA crossover (fast 0.0045 vs slow 0.0046) | MACD -0.0002 vs signal -0.0002 hist:0.0000 | ADX 28.5 downtrend (-DI 28.1 > +DI 16.8)","timestamp":"2026-06-04T00:00:24.279Z"}
+{"level":"info","message":"SOL/USDC: BUY suppressed — MTF misaligned (15m: 33% green < 50% required)","timestamp":"2026-06-04T00:00:24.469Z"}
+{"level":"debug","message":"[CYCLE] SOL/USDC: sizing positionPct=0.1967 (base=0.15 atr=0.03515450067174207 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:24.469Z"}
+{"level":"info","message":"SOL/USDC: trade blocked - MTF misaligned (15m: 33% green < 50% required)","timestamp":"2026-06-04T00:00:24.469Z"}
+{"level":"info","message":"SOL/USDC: decision=BUY confidence=100% price=71.69000000 external_signals=0","timestamp":"2026-06-04T00:00:24.469Z"}
+{"level":"info","message":"SOL/USDC: Price 75.0400 ≤ lower BB 75.9491 (bw 13.9%) | %R -89.9 oversold ↑ reversal confirmed | StochRSI K=21.5 crossed above D=7.2 in oversold ↑","timestamp":"2026-06-04T00:00:24.469Z"}
+{"level":"debug","message":"[CYCLE] THETA/USDC: sizing positionPct=0.0469 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:24.678Z"}
+{"level":"info","message":"THETA/USDC: decision=HOLD confidence=0% price=0.18200000 external_signals=0","timestamp":"2026-06-04T00:00:24.678Z"}
+{"level":"info","message":"THETA/USDC: RSI 45.4 neutral | CCI -40.7 neutral | OBV below EMA-20 — no cross","timestamp":"2026-06-04T00:00:24.678Z"}
+{"level":"info","message":"ADA/USDC: BUY suppressed — MTF misaligned (15m: 32% green < 50% required)","timestamp":"2026-06-04T00:00:24.875Z"}
+{"level":"debug","message":"[CYCLE] ADA/USDC: sizing positionPct=0.1694 (base=0.15 atr=0.03515450067174207 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:24.875Z"}
+{"level":"info","message":"ADA/USDC: trade blocked - MTF misaligned (15m: 32% green < 50% required)","timestamp":"2026-06-04T00:00:24.875Z"}
+{"level":"info","message":"ADA/USDC: decision=BUY confidence=100% price=0.20070000 external_signals=0","timestamp":"2026-06-04T00:00:24.875Z"}
+{"level":"info","message":"ADA/USDC: RSI 27.4 oversold ↑ reversal confirmed | Price 0.2159 ≤ lower BB 0.2170 (bw 14.0%) | CCI -205.7 oversold ↑ reversal confirmed","timestamp":"2026-06-04T00:00:24.875Z"}
+{"level":"debug","message":"[CYCLE] AVAX/USDC: sizing positionPct=0.0765 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:25.079Z"}
+{"level":"info","message":"AVAX/USDC: decision=HOLD confidence=0% price=8.05900000 external_signals=0","timestamp":"2026-06-04T00:00:25.079Z"}
+{"level":"info","message":"AVAX/USDC: RSI 32.3 neutral | MACD -0.2111 vs signal -0.1544 hist:-0.0567 | PSAR downtrend continues (SAR 9.0042)","timestamp":"2026-06-04T00:00:25.079Z"}
+{"level":"debug","message":"[CYCLE] DOGE/USDC: sizing positionPct=0.0838 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:25.481Z"}
+{"level":"info","message":"DOGE/USDC: decision=HOLD confidence=0% price=0.09148000 external_signals=0","timestamp":"2026-06-04T00:00:25.481Z"}
+{"level":"info","message":"DOGE/USDC: No EMA crossover (fast 0.0982 vs slow 0.1004) | PSAR downtrend continues (SAR 0.1006) | HA bearish continuation","timestamp":"2026-06-04T00:00:25.482Z"}
+{"level":"debug","message":"[CYCLE] INJ/USDC: sizing positionPct=0.0837 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:25.786Z"}
+{"level":"info","message":"INJ/USDC: decision=HOLD confidence=200% price=6.50500000 external_signals=0","timestamp":"2026-06-04T00:00:25.786Z"}
+{"level":"info","message":"INJ/USDC: ADX 51.6 uptrend (+DI 29.9 > -DI 15.6) | OBV above EMA-20 — no cross | StochRSI K=39.4 D=58.6 — no extreme crossover","timestamp":"2026-06-04T00:00:25.786Z"}
+{"level":"debug","message":"[CYCLE] ETH/USDC: sizing positionPct=0.0961 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:25.880Z"}
+{"level":"info","message":"ETH/USDC: decision=HOLD confidence=0% price=1815.04000000 external_signals=0","timestamp":"2026-06-04T00:00:25.880Z"}
+{"level":"info","message":"ETH/USDC: Supertrend downtrend continues (ST 1994.4706) | MFI 66.1 neutral | No significant S/R zone nearby","timestamp":"2026-06-04T00:00:25.880Z"}
+{"level":"debug","message":"[CYCLE] WLD/USDC: sizing positionPct=0.0443 (base=0.15 atr=0.03515450067174207 regime=on conf=0.50 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:26.077Z"}
+{"level":"info","message":"WLD/USDC: decision=HOLD confidence=50% price=0.54460000 external_signals=0","timestamp":"2026-06-04T00:00:26.077Z"}
+{"level":"info","message":"WLD/USDC: Price 0.4985 ≥ upper BB 0.4635 (bw 62.0%) | CCI 224.6 overbought — still rising, wait | ADX 38.5 uptrend (+DI 57.9 > -DI 18.5)","timestamp":"2026-06-04T00:00:26.077Z"}
+{"level":"debug","message":"[CYCLE] PEPE/USDC: sizing positionPct=0.0670 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:26.279Z"}
+{"level":"info","message":"PEPE/USDC: decision=HOLD confidence=0% price=0.00000312 external_signals=0","timestamp":"2026-06-04T00:00:26.279Z"}
+{"level":"info","message":"PEPE/USDC: No EMA crossover (fast 0.0000 vs slow 0.0000) | Supertrend downtrend continues (ST 0.0000) | OBV below EMA-20 — no cross","timestamp":"2026-06-04T00:00:26.279Z"}
+{"level":"debug","message":"[CYCLE] TON/USDC: sizing positionPct=0.0438 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:26.483Z"}
+{"level":"info","message":"TON/USDC: decision=HOLD confidence=0% price=1.90600000 external_signals=0","timestamp":"2026-06-04T00:00:26.483Z"}
+{"level":"info","message":"TON/USDC: No EMA crossover (fast 1.9343 vs slow 1.9154) | OBV above EMA-20 — no cross | StochRSI K=69.0 D=69.3 — no extreme crossover","timestamp":"2026-06-04T00:00:26.483Z"}
+{"level":"debug","message":"[CYCLE] RENDER/USDC: sizing positionPct=0.0302 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:26.670Z"}
+{"level":"info","message":"RENDER/USDC: decision=HOLD confidence=0% price=2.15600000 external_signals=0","timestamp":"2026-06-04T00:00:26.671Z"}
+{"level":"info","message":"RENDER/USDC: No EMA crossover (fast 2.1020 vs slow 2.0590) | OBV above EMA-20 — no cross | %R -0.3 overbought — still rising, wait","timestamp":"2026-06-04T00:00:26.671Z"}
+{"level":"debug","message":"[CYCLE] ENA/USDC: sizing positionPct=0.1235 (base=0.15 atr=0.03515450067174207 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:26.883Z"}
+{"level":"info","message":"ENA/USDC: decision=HOLD confidence=200% price=0.11190000 external_signals=0","timestamp":"2026-06-04T00:00:26.883Z"}
+{"level":"info","message":"ENA/USDC: RSI 61.5 neutral | Price 0.1035 ≥ upper BB 0.1032 (bw 25.1%) | CCI 148.6 overbought — still rising, wait","timestamp":"2026-06-04T00:00:26.883Z"}
+{"level":"debug","message":"[CYCLE] ICP/USDC: sizing positionPct=0.0376 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:27.081Z"}
+{"level":"info","message":"ICP/USDC: decision=HOLD confidence=0% price=3.11600000 external_signals=0","timestamp":"2026-06-04T00:00:27.082Z"}
+{"level":"info","message":"ICP/USDC: RSI 61.5 neutral | Price 3.0210 inside BB [2.5000–3.0462] | Stoch K=85.1 D=87.3 — no crossover in extreme zone","timestamp":"2026-06-04T00:00:27.082Z"}
+{"level":"info","message":"APT/USDC: BUY suppressed — MTF misaligned (15m: 42% green < 50% required)","timestamp":"2026-06-04T00:00:27.276Z"}
+{"level":"debug","message":"[CYCLE] APT/USDC: sizing positionPct=0.0864 (base=0.15 atr=0.03515450067174207 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:27.277Z"}
+{"level":"info","message":"APT/USDC: trade blocked - MTF misaligned (15m: 42% green < 50% required)","timestamp":"2026-06-04T00:00:27.277Z"}
+{"level":"info","message":"APT/USDC: decision=BUY confidence=100% price=0.81100000 external_signals=0","timestamp":"2026-06-04T00:00:27.277Z"}
+{"level":"info","message":"APT/USDC: Price 0.8560 ≤ lower BB 0.8569 (bw 16.2%) | Stoch K=21.5 crossed above D=11.2 in oversold zone | MFI 52.5 neutral","timestamp":"2026-06-04T00:00:27.277Z"}
+{"level":"debug","message":"[CYCLE] ARB/USDC: sizing positionPct=0.0540 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:27.481Z"}
+{"level":"info","message":"ARB/USDC: decision=HOLD confidence=0% price=0.09280000 external_signals=0","timestamp":"2026-06-04T00:00:27.482Z"}
+{"level":"info","message":"ARB/USDC: RSI 34.8 neutral | %R -75.9 neutral | HA bearish continuation","timestamp":"2026-06-04T00:00:27.482Z"}
+{"level":"debug","message":"[CYCLE] JUP/USDC: sizing positionPct=0.0425 (base=0.15 atr=0.03515450067174207 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T00:00:27.681Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20030000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:00:27.681Z"}
+{"level":"info","message":"JUP/USDC: decision=HOLD confidence=0% price=0.20030000 external_signals=0","timestamp":"2026-06-04T00:00:27.681Z"}
+{"level":"info","message":"JUP/USDC: Price 0.2052 inside BB [0.1725–0.2116] | CCI 102.6 overbought — still rising, wait | OBV below EMA-20 — no cross","timestamp":"2026-06-04T00:00:27.681Z"}
+{"level":"info","message":"BTC/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:27.891Z"}
+{"level":"info","message":"XRP/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:28.072Z"}
+{"level":"info","message":"LINK/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:28.272Z"}
+{"level":"info","message":"LTC/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:28.685Z"}
+{"level":"info","message":"NEAR/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:28.881Z"}
+{"level":"info","message":"BNB/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:28.974Z"}
+{"level":"info","message":"TRX/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:29.079Z"}
+{"level":"info","message":"BCH/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:29.282Z"}
+{"level":"info","message":"ACH/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:29.483Z"}
+{"level":"info","message":"ENS/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:29.887Z"}
+{"level":"info","message":"GMX/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:30.084Z"}
+{"level":"info","message":"CRV/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:30.177Z"}
+{"level":"info","message":"LSK/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:30.267Z"}
+{"level":"info","message":"JTO/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:30.469Z"}
+{"level":"info","message":"LDO/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:30.679Z"}
+{"level":"info","message":"MANTA/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:30.877Z"}
+{"level":"info","message":"PAXG/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:31.075Z"}
+{"level":"info","message":"SUI/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:31.287Z"}
+{"level":"info","message":"PIXEL/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:31.484Z"}
+{"level":"info","message":"TIA/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:31.685Z"}
+{"level":"info","message":"VANRY/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:31.888Z"}
+{"level":"info","message":"SOL/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:32.084Z"}
+{"level":"info","message":"THETA/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:32.284Z"}
+{"level":"info","message":"ADA/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:32.484Z"}
+{"level":"info","message":"AVAX/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:32.887Z"}
+{"level":"info","message":"DOGE/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:33.100Z"}
+{"level":"info","message":"INJ/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:33.301Z"}
+{"level":"info","message":"ETH/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:33.499Z"}
+{"level":"info","message":"WLD/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:33.783Z"}
+{"level":"info","message":"PEPE/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:33.899Z"}
+{"level":"info","message":"TON/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:34.102Z"}
+{"level":"info","message":"RENDER/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:34.299Z"}
+{"level":"info","message":"ENA/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:34.501Z"}
+{"level":"info","message":"ICP/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:34.688Z"}
+{"level":"info","message":"APT/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:34.899Z"}
+{"level":"info","message":"ARB/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:35.099Z"}
+{"level":"info","message":"JUP/USDC: live balance=181.08 pnl=-0.69 open_positions=1 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T00:00:35.308Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:00:41.014Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20120000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:00:41.491Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:02:41.027Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20090000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:02:41.385Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T00:03:00.298Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:04:41.010Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20090000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:04:41.465Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:06:41.017Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20040000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:06:41.482Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:08:41.000Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20100000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:08:41.445Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:10:41.001Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20040000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:10:41.445Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:12:41.054Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20050000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:12:41.317Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:14:41.009Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20070000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:14:41.454Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:16:41.000Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19990000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:16:41.445Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T00:17:59.413Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:18:41.006Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20050000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:18:41.449Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:20:41.006Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20040000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:20:41.450Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:22:41.048Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.20070000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:22:41.312Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:24:41.003Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19960000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:24:41.446Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:26:41.006Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19780000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:26:41.452Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:28:41.005Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19610000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:28:41.449Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:30:41.008Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19420000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:30:41.459Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:32:41.046Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19620000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:32:41.312Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T00:33:00.767Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:34:41.173Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19470000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:34:41.618Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:36:40.996Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19560000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:36:41.442Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:38:41.006Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19360000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:38:41.452Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:40:41.009Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19360000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:40:41.455Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:42:41.051Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19350000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:42:41.315Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:44:40.997Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19520000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:44:41.440Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:46:41.007Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19410000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:46:41.450Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T00:47:59.412Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:48:41.008Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19350000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:48:41.454Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:50:41.056Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19400000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:50:41.499Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:52:41.058Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19430000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:52:41.323Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:54:41.008Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19310000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:54:41.454Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:56:41.009Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19330000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:56:41.451Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T00:58:41.008Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19300000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T00:58:41.454Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:00:41.009Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19360000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:00:41.452Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:02:41.050Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19310000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:02:41.311Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T01:03:00.089Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:04:41.008Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19310000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:04:41.450Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:06:41.003Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19350000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:06:41.450Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:08:41.008Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19280000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:08:41.451Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:10:41.011Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19130000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:10:41.457Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:12:41.054Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19060000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:12:41.320Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:14:41.000Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.19000000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:14:41.447Z"}
+{"level":"debug","message":"[RISK-LOOP] checking 1 open position(s)","timestamp":"2026-06-04T01:16:41.010Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: checkRisk price=0.18860000 SL=0.18897720 TP=0.22254800 HWM=0.18860000 entry=0.18860000","timestamp":"2026-06-04T01:16:41.456Z"}
+{"level":"info","message":"[LIVE] JUP/USDC: stop_loss triggered price=0.18860000 SL=0.18897720","timestamp":"2026-06-04T01:16:41.456Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: closing position reason=stop_loss entry=0.18860000 refPrice=0.18860000 qty=58.29046500 held=57.5h HWM=0.18860000","timestamp":"2026-06-04T01:16:41.457Z"}
+{"level":"info","message":"[LIVE] JUP/USDC: dust after step-size truncation: 0.090465 JUP (≈ 0.0171 USDC)","timestamp":"2026-06-04T01:16:41.742Z"}
+{"level":"info","message":"[LIVE] JUP/USDC: adjusting sell qty 58.29046500 → 58.20000000","timestamp":"2026-06-04T01:16:41.742Z"}
+{"level":"debug","message":"[LIVE] JUP/USDC: SELL order response id=523284197 status=closed filled=58.2 avg=0.1885","timestamp":"2026-06-04T01:16:42.199Z"}
+{"level":"info","message":"[LIVE] SELL JUP/USDC qty=58.20000000 price=0.18850000 pnl=-0.02 pnl%=-0.05% reason=stop_loss held=57.5h balance=192.04 orderId=523284197","timestamp":"2026-06-04T01:16:42.472Z"}
+{"level":"info","message":"[RISK-LOOP] JUP/USDC: position closed by risk check","timestamp":"2026-06-04T01:16:42.474Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T01:17:59.399Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T01:33:00.143Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T01:48:01.233Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T02:02:59.404Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T02:17:59.876Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T02:32:59.436Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T02:48:00.333Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T03:02:59.407Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T03:17:59.390Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T03:32:59.674Z"}
+{"level":"info","message":"[MTF-CACHE] 4h refresh complete: 37/37 symbols","timestamp":"2026-06-04T03:33:00.704Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T03:48:00.079Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T04:02:59.412Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T04:17:59.870Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T04:32:59.559Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T04:47:59.419Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T05:02:59.861Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T05:18:00.766Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T05:32:59.407Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T05:48:00.544Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T06:02:59.432Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T06:18:02.313Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T06:33:01.525Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T06:48:00.091Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T07:02:59.466Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T07:18:00.049Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T07:32:59.495Z"}
+{"level":"info","message":"[MTF-CACHE] 4h refresh complete: 37/37 symbols","timestamp":"2026-06-04T07:33:00.310Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T07:47:59.689Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T08:02:59.521Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T08:17:59.934Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T08:33:00.914Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T08:48:00.384Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T09:02:59.815Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T09:18:00.145Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T09:32:59.623Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T09:47:59.695Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T10:03:00.624Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T10:17:59.963Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T10:33:00.460Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T10:47:59.979Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T11:03:00.418Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T11:18:00.435Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T11:32:59.349Z"}
+{"level":"info","message":"[MTF-CACHE] 4h refresh complete: 37/37 symbols","timestamp":"2026-06-04T11:33:00.402Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T11:48:00.019Z"}
+{"level":"debug","message":"[CYCLE] ATR sizing: medianATRPct=3.38% (37 symbols)","timestamp":"2026-06-04T12:00:19.245Z"}
+{"level":"debug","message":"[CYCLE] BTC macro: bull=false EMA200","timestamp":"2026-06-04T12:00:19.247Z"}
+{"level":"debug","message":"[CYCLE] BTC/USDC: starting cycle, candles=738 lastClose=62534.75000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.520Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 70077.0452 vs slow 72659.7045)\"","timestamp":"2026-06-04T12:00:19.523Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 71718.2514)\"","timestamp":"2026-06-04T12:00:19.523Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: strategy[2]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T12:00:19.523Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.523Z"}
+{"level":"debug","message":"[AGG] BTC/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:19.523Z"}
+{"level":"debug","message":"[CYCLE] LINK/USDC: starting cycle, candles=738 lastClose=7.94300000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.557Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: strategy[0]=unknown → BUY conf=0.53 \"Price 8.3450 ≤ lower BB 8.3784 (bw 14.2%)\"","timestamp":"2026-06-04T12:00:19.575Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Stoch K=2.1 D=6.5 — no crossover in extreme zone\"","timestamp":"2026-06-04T12:00:19.575Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: strategy[2]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 9.0435)\"","timestamp":"2026-06-04T12:00:19.575Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.575Z"}
+{"level":"debug","message":"[AGG] LINK/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T12:00:19.575Z"}
+{"level":"debug","message":"[CYCLE] TRX/USDC: starting cycle, candles=738 lastClose=0.32820000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.667Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: strategy[0]=unknown → BUY conf=0.65 \"CCI -113.6 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T12:00:19.683Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: strategy[1]=unknown → BUY conf=0.84 \"Stoch K=5.4 crossed above D=1.9 in oversold zone\"","timestamp":"2026-06-04T12:00:19.683Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: strategy[2]=unknown → BUY conf=0.72 \"StochRSI K=11.4 crossed above D=3.8 in oversold ↑\"","timestamp":"2026-06-04T12:00:19.683Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: votes BUY=3.00 SELL=0.00 HOLD=0.00 total_weight=3.00 external=0","timestamp":"2026-06-04T12:00:19.683Z"}
+{"level":"debug","message":"[AGG] TRX/USDC: decision=BUY confidence=1.00 tie=false","timestamp":"2026-06-04T12:00:19.684Z"}
+{"level":"debug","message":"[CYCLE] BCH/USDC: starting cycle, candles=738 lastClose=245.30000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.687Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: strategy[0]=unknown → HOLD conf=0.20 \"Price 243.7000 inside BB [242.9195–362.0305]\"","timestamp":"2026-06-04T12:00:19.695Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:19.696Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: strategy[2]=unknown → BUY conf=0.69 \"%R -99.0 oversold ↑ reversal confirmed\"","timestamp":"2026-06-04T12:00:19.696Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.696Z"}
+{"level":"debug","message":"[AGG] BCH/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.696Z"}
+{"level":"debug","message":"[CYCLE] XRP/USDC: starting cycle, candles=738 lastClose=1.15590000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.709Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: strategy[0]=unknown → BUY conf=0.60 \"Price 1.2011 ≤ lower BB 1.2175 (bw 13.2%)\"","timestamp":"2026-06-04T12:00:19.715Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Stoch K=0.9 D=5.8 — no crossover in extreme zone\"","timestamp":"2026-06-04T12:00:19.715Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: strategy[2]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 1.2733 vs slow 1.3079)\"","timestamp":"2026-06-04T12:00:19.715Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.715Z"}
+{"level":"debug","message":"[AGG] XRP/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.715Z"}
+{"level":"debug","message":"[CYCLE] CRV/USDC: starting cycle, candles=738 lastClose=0.19220000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.722Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: strategy[0]=unknown → SELL conf=0.67 \"ADX 29.8 downtrend (-DI 35.4 > +DI 18.3)\"","timestamp":"2026-06-04T12:00:19.734Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: strategy[1]=unknown → HOLD conf=0.20 \"StochRSI K=56.1 D=46.2 — no extreme crossover\"","timestamp":"2026-06-04T12:00:19.734Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: strategy[2]=unknown → BUY conf=0.62 \"Support 0.2021 (4×)\"","timestamp":"2026-06-04T12:00:19.734Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: votes BUY=1.00 SELL=1.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T12:00:19.734Z"}
+{"level":"debug","message":"[AGG] CRV/USDC: decision=HOLD confidence=0.50 tie=true belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:19.734Z"}
+{"level":"debug","message":"[CYCLE] ENS/USDC: starting cycle, candles=738 lastClose=5.09000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.751Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: strategy[0]=unknown → HOLD conf=0.20 \"Price 5.3900 inside BB [5.3493–6.3597]\"","timestamp":"2026-06-04T12:00:19.769Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 6.1907)\"","timestamp":"2026-06-04T12:00:19.770Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: strategy[2]=unknown → BUY conf=0.62 \"Support 5.4067 (3×)\"","timestamp":"2026-06-04T12:00:19.770Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.770Z"}
+{"level":"debug","message":"[AGG] ENS/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.770Z"}
+{"level":"debug","message":"[CYCLE] LDO/USDC: starting cycle, candles=738 lastClose=0.27580000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.778Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: strategy[0]=unknown → HOLD conf=0.20 \"MACD -0.0111 vs signal -0.0101 hist:-0.0010\"","timestamp":"2026-06-04T12:00:19.804Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: strategy[1]=unknown → SELL conf=0.68 \"ADX 27.9 downtrend (-DI 40.7 > +DI 18.6)\"","timestamp":"2026-06-04T12:00:19.804Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: strategy[2]=unknown → HOLD conf=0.60 \"%R -100.0 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:19.804Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.804Z"}
+{"level":"debug","message":"[AGG] LDO/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.805Z"}
+{"level":"debug","message":"[CYCLE] LTC/USDC: starting cycle, candles=738 lastClose=45.62000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.809Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: strategy[0]=unknown → BUY conf=0.56 \"Price 47.1300 ≤ lower BB 47.5672 (bw 13.5%)\"","timestamp":"2026-06-04T12:00:19.819Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: strategy[1]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 49.7769 vs slow 51.2677)\"","timestamp":"2026-06-04T12:00:19.819Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: strategy[2]=unknown → HOLD conf=0.58 \"%R -95.4 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:19.819Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.820Z"}
+{"level":"debug","message":"[AGG] LTC/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.820Z"}
+{"level":"debug","message":"[CYCLE] ACH/USDC: starting cycle, candles=738 lastClose=0.00557000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.828Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 36.5 neutral\"","timestamp":"2026-06-04T12:00:19.856Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 0.0059 inside BB [0.0059–0.0066]\"","timestamp":"2026-06-04T12:00:19.856Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: strategy[2]=unknown → HOLD conf=0.78 \"CCI -169.6 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:19.856Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.856Z"}
+{"level":"debug","message":"[AGG] ACH/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.7)","timestamp":"2026-06-04T12:00:19.856Z"}
+{"level":"debug","message":"[CYCLE] NEAR/USDC: starting cycle, candles=738 lastClose=2.44900000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.871Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 66.3 neutral\"","timestamp":"2026-06-04T12:00:19.875Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 2.8210 inside BB [2.1085–2.9252]\"","timestamp":"2026-06-04T12:00:19.876Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[2]=unknown → SELL conf=0.61 \"Stoch K=82.9 crossed below D=86.7 in overbought zone\"","timestamp":"2026-06-04T12:00:19.876Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: strategy[3]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T12:00:19.876Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: votes BUY=0.00 SELL=1.00 HOLD=3.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.876Z"}
+{"level":"debug","message":"[AGG] NEAR/USDC: decision=HOLD confidence=3.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T12:00:19.876Z"}
+{"level":"debug","message":"[CYCLE] PAXG/USDC: starting cycle, candles=738 lastClose=4503.20000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.877Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: strategy[0]=unknown → HOLD conf=0.20 \"MACD -18.3873 vs signal -15.9304 hist:-2.4569\"","timestamp":"2026-06-04T12:00:19.883Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: strategy[1]=unknown → HOLD conf=0.10 \"ADX 17.9 < 20 — ranging, skip\"","timestamp":"2026-06-04T12:00:19.883Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: strategy[2]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 4547.8486)\"","timestamp":"2026-06-04T12:00:19.883Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.883Z"}
+{"level":"debug","message":"[AGG] PAXG/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:19.883Z"}
+{"level":"debug","message":"[CYCLE] JTO/USDC: starting cycle, candles=738 lastClose=0.60660000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.888Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: strategy[0]=unknown → SELL conf=0.98 \"CCI 193.8 overbought ↓ reversal confirmed\"","timestamp":"2026-06-04T12:00:19.890Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR uptrend continues (SAR 0.4862)\"","timestamp":"2026-06-04T12:00:19.890Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T12:00:19.890Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.890Z"}
+{"level":"debug","message":"[AGG] JTO/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.890Z"}
+{"level":"debug","message":"[CYCLE] GMX/USDC: starting cycle, candles=738 lastClose=5.64000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.896Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 42.1 neutral\"","timestamp":"2026-06-04T12:00:19.900Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 6.2500 inside BB [6.0221–6.9049]\"","timestamp":"2026-06-04T12:00:19.900Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: strategy[2]=unknown → HOLD conf=0.20 \"CCI -79.6 neutral\"","timestamp":"2026-06-04T12:00:19.900Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.900Z"}
+{"level":"debug","message":"[AGG] GMX/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.7)","timestamp":"2026-06-04T12:00:19.900Z"}
+{"level":"debug","message":"[CYCLE] PIXEL/USDC: starting cycle, candles=738 lastClose=0.00592000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.903Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0069 vs slow 0.0069)\"","timestamp":"2026-06-04T12:00:19.905Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: strategy[1]=unknown → HOLD conf=0.10 \"ADX 15.8 < 20 — ranging, skip\"","timestamp":"2026-06-04T12:00:19.905Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T12:00:19.905Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.905Z"}
+{"level":"debug","message":"[AGG] PIXEL/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:19.905Z"}
+{"level":"debug","message":"[CYCLE] THETA/USDC: starting cycle, candles=738 lastClose=0.16320000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.934Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 42.3 neutral\"","timestamp":"2026-06-04T12:00:19.937Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: strategy[1]=unknown → HOLD conf=0.51 \"CCI -102.1 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:19.937Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: strategy[2]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:19.937Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.937Z"}
+{"level":"debug","message":"[AGG] THETA/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:19.937Z"}
+{"level":"debug","message":"[CYCLE] VANRY/USDC: starting cycle, candles=738 lastClose=0.00384200 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.944Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0044 vs slow 0.0046)\"","timestamp":"2026-06-04T12:00:19.946Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: strategy[1]=unknown → SELL conf=0.70 \"MACD crossed below signal (below zero) hist:-0.0000\"","timestamp":"2026-06-04T12:00:19.946Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: strategy[2]=unknown → SELL conf=0.70 \"ADX 29.0 downtrend (-DI 32.7 > +DI 15.8)\"","timestamp":"2026-06-04T12:00:19.946Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: votes BUY=0.00 SELL=2.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T12:00:19.946Z"}
+{"level":"debug","message":"[AGG] VANRY/USDC: decision=SELL confidence=1.00 tie=false","timestamp":"2026-06-04T12:00:19.946Z"}
+{"level":"debug","message":"[CYCLE] LSK/USDC: starting cycle, candles=398 lastClose=0.10000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.960Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: strategy[0]=unknown → HOLD conf=0.20 \"MACD -0.0028 vs signal -0.0029 hist:0.0001\"","timestamp":"2026-06-04T12:00:19.967Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MFI 73.6 neutral\"","timestamp":"2026-06-04T12:00:19.967Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: strategy[2]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 0.1185)\"","timestamp":"2026-06-04T12:00:19.968Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:19.968Z"}
+{"level":"debug","message":"[AGG] LSK/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:19.968Z"}
+{"level":"debug","message":"[CYCLE] SOL/USDC: starting cycle, candles=738 lastClose=68.67000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.970Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: strategy[0]=unknown → BUY conf=0.68 \"Price 71.6900 ≤ lower BB 74.0902 (bw 16.9%)\"","timestamp":"2026-06-04T12:00:19.990Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: strategy[1]=unknown → HOLD conf=0.59 \"%R -98.5 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:19.990Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: strategy[2]=unknown → HOLD conf=0.20 \"StochRSI K=0.0 D=7.2 — no extreme crossover\"","timestamp":"2026-06-04T12:00:19.990Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:19.990Z"}
+{"level":"debug","message":"[AGG] SOL/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:19.990Z"}
+{"level":"debug","message":"[CYCLE] SUI/USDC: starting cycle, candles=738 lastClose=0.76830000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:19.996Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: strategy[0]=unknown → HOLD conf=0.53 \"RSI 27.8 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.008Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Stoch K=13.3 D=9.0 — no crossover in extreme zone\"","timestamp":"2026-06-04T12:00:20.008Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: strategy[2]=unknown → BUY conf=0.63 \"MFI 18.7 oversold ↑ volume reversal confirmed\"","timestamp":"2026-06-04T12:00:20.008Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:20.008Z"}
+{"level":"debug","message":"[AGG] SUI/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.7)","timestamp":"2026-06-04T12:00:20.008Z"}
+{"level":"debug","message":"[CYCLE] MANTA/USDC: starting cycle, candles=738 lastClose=0.07582000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.019Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 54.5 neutral\"","timestamp":"2026-06-04T12:00:20.025Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Price 0.0795 inside BB [0.0728–0.0815]\"","timestamp":"2026-06-04T12:00:20.025Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: strategy[2]=unknown → HOLD conf=0.20 \"CCI 80.5 neutral\"","timestamp":"2026-06-04T12:00:20.025Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.025Z"}
+{"level":"debug","message":"[AGG] MANTA/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.7)","timestamp":"2026-06-04T12:00:20.025Z"}
+{"level":"debug","message":"[CYCLE] TIA/USDC: starting cycle, candles=738 lastClose=0.33480000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.028Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: strategy[0]=unknown → HOLD conf=0.58 \"CCI -118.8 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.032Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MACD -0.0125 vs signal -0.0078 hist:-0.0048\"","timestamp":"2026-06-04T12:00:20.032Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: strategy[2]=unknown → HOLD conf=0.20 \"HA flipped but prior streak too short (1 < 3)\"","timestamp":"2026-06-04T12:00:20.032Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.032Z"}
+{"level":"debug","message":"[AGG] TIA/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.033Z"}
+{"level":"debug","message":"[CYCLE] INJ/USDC: starting cycle, candles=738 lastClose=5.87500000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.054Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: strategy[0]=unknown → BUY conf=0.81 \"ADX 49.6 uptrend (+DI 29.1 > -DI 17.6)\"","timestamp":"2026-06-04T12:00:20.057Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV above EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:20.058Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: strategy[2]=unknown → HOLD conf=0.20 \"StochRSI K=13.7 D=29.8 — no extreme crossover\"","timestamp":"2026-06-04T12:00:20.058Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:20.058Z"}
+{"level":"debug","message":"[AGG] INJ/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:20.058Z"}
+{"level":"debug","message":"[CYCLE] ADA/USDC: starting cycle, candles=738 lastClose=0.19030000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.108Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: strategy[0]=unknown → HOLD conf=0.63 \"RSI 20.2 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.112Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: strategy[1]=unknown → BUY conf=0.73 \"Price 0.2007 ≤ lower BB 0.2103 (bw 18.0%)\"","timestamp":"2026-06-04T12:00:20.112Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: strategy[2]=unknown → HOLD conf=0.90 \"CCI -272.7 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.112Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:20.112Z"}
+{"level":"debug","message":"[AGG] ADA/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:20.112Z"}
+{"level":"debug","message":"[CYCLE] TON/USDC: starting cycle, candles=738 lastClose=1.74400000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.117Z"}
+{"level":"debug","message":"[AGG] TON/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 1.9299 vs slow 1.9147)\"","timestamp":"2026-06-04T12:00:20.119Z"}
+{"level":"debug","message":"[AGG] TON/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV above EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:20.119Z"}
+{"level":"debug","message":"[AGG] TON/USDC: strategy[2]=unknown → HOLD conf=0.20 \"StochRSI K=43.3 D=58.2 — no extreme crossover\"","timestamp":"2026-06-04T12:00:20.119Z"}
+{"level":"debug","message":"[AGG] TON/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.119Z"}
+{"level":"debug","message":"[AGG] TON/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.119Z"}
+{"level":"debug","message":"[CYCLE] RENDER/USDC: starting cycle, candles=738 lastClose=1.85800000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.140Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 2.1103 vs slow 2.0662)\"","timestamp":"2026-06-04T12:00:20.142Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: strategy[1]=unknown → HOLD conf=0.20 \"OBV above EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:20.142Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: strategy[2]=unknown → HOLD conf=0.20 \"%R -23.7 neutral\"","timestamp":"2026-06-04T12:00:20.142Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.142Z"}
+{"level":"debug","message":"[AGG] RENDER/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.142Z"}
+{"level":"debug","message":"[CYCLE] PEPE/USDC: starting cycle, candles=738 lastClose=0.00000296 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.148Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0000 vs slow 0.0000)\"","timestamp":"2026-06-04T12:00:20.149Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: strategy[1]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 0.0000)\"","timestamp":"2026-06-04T12:00:20.149Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: strategy[2]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:20.149Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.149Z"}
+{"level":"debug","message":"[AGG] PEPE/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.149Z"}
+{"level":"debug","message":"[CYCLE] ETH/USDC: starting cycle, candles=738 lastClose=1750.47000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.161Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: strategy[0]=unknown → HOLD conf=0.10 \"Supertrend downtrend continues (ST 1947.8946)\"","timestamp":"2026-06-04T12:00:20.164Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: strategy[1]=unknown → HOLD conf=0.53 \"MFI 81.7 overbought — still rising, wait\"","timestamp":"2026-06-04T12:00:20.164Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T12:00:20.164Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.164Z"}
+{"level":"debug","message":"[AGG] ETH/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.164Z"}
+{"level":"debug","message":"[CYCLE] DOGE/USDC: starting cycle, candles=738 lastClose=0.08793000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.165Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: strategy[0]=unknown → HOLD conf=0.20 \"No EMA crossover (fast 0.0972 vs slow 0.0997)\"","timestamp":"2026-06-04T12:00:20.166Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: strategy[1]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 0.1001)\"","timestamp":"2026-06-04T12:00:20.166Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: strategy[2]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T12:00:20.166Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.166Z"}
+{"level":"debug","message":"[AGG] DOGE/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.166Z"}
+{"level":"debug","message":"[CYCLE] ENA/USDC: starting cycle, candles=738 lastClose=0.09450000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.175Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 68.4 neutral\"","timestamp":"2026-06-04T12:00:20.179Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: strategy[1]=unknown → SELL conf=0.70 \"Price 0.1119 ≥ upper BB 0.1062 (bw 30.3%)\"","timestamp":"2026-06-04T12:00:20.180Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: strategy[2]=unknown → HOLD conf=0.90 \"CCI 219.3 overbought — still rising, wait\"","timestamp":"2026-06-04T12:00:20.180Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:20.180Z"}
+{"level":"debug","message":"[AGG] ENA/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:20.180Z"}
+{"level":"debug","message":"[CYCLE] ICP/USDC: starting cycle, candles=738 lastClose=2.68100000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.182Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 64.7 neutral\"","timestamp":"2026-06-04T12:00:20.187Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: strategy[1]=unknown → SELL conf=0.52 \"Price 3.1160 ≥ upper BB 3.1009 (bw 21.8%)\"","timestamp":"2026-06-04T12:00:20.187Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: strategy[2]=unknown → HOLD conf=0.20 \"Stoch K=100.0 D=87.8 — no crossover in extreme zone\"","timestamp":"2026-06-04T12:00:20.187Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: votes BUY=0.00 SELL=1.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:20.187Z"}
+{"level":"debug","message":"[AGG] ICP/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:20.187Z"}
+{"level":"debug","message":"[CYCLE] AVAX/USDC: starting cycle, candles=738 lastClose=7.66500000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.194Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: strategy[0]=unknown → HOLD conf=0.52 \"RSI 28.6 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.195Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: strategy[1]=unknown → HOLD conf=0.20 \"MACD -0.2474 vs signal -0.1730 hist:-0.0745\"","timestamp":"2026-06-04T12:00:20.195Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: strategy[2]=unknown → HOLD conf=0.10 \"PSAR downtrend continues (SAR 8.9376)\"","timestamp":"2026-06-04T12:00:20.195Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.196Z"}
+{"level":"debug","message":"[AGG] AVAX/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.196Z"}
+{"level":"debug","message":"[CYCLE] APT/USDC: starting cycle, candles=738 lastClose=0.74700000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.198Z"}
+{"level":"debug","message":"[AGG] APT/USDC: strategy[0]=unknown → BUY conf=0.63 \"Price 0.8110 ≤ lower BB 0.8340 (bw 19.7%)\"","timestamp":"2026-06-04T12:00:20.204Z"}
+{"level":"debug","message":"[AGG] APT/USDC: strategy[1]=unknown → HOLD conf=0.20 \"Stoch K=0.0 D=7.2 — no crossover in extreme zone\"","timestamp":"2026-06-04T12:00:20.204Z"}
+{"level":"debug","message":"[AGG] APT/USDC: strategy[2]=unknown → HOLD conf=0.20 \"MFI 63.7 neutral\"","timestamp":"2026-06-04T12:00:20.204Z"}
+{"level":"debug","message":"[AGG] APT/USDC: votes BUY=1.00 SELL=0.00 HOLD=2.00 total_weight=1.00 external=0","timestamp":"2026-06-04T12:00:20.204Z"}
+{"level":"debug","message":"[AGG] APT/USDC: decision=HOLD confidence=2.00 tie=false belowMin=false (minConf=0.55)","timestamp":"2026-06-04T12:00:20.204Z"}
+{"level":"debug","message":"[CYCLE] WLD/USDC: starting cycle, candles=738 lastClose=0.47580000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.216Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: strategy[0]=unknown → SELL conf=0.66 \"Price 0.5446 ≥ upper BB 0.5008 (bw 73.8%)\"","timestamp":"2026-06-04T12:00:20.220Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: strategy[1]=unknown → HOLD conf=0.90 \"CCI 236.4 overbought — still rising, wait\"","timestamp":"2026-06-04T12:00:20.220Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: strategy[2]=unknown → BUY conf=0.80 \"ADX 39.8 uptrend (+DI 61.2 > -DI 16.9)\"","timestamp":"2026-06-04T12:00:20.220Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: votes BUY=1.00 SELL=1.00 HOLD=1.00 total_weight=2.00 external=0","timestamp":"2026-06-04T12:00:20.220Z"}
+{"level":"debug","message":"[AGG] WLD/USDC: decision=HOLD confidence=0.50 tie=true belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.220Z"}
+{"level":"debug","message":"[CYCLE] JUP/USDC: starting cycle, candles=738 lastClose=0.17540000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.243Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: strategy[0]=unknown → HOLD conf=0.20 \"Price 0.2003 inside BB [0.1725–0.2115]\"","timestamp":"2026-06-04T12:00:20.246Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: strategy[1]=unknown → HOLD conf=0.20 \"CCI 62.3 neutral\"","timestamp":"2026-06-04T12:00:20.246Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: strategy[2]=unknown → HOLD conf=0.20 \"OBV below EMA-20 — no cross\"","timestamp":"2026-06-04T12:00:20.246Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.246Z"}
+{"level":"debug","message":"[AGG] JUP/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.246Z"}
+{"level":"debug","message":"[CYCLE] BTC/USDC: sizing positionPct=0.1001 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:20.267Z"}
+{"level":"info","message":"BTC/USDC: decision=HOLD confidence=0% price=62534.75000000 external_signals=0","timestamp":"2026-06-04T12:00:20.267Z"}
+{"level":"info","message":"BTC/USDC: No EMA crossover (fast 70077.0452 vs slow 72659.7045) | PSAR downtrend continues (SAR 71718.2514) | HA bearish continuation","timestamp":"2026-06-04T12:00:20.267Z"}
+{"level":"debug","message":"[CYCLE] ARB/USDC: starting cycle, candles=738 lastClose=0.08820000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.341Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: strategy[0]=unknown → HOLD conf=0.20 \"RSI 31.0 neutral\"","timestamp":"2026-06-04T12:00:20.343Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: strategy[1]=unknown → HOLD conf=0.60 \"%R -100.0 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.343Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: strategy[2]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T12:00:20.343Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.343Z"}
+{"level":"debug","message":"[AGG] ARB/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.343Z"}
+{"level":"debug","message":"[CYCLE] BNB/USDC: starting cycle, candles=738 lastClose=595.27000000 lastTs=2026-06-04T12:00:00.000Z","timestamp":"2026-06-04T12:00:20.393Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: strategy[0]=unknown → HOLD conf=0.60 \"%R -99.2 oversold — still falling, wait\"","timestamp":"2026-06-04T12:00:20.395Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: strategy[1]=unknown → HOLD conf=0.15 \"HA bearish continuation\"","timestamp":"2026-06-04T12:00:20.395Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: strategy[2]=unknown → HOLD conf=0.10 \"No significant S/R zone nearby\"","timestamp":"2026-06-04T12:00:20.395Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: votes BUY=0.00 SELL=0.00 HOLD=3.00 total_weight=0.00 external=0","timestamp":"2026-06-04T12:00:20.395Z"}
+{"level":"debug","message":"[AGG] BNB/USDC: decision=HOLD confidence=0.00 tie=false belowMin=true (minConf=0.55)","timestamp":"2026-06-04T12:00:20.395Z"}
+{"level":"debug","message":"[CYCLE] LINK/USDC: sizing positionPct=0.1761 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:20.472Z"}
+{"level":"info","message":"LINK/USDC: decision=HOLD confidence=200% price=7.94300000 external_signals=0","timestamp":"2026-06-04T12:00:20.472Z"}
+{"level":"info","message":"LINK/USDC: Price 8.3450 ≤ lower BB 8.3784 (bw 14.2%) | Stoch K=2.1 D=6.5 — no crossover in extreme zone | Supertrend downtrend continues (ST 9.0435)","timestamp":"2026-06-04T12:00:20.473Z"}
+{"level":"info","message":"TRX/USDC: BUY suppressed — MTF misaligned (15m: 32% green < 50% required)","timestamp":"2026-06-04T12:00:20.805Z"}
+{"level":"debug","message":"[CYCLE] TRX/USDC: sizing positionPct=0.2925 (base=0.15 atr=0.03375196232339093 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:20.806Z"}
+{"level":"info","message":"TRX/USDC: trade blocked - MTF misaligned (15m: 32% green < 50% required)","timestamp":"2026-06-04T12:00:20.806Z"}
+{"level":"info","message":"TRX/USDC: decision=BUY confidence=100% price=0.32820000 external_signals=0","timestamp":"2026-06-04T12:00:20.806Z"}
+{"level":"info","message":"TRX/USDC: CCI -113.6 oversold ↑ reversal confirmed | Stoch K=5.4 crossed above D=1.9 in oversold zone | StochRSI K=11.4 crossed above D=3.8 in oversold ↑","timestamp":"2026-06-04T12:00:20.806Z"}
+{"level":"debug","message":"[CYCLE] BCH/USDC: sizing positionPct=0.1173 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:20.867Z"}
+{"level":"info","message":"BCH/USDC: decision=HOLD confidence=200% price=245.30000000 external_signals=0","timestamp":"2026-06-04T12:00:20.867Z"}
+{"level":"info","message":"BCH/USDC: Price 243.7000 inside BB [242.9195–362.0305] | OBV below EMA-20 — no cross | %R -99.0 oversold ↑ reversal confirmed","timestamp":"2026-06-04T12:00:20.867Z"}
+{"level":"debug","message":"[CYCLE] XRP/USDC: sizing positionPct=0.2007 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:21.072Z"}
+{"level":"info","message":"XRP/USDC: decision=HOLD confidence=200% price=1.15590000 external_signals=0","timestamp":"2026-06-04T12:00:21.072Z"}
+{"level":"info","message":"XRP/USDC: Price 1.2011 ≤ lower BB 1.2175 (bw 13.2%) | Stoch K=0.9 D=5.8 — no crossover in extreme zone | No EMA crossover (fast 1.2733 vs slow 1.3079)","timestamp":"2026-06-04T12:00:21.073Z"}
+{"level":"debug","message":"[CYCLE] CRV/USDC: sizing positionPct=0.1027 (base=0.15 atr=0.03375196232339093 regime=on conf=0.50 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:21.267Z"}
+{"level":"info","message":"CRV/USDC: decision=HOLD confidence=50% price=0.19220000 external_signals=0","timestamp":"2026-06-04T12:00:21.267Z"}
+{"level":"info","message":"CRV/USDC: ADX 29.8 downtrend (-DI 35.4 > +DI 18.3) | StochRSI K=56.1 D=46.2 — no extreme crossover | Support 0.2021 (4×)","timestamp":"2026-06-04T12:00:21.268Z"}
+{"level":"debug","message":"[CYCLE] ENS/USDC: sizing positionPct=0.1353 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:21.469Z"}
+{"level":"info","message":"ENS/USDC: decision=HOLD confidence=200% price=5.09000000 external_signals=0","timestamp":"2026-06-04T12:00:21.469Z"}
+{"level":"info","message":"ENS/USDC: Price 5.3900 inside BB [5.3493–6.3597] | PSAR downtrend continues (SAR 6.1907) | Support 5.4067 (3×)","timestamp":"2026-06-04T12:00:21.469Z"}
+{"level":"debug","message":"[CYCLE] LDO/USDC: sizing positionPct=0.1290 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:21.669Z"}
+{"level":"info","message":"LDO/USDC: decision=HOLD confidence=200% price=0.27580000 external_signals=0","timestamp":"2026-06-04T12:00:21.669Z"}
+{"level":"info","message":"LDO/USDC: MACD -0.0111 vs signal -0.0101 hist:-0.0010 | ADX 27.9 downtrend (-DI 40.7 > +DI 18.6) | %R -100.0 oversold — still falling, wait","timestamp":"2026-06-04T12:00:21.670Z"}
+{"level":"debug","message":"[CYCLE] LTC/USDC: sizing positionPct=0.2173 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:21.869Z"}
+{"level":"info","message":"LTC/USDC: decision=HOLD confidence=200% price=45.62000000 external_signals=0","timestamp":"2026-06-04T12:00:21.869Z"}
+{"level":"info","message":"LTC/USDC: Price 47.1300 ≤ lower BB 47.5672 (bw 13.5%) | No EMA crossover (fast 49.7769 vs slow 51.2677) | %R -95.4 oversold — still falling, wait","timestamp":"2026-06-04T12:00:21.870Z"}
+{"level":"debug","message":"[CYCLE] ACH/USDC: sizing positionPct=0.0628 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:22.147Z"}
+{"level":"info","message":"ACH/USDC: decision=HOLD confidence=0% price=0.00557000 external_signals=0","timestamp":"2026-06-04T12:00:22.148Z"}
+{"level":"info","message":"ACH/USDC: RSI 36.5 neutral | Price 0.0059 inside BB [0.0059–0.0066] | CCI -169.6 oversold — still falling, wait","timestamp":"2026-06-04T12:00:22.148Z"}
+{"level":"debug","message":"[CYCLE] NEAR/USDC: sizing positionPct=0.0731 (base=0.15 atr=0.03375196232339093 regime=on conf=3.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:22.268Z"}
+{"level":"info","message":"NEAR/USDC: decision=HOLD confidence=300% price=2.44900000 external_signals=0","timestamp":"2026-06-04T12:00:22.268Z"}
+{"level":"info","message":"NEAR/USDC: RSI 66.3 neutral | Price 2.8210 inside BB [2.1085–2.9252] | Stoch K=82.9 crossed below D=86.7 in overbought zone | No significant S/R zone nearby","timestamp":"2026-06-04T12:00:22.268Z"}
+{"level":"debug","message":"[CYCLE] PAXG/USDC: sizing positionPct=0.0900 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:22.468Z"}
+{"level":"info","message":"PAXG/USDC: decision=HOLD confidence=0% price=4503.20000000 external_signals=0","timestamp":"2026-06-04T12:00:22.468Z"}
+{"level":"info","message":"PAXG/USDC: MACD -18.3873 vs signal -15.9304 hist:-2.4569 | ADX 17.9 < 20 — ranging, skip | Supertrend downtrend continues (ST 4547.8486)","timestamp":"2026-06-04T12:00:22.468Z"}
+{"level":"debug","message":"[CYCLE] JTO/USDC: sizing positionPct=0.0735 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:22.820Z"}
+{"level":"info","message":"JTO/USDC: decision=HOLD confidence=200% price=0.60660000 external_signals=0","timestamp":"2026-06-04T12:00:22.820Z"}
+{"level":"info","message":"JTO/USDC: CCI 193.8 overbought ↓ reversal confirmed | PSAR uptrend continues (SAR 0.4862) | No significant S/R zone nearby","timestamp":"2026-06-04T12:00:22.821Z"}
+{"level":"debug","message":"[CYCLE] GMX/USDC: sizing positionPct=0.0470 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:22.868Z"}
+{"level":"info","message":"GMX/USDC: decision=HOLD confidence=0% price=5.64000000 external_signals=0","timestamp":"2026-06-04T12:00:22.869Z"}
+{"level":"info","message":"GMX/USDC: RSI 42.1 neutral | Price 6.2500 inside BB [6.0221–6.9049] | CCI -79.6 neutral","timestamp":"2026-06-04T12:00:22.869Z"}
+{"level":"debug","message":"[CYCLE] PIXEL/USDC: sizing positionPct=0.0295 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:23.202Z"}
+{"level":"info","message":"PIXEL/USDC: decision=HOLD confidence=0% price=0.00592000 external_signals=0","timestamp":"2026-06-04T12:00:23.202Z"}
+{"level":"info","message":"PIXEL/USDC: No EMA crossover (fast 0.0069 vs slow 0.0069) | ADX 15.8 < 20 — ranging, skip | No significant S/R zone nearby","timestamp":"2026-06-04T12:00:23.203Z"}
+{"level":"debug","message":"[CYCLE] THETA/USDC: sizing positionPct=0.0362 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:23.394Z"}
+{"level":"info","message":"THETA/USDC: decision=HOLD confidence=0% price=0.16320000 external_signals=0","timestamp":"2026-06-04T12:00:23.394Z"}
+{"level":"info","message":"THETA/USDC: RSI 42.3 neutral | CCI -102.1 oversold — still falling, wait | OBV below EMA-20 — no cross","timestamp":"2026-06-04T12:00:23.394Z"}
+{"level":"debug","message":"[RISK] VANRY/USDC: canTrade=true decision=SELL conf=1.00 positions=0/3 dailyPnL=0.00","timestamp":"2026-06-04T12:00:23.551Z"}
+{"level":"debug","message":"[CYCLE] VANRY/USDC: sizing positionPct=0.0914 (base=0.15 atr=0.03375196232339093 regime=on conf=1.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:23.552Z"}
+{"level":"info","message":"[LIVE] VANRY/USDC: SELL skipped, no open position","timestamp":"2026-06-04T12:00:23.552Z"}
+{"level":"info","message":"VANRY/USDC: decision=SELL confidence=100% price=0.00384200 external_signals=0","timestamp":"2026-06-04T12:00:23.552Z"}
+{"level":"info","message":"VANRY/USDC: No EMA crossover (fast 0.0044 vs slow 0.0046) | MACD crossed below signal (below zero) hist:-0.0000 | ADX 29.0 downtrend (-DI 32.7 > +DI 15.8)","timestamp":"2026-06-04T12:00:23.553Z"}
+{"level":"debug","message":"[CYCLE] LSK/USDC: sizing positionPct=0.0452 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:23.669Z"}
+{"level":"info","message":"LSK/USDC: decision=HOLD confidence=0% price=0.10000000 external_signals=0","timestamp":"2026-06-04T12:00:23.669Z"}
+{"level":"info","message":"LSK/USDC: MACD -0.0028 vs signal -0.0029 hist:0.0001 | MFI 73.6 neutral | PSAR downtrend continues (SAR 0.1185)","timestamp":"2026-06-04T12:00:23.669Z"}
+{"level":"debug","message":"[CYCLE] SOL/USDC: sizing positionPct=0.1805 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:24.016Z"}
+{"level":"info","message":"SOL/USDC: decision=HOLD confidence=200% price=68.67000000 external_signals=0","timestamp":"2026-06-04T12:00:24.016Z"}
+{"level":"info","message":"SOL/USDC: Price 71.6900 ≤ lower BB 74.0902 (bw 16.9%) | %R -98.5 oversold — still falling, wait | StochRSI K=0.0 D=7.2 — no extreme crossover","timestamp":"2026-06-04T12:00:24.016Z"}
+{"level":"debug","message":"[CYCLE] SUI/USDC: sizing positionPct=0.1333 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:24.230Z"}
+{"level":"info","message":"SUI/USDC: decision=HOLD confidence=200% price=0.76830000 external_signals=0","timestamp":"2026-06-04T12:00:24.230Z"}
+{"level":"info","message":"SUI/USDC: RSI 27.8 oversold — still falling, wait | Stoch K=13.3 D=9.0 — no crossover in extreme zone | MFI 18.7 oversold ↑ volume reversal confirmed","timestamp":"2026-06-04T12:00:24.230Z"}
+{"level":"debug","message":"[CYCLE] MANTA/USDC: sizing positionPct=0.0435 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:24.412Z"}
+{"level":"info","message":"MANTA/USDC: decision=HOLD confidence=0% price=0.07582000 external_signals=0","timestamp":"2026-06-04T12:00:24.413Z"}
+{"level":"info","message":"MANTA/USDC: RSI 54.5 neutral | Price 0.0795 inside BB [0.0728–0.0815] | CCI 80.5 neutral","timestamp":"2026-06-04T12:00:24.413Z"}
+{"level":"debug","message":"[CYCLE] TIA/USDC: sizing positionPct=0.0136 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:24.469Z"}
+{"level":"info","message":"TIA/USDC: decision=HOLD confidence=0% price=0.33480000 external_signals=0","timestamp":"2026-06-04T12:00:24.470Z"}
+{"level":"info","message":"TIA/USDC: CCI -118.8 oversold — still falling, wait | MACD -0.0125 vs signal -0.0078 hist:-0.0048 | HA flipped but prior streak too short (1 < 3)","timestamp":"2026-06-04T12:00:24.470Z"}
+{"level":"debug","message":"[CYCLE] INJ/USDC: sizing positionPct=0.0731 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:24.675Z"}
+{"level":"info","message":"INJ/USDC: decision=HOLD confidence=200% price=5.87500000 external_signals=0","timestamp":"2026-06-04T12:00:24.675Z"}
+{"level":"info","message":"INJ/USDC: ADX 49.6 uptrend (+DI 29.1 > -DI 17.6) | OBV above EMA-20 — no cross | StochRSI K=13.7 D=29.8 — no extreme crossover","timestamp":"2026-06-04T12:00:24.675Z"}
+{"level":"debug","message":"[CYCLE] ADA/USDC: sizing positionPct=0.1503 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:24.999Z"}
+{"level":"info","message":"ADA/USDC: decision=HOLD confidence=200% price=0.19030000 external_signals=0","timestamp":"2026-06-04T12:00:24.999Z"}
+{"level":"info","message":"ADA/USDC: RSI 20.2 oversold — still falling, wait | Price 0.2007 ≤ lower BB 0.2103 (bw 18.0%) | CCI -272.7 oversold — still falling, wait","timestamp":"2026-06-04T12:00:24.999Z"}
+{"level":"debug","message":"[CYCLE] TON/USDC: sizing positionPct=0.0278 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:25.066Z"}
+{"level":"info","message":"TON/USDC: decision=HOLD confidence=0% price=1.74400000 external_signals=0","timestamp":"2026-06-04T12:00:25.066Z"}
+{"level":"info","message":"TON/USDC: No EMA crossover (fast 1.9299 vs slow 1.9147) | OBV above EMA-20 — no cross | StochRSI K=43.3 D=58.2 — no extreme crossover","timestamp":"2026-06-04T12:00:25.066Z"}
+{"level":"debug","message":"[CYCLE] RENDER/USDC: sizing positionPct=0.0112 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:25.410Z"}
+{"level":"info","message":"RENDER/USDC: decision=HOLD confidence=0% price=1.85800000 external_signals=0","timestamp":"2026-06-04T12:00:25.410Z"}
+{"level":"info","message":"RENDER/USDC: No EMA crossover (fast 2.1103 vs slow 2.0662) | OBV above EMA-20 — no cross | %R -23.7 neutral","timestamp":"2026-06-04T12:00:25.410Z"}
+{"level":"debug","message":"[CYCLE] PEPE/USDC: sizing positionPct=0.0606 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:25.589Z"}
+{"level":"info","message":"PEPE/USDC: decision=HOLD confidence=0% price=0.00000296 external_signals=0","timestamp":"2026-06-04T12:00:25.589Z"}
+{"level":"info","message":"PEPE/USDC: No EMA crossover (fast 0.0000 vs slow 0.0000) | Supertrend downtrend continues (ST 0.0000) | OBV below EMA-20 — no cross","timestamp":"2026-06-04T12:00:25.589Z"}
+{"level":"debug","message":"[CYCLE] ETH/USDC: sizing positionPct=0.0885 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:25.660Z"}
+{"level":"info","message":"ETH/USDC: decision=HOLD confidence=0% price=1750.47000000 external_signals=0","timestamp":"2026-06-04T12:00:25.660Z"}
+{"level":"info","message":"ETH/USDC: Supertrend downtrend continues (ST 1947.8946) | MFI 81.7 overbought — still rising, wait | No significant S/R zone nearby","timestamp":"2026-06-04T12:00:25.660Z"}
+{"level":"debug","message":"[CYCLE] DOGE/USDC: sizing positionPct=0.0785 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:25.868Z"}
+{"level":"info","message":"DOGE/USDC: decision=HOLD confidence=0% price=0.08793000 external_signals=0","timestamp":"2026-06-04T12:00:25.869Z"}
+{"level":"info","message":"DOGE/USDC: No EMA crossover (fast 0.0972 vs slow 0.0997) | PSAR downtrend continues (SAR 0.1001) | HA bearish continuation","timestamp":"2026-06-04T12:00:25.869Z"}
+{"level":"debug","message":"[CYCLE] ENA/USDC: sizing positionPct=0.0831 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:26.141Z"}
+{"level":"info","message":"ENA/USDC: decision=HOLD confidence=200% price=0.09450000 external_signals=0","timestamp":"2026-06-04T12:00:26.141Z"}
+{"level":"info","message":"ENA/USDC: RSI 68.4 neutral | Price 0.1119 ≥ upper BB 0.1062 (bw 30.3%) | CCI 219.3 overbought — still rising, wait","timestamp":"2026-06-04T12:00:26.141Z"}
+{"level":"debug","message":"[CYCLE] ICP/USDC: sizing positionPct=0.0715 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:26.272Z"}
+{"level":"info","message":"ICP/USDC: decision=HOLD confidence=200% price=2.68100000 external_signals=0","timestamp":"2026-06-04T12:00:26.273Z"}
+{"level":"info","message":"ICP/USDC: RSI 64.7 neutral | Price 3.1160 ≥ upper BB 3.1009 (bw 21.8%) | Stoch K=100.0 D=87.8 — no crossover in extreme zone","timestamp":"2026-06-04T12:00:26.273Z"}
+{"level":"debug","message":"[CYCLE] AVAX/USDC: sizing positionPct=0.0683 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:26.468Z"}
+{"level":"info","message":"AVAX/USDC: decision=HOLD confidence=0% price=7.66500000 external_signals=0","timestamp":"2026-06-04T12:00:26.468Z"}
+{"level":"info","message":"AVAX/USDC: RSI 28.6 oversold — still falling, wait | MACD -0.2474 vs signal -0.1730 hist:-0.0745 | PSAR downtrend continues (SAR 8.9376)","timestamp":"2026-06-04T12:00:26.468Z"}
+{"level":"debug","message":"[CYCLE] APT/USDC: sizing positionPct=0.0741 (base=0.15 atr=0.03375196232339093 regime=on conf=2.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:26.668Z"}
+{"level":"info","message":"APT/USDC: decision=HOLD confidence=200% price=0.74700000 external_signals=0","timestamp":"2026-06-04T12:00:26.669Z"}
+{"level":"info","message":"APT/USDC: Price 0.8110 ≤ lower BB 0.8340 (bw 19.7%) | Stoch K=0.0 D=7.2 — no crossover in extreme zone | MFI 63.7 neutral","timestamp":"2026-06-04T12:00:26.669Z"}
+{"level":"debug","message":"[CYCLE] WLD/USDC: sizing positionPct=0.0443 (base=0.15 atr=0.03375196232339093 regime=on conf=0.50 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:26.868Z"}
+{"level":"info","message":"WLD/USDC: decision=HOLD confidence=50% price=0.47580000 external_signals=0","timestamp":"2026-06-04T12:00:26.868Z"}
+{"level":"info","message":"WLD/USDC: Price 0.5446 ≥ upper BB 0.5008 (bw 73.8%) | CCI 236.4 overbought — still rising, wait | ADX 39.8 uptrend (+DI 61.2 > -DI 16.9)","timestamp":"2026-06-04T12:00:26.868Z"}
+{"level":"debug","message":"[CYCLE] JUP/USDC: sizing positionPct=0.0311 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:27.065Z"}
+{"level":"info","message":"JUP/USDC: decision=HOLD confidence=0% price=0.17540000 external_signals=0","timestamp":"2026-06-04T12:00:27.066Z"}
+{"level":"info","message":"JUP/USDC: Price 0.2003 inside BB [0.1725–0.2115] | CCI 62.3 neutral | OBV below EMA-20 — no cross","timestamp":"2026-06-04T12:00:27.066Z"}
+{"level":"info","message":"BTC/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:27.270Z"}
+{"level":"debug","message":"[CYCLE] ARB/USDC: sizing positionPct=0.0501 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:27.470Z"}
+{"level":"info","message":"ARB/USDC: decision=HOLD confidence=0% price=0.08820000 external_signals=0","timestamp":"2026-06-04T12:00:27.470Z"}
+{"level":"info","message":"ARB/USDC: RSI 31.0 neutral | %R -100.0 oversold — still falling, wait | HA bearish continuation","timestamp":"2026-06-04T12:00:27.471Z"}
+{"level":"debug","message":"[CYCLE] BNB/USDC: sizing positionPct=0.0416 (base=0.15 atr=0.03375196232339093 regime=on conf=0.00 macro=bear mtf=1.0)","timestamp":"2026-06-04T12:00:27.756Z"}
+{"level":"info","message":"BNB/USDC: decision=HOLD confidence=0% price=595.27000000 external_signals=0","timestamp":"2026-06-04T12:00:27.756Z"}
+{"level":"info","message":"BNB/USDC: %R -99.2 oversold — still falling, wait | HA bearish continuation | No significant S/R zone nearby","timestamp":"2026-06-04T12:00:27.757Z"}
+{"level":"info","message":"LINK/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:27.874Z"}
+{"level":"info","message":"TRX/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:28.162Z"}
+{"level":"info","message":"BCH/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:28.258Z"}
+{"level":"info","message":"XRP/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:28.468Z"}
+{"level":"info","message":"CRV/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:28.665Z"}
+{"level":"info","message":"ENS/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:28.863Z"}
+{"level":"info","message":"LDO/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:29.197Z"}
+{"level":"info","message":"LTC/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:29.268Z"}
+{"level":"info","message":"ACH/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:29.614Z"}
+{"level":"info","message":"NEAR/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:29.667Z"}
+{"level":"info","message":"PAXG/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:30.029Z"}
+{"level":"info","message":"JTO/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:30.068Z"}
+{"level":"info","message":"GMX/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:30.411Z"}
+{"level":"info","message":"PIXEL/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:30.810Z"}
+{"level":"info","message":"THETA/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:30.960Z"}
+{"level":"info","message":"VANRY/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:31.157Z"}
+{"level":"info","message":"LSK/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:31.263Z"}
+{"level":"info","message":"SOL/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:31.469Z"}
+{"level":"info","message":"SUI/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:31.663Z"}
+{"level":"info","message":"MANTA/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:31.869Z"}
+{"level":"info","message":"TIA/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:32.149Z"}
+{"level":"info","message":"INJ/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:32.270Z"}
+{"level":"info","message":"ADA/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:32.553Z"}
+{"level":"info","message":"TON/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:32.826Z"}
+{"level":"info","message":"RENDER/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:32.961Z"}
+{"level":"info","message":"PEPE/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:33.075Z"}
+{"level":"info","message":"ETH/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:33.270Z"}
+{"level":"info","message":"DOGE/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:33.618Z"}
+{"level":"info","message":"ENA/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:33.834Z"}
+{"level":"info","message":"ICP/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:34.045Z"}
+{"level":"info","message":"AVAX/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:34.163Z"}
+{"level":"info","message":"APT/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:34.366Z"}
+{"level":"info","message":"WLD/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:34.602Z"}
+{"level":"info","message":"JUP/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:34.672Z"}
+{"level":"info","message":"ARB/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:35.017Z"}
+{"level":"info","message":"BNB/USDC: live balance=192.04 pnl=-0.71 open_positions=0 daily_pnl=0.00 blocked=false","timestamp":"2026-06-04T12:00:35.070Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T12:02:59.987Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T12:17:59.993Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T12:32:59.715Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T12:48:01.087Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T13:02:59.557Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T13:17:59.554Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T13:32:59.537Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T13:47:59.532Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T14:02:59.581Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T14:17:59.554Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T14:32:59.564Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T14:48:01.000Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T15:02:59.565Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T15:17:59.571Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T15:32:59.571Z"}
+{"level":"info","message":"[MTF-CACHE] 4h refresh complete: 37/37 symbols","timestamp":"2026-06-04T15:33:00.353Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T15:48:00.700Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T16:02:59.556Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T16:17:59.563Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T16:32:59.555Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T16:47:59.982Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T17:03:00.083Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T17:18:00.065Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T17:32:59.603Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T17:47:59.603Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T18:02:59.629Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T18:18:00.085Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T18:32:59.608Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T18:47:59.896Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T19:02:59.587Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T19:17:59.634Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T19:32:59.632Z"}
+{"level":"info","message":"[MTF-CACHE] 4h refresh complete: 37/37 symbols","timestamp":"2026-06-04T19:33:00.416Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T19:47:59.591Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T20:02:59.677Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T20:17:59.612Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T20:32:59.590Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T20:47:59.594Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T21:02:59.587Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T21:18:01.203Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T21:32:59.661Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T21:47:59.944Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T22:03:00.232Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T22:17:59.631Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T22:33:00.039Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T22:47:59.947Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T23:03:00.489Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T23:18:00.497Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T23:32:59.972Z"}
+{"level":"info","message":"[MTF-CACHE] 4h refresh complete: 37/37 symbols","timestamp":"2026-06-04T23:33:03.042Z"}
+{"level":"info","message":"[MTF-CACHE] 15m refresh complete: 37/37 symbols","timestamp":"2026-06-04T23:48:00.968Z"}
