@@ -162,7 +162,7 @@ Architecture, data flow, module responsibilities, and deployment.
 4. Load persisted state from data/position_state.json (SL, HWM, entry)
 5. Reconstruct position object (entry, SL, TP, qty)
 6. If persisted state exists → restore exact SL/HWM (no data loss on restart)
-7. If no persisted state → heuristic: apply break-even if price > entry × 1.05
+7. If no persisted state → lock break-even only when the live ticker is already above entry × 1.05
 8. If no history match → create synthetic entry at current price
 ```
 
@@ -180,9 +180,9 @@ Architecture, data flow, module responsibilities, and deployment.
 ```
 1. initNotifier(TELEGRAM_TOKEN, TELEGRAM_CHANNEL_IDS) at startup
 2. If token/chatIds missing → module becomes no-op (no errors)
-3. On BUY:  broadcast 🟢 BUY {symbol} with price, qty, size
-4. On SELL: broadcast 🔴 SELL {symbol} with price, P&L, duration, note
-5. On startup: broadcast 🤖 Bot Started with mode + symbol count
+3. On BUY:  broadcast 🟢 BUY {symbol} with entry, qty, notional, SL/TP, balance, order id
+4. On SELL: broadcast 🔴 SELL {symbol} with entry/exit, P&L, duration, reason, balance, note
+5. On startup: broadcast 🤖 Bot Started with mode, timeframe, slots, min confidence, enabled filters
 6. Triggers: cycle trades, risk-loop closes, manual closes
 ```
 

@@ -70,6 +70,8 @@ Live at `http://localhost:3001` — four tabs:
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
 
+Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/filter context.
+
 ---
 
 ## npm Scripts
@@ -103,7 +105,7 @@ See `--help` or [TECHNICAL.md](TECHNICAL.md) for all flags.
 37 Binance spot USDC pairs:  
 BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, TON, RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
 
-Max 3 concurrent positions (~33% capital each), sized by ATR and confidence.
+Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 
 ---
 
@@ -111,7 +113,7 @@ Max 3 concurrent positions (~33% capital each), sized by ATR and confidence.
 
 | Layer | Protection | Action |
 |-------|-----------|--------|
-| Entry | Max 3 positions | BUY blocked |
+| Entry | Max 4 positions | BUY blocked |
 | Entry | 4h momentum < 0.45 | BUY blocked |
 | Entry | 15m alignment < 0.50 | BUY blocked |
 | Entry | Daily loss > −5% | All trades blocked |

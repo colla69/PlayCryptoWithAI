@@ -413,6 +413,7 @@ export class LiveTrader {
         entryPrice,
         stopLoss: position.stopLoss,
         takeProfit: position.takeProfit,
+        orderId: order.id,
         timestamp,
         balance: balanceAfter,
         openedAt: timestamp,

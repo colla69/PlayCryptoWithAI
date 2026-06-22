@@ -48,10 +48,10 @@ export default {
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
     breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
     maxDailyLossPct: 0.05,
-    maxOpenPositions: 3,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
-                              //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%  ← BEST RETURN (current)
-                              //   slots=4 mtf=0.45  Y2  +97% Sh 2.27 DD -13%  OOS +73% Sh 1.98 DD -15%  (more trades, slightly better Sh)
-                              //   slots=4 mtf=0.55  Y2  +70% Sh 2.19 DD  -7%  OOS +78% Sh 2.22 DD  -8%  (best risk-adj: halved DD)
+    maxOpenPositions: 4,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
+                              //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%
+                              //   slots=4 mtf=0.55  Y2  +70% Sh 2.19 DD  -7%  OOS +78% Sh 2.22 DD  -8%  ← current
+                              //   slots=4 mtf=0.45  Y2  +97% Sh 2.27 DD -13%  OOS +73% Sh 1.98 DD -15%  (more return, more DD)
     // minConfidence threshold vs 3-strategy vote math:
     //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
     //   2-of-3 majority   → confidence = 0.67  → fails  0.70 ❌ (requires unanimity)

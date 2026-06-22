@@ -678,7 +678,17 @@ logStartup();
 // Initialize Telegram notifications (send-only — separate from the signal listener)
 const notifyChatIds = (process.env.TELEGRAM_CHANNEL_IDS?.split(',') ?? []).map(id => id.trim()).filter(Boolean);
 initNotifier(process.env.TELEGRAM_TOKEN, notifyChatIds);
-notifyStartup(paperMode ? 'PAPER' : testnetMode ? 'TESTNET' : 'LIVE', config.symbols);
+notifyStartup(paperMode ? 'PAPER' : testnetMode ? 'TESTNET' : 'LIVE', config.symbols, {
+  timeframe: config.timeframe,
+  maxOpenPositions: config.risk?.maxOpenPositions,
+  minConfidence: config.risk?.minConfidence,
+  mtf: config.mtfFilter?.enabled,
+  mtf4h: config.mtf4hFilter?.enabled,
+  atr: config.atr?.enabled,
+  macro: config.macroFilter?.enabled,
+  regimeSizing: config.regimeSizing?.enabled,
+  confSizing: config.confSizing?.enabled,
+});
 
 // Expose filter config to the dashboard
 dashboardState.setActiveFilters({

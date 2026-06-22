@@ -44,6 +44,26 @@ function formatDuration(ms) {
   return `${m}m`;
 }
 
+function formatMoney(value) {
+  const num = Number(value ?? 0);
+  return `${num >= 0 ? '+' : ''}${num.toFixed(2)}`;
+}
+
+function formatPrice(value) {
+  return Number(value ?? 0).toFixed(8);
+}
+
+function formatPct(value) {
+  return `${Number(value ?? 0).toFixed(1)}%`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 /**
  * Send a trade notification. Accepts a trade result object from the executor.
  */
@@ -57,18 +77,39 @@ export async function notifyTrade(trade) {
       const price = Number(trade.entryPrice ?? trade.price ?? 0);
       const qty = Number(trade.qty ?? 0);
       const size = (price * qty).toFixed(2);
-      const msg = `🟢 <b>BUY</b> ${symbol}\nPrice: ${price}\nQty: ${qty}\nSize: $${size}`;
+      const sl = trade.stopLoss != null ? formatPrice(trade.stopLoss) : 'n/a';
+      const tp = trade.takeProfit != null ? formatPrice(trade.takeProfit) : 'n/a';
+      const bal = trade.balance != null ? formatMoney(trade.balance) : 'n/a';
+      const orderId = trade.orderId != null ? `\nOrder: <code>${escapeHtml(trade.orderId)}</code>` : '';
+      const msg =
+       `🟢 <b>BUY</b> ${symbol}\n` +
+       `Entry: <code>${formatPrice(price)}</code>\n` +
+       `Qty: <code>${qty.toFixed(8)}</code>\n` +
+       `Notional: <code>$${size}</code>\n` +
+       `SL/TP: <code>${sl}</code> / <code>${tp}</code>\n` +
+       `Balance: <code>$${bal}</code>` +
+       orderId;
       await broadcast(msg);
     } else if (side === 'SELL') {
       const price = Number(trade.exitPrice ?? trade.price ?? 0);
+      const entryPrice = Number(trade.entryPrice ?? 0);
       const qty = Number(trade.qty ?? 0);
       const pnl = Number(trade.pnl ?? 0);
       const pnlPct = Number(trade.pnlPct ?? 0);
       const duration = trade.entryTime
-        ? formatDuration(Date.now() - new Date(trade.entryTime).getTime())
-        : (trade.duration ?? 'unknown');
-      const note = trade.note ? `\nNote: ${trade.note}` : '';
-      const msg = `🔴 <b>SELL</b> ${symbol}\nPrice: ${price}\nQty: ${qty}\nP&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDC (${pnlPct.toFixed(1)}%)\nHeld: ${duration}${note}`;
+       ? formatDuration(Date.now() - new Date(trade.entryTime).getTime())
+       : (trade.duration ?? 'unknown');
+      const reason = trade.reason ? `\nReason: <code>${escapeHtml(trade.reason)}</code>` : '';
+      const entry = entryPrice > 0 ? `\nEntry/Exit: <code>${formatPrice(entryPrice)}</code> → <code>${formatPrice(price)}</code>` : '';
+      const note = trade.note ? `\nNote: <code>${escapeHtml(trade.note)}</code>` : '';
+      const bal = trade.balance != null ? `\nBalance: <code>$${formatMoney(trade.balance)}</code>` : '';
+      const msg =
+       `🔴 <b>SELL</b> ${symbol}` +
+       `${entry}` +
+       `\nQty: <code>${qty.toFixed(8)}</code>` +
+       `\nP&L: <code>${formatMoney(pnl)} USDC</code> (${formatPct(pnlPct)})` +
+       `\nHeld: <code>${duration}</code>` +
+       `${reason}${bal}${note}`;
       await broadcast(msg);
     }
   } catch (err) {
@@ -79,10 +120,26 @@ export async function notifyTrade(trade) {
 /**
  * Send a startup notification.
  */
-export async function notifyStartup(mode, symbols) {
+export async function notifyStartup(mode, symbols, meta = {}) {
   if (!bot) return;
   try {
-    const msg = `🤖 <b>Bot Started</b>\nMode: ${mode}\nSymbols: ${symbols.length}\nTime: ${new Date().toUTCString()}`;
+    const filters = [
+      meta.mtf ? 'MTF 15m' : null,
+      meta.mtf4h ? 'MTF 4h' : null,
+      meta.atr ? 'ATR' : null,
+      meta.macro ? 'Macro' : null,
+      meta.regimeSizing ? 'Regime sizing' : null,
+      meta.confSizing ? 'Conf sizing' : null,
+    ].filter(Boolean).join(', ') || 'none';
+    const msg =
+      `🤖 <b>Bot Started</b>\n` +
+      `Mode: <code>${escapeHtml(mode)}</code>\n` +
+      `Symbols: <code>${symbols.length}</code>\n` +
+      `Timeframe: <code>${meta.timeframe ?? 'n/a'}</code>\n` +
+      `Slots: <code>${meta.maxOpenPositions ?? 'n/a'}</code>\n` +
+      `Min conf: <code>${meta.minConfidence ?? 'n/a'}</code>\n` +
+      `Filters: <code>${escapeHtml(filters)}</code>\n` +
+      `Time: <code>${new Date().toUTCString()}</code>`;
     await broadcast(msg);
   } catch (err) {
     logger.debug(`[NOTIFY] notifyStartup error: ${err.message}`);
