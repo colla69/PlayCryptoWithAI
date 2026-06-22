@@ -114,6 +114,14 @@ export class PortfolioBacktester {
     // Defined as a Map: symbol → slippagePct (e.g. 'ACH/USDC' → 0.003).
     // Falls back to the global risk.slippagePct when not set.
     this.symbolSlippage = config.symbolSlippage ?? {};
+    // Per-symbol risk overrides — { 'BTC/USDC': { stopLossPct, takeProfitPct }, ... }
+    // When present, each BUY uses the symbol's SL/TP instead of the global risk
+    // config, matching how the live bot resolves perSymbol overrides.
+    this.symbolRisk = config.symbolRisk ?? {};
+    // Per-symbol minConfidence overrides — { 'BTC/USDC': 0.55, ... }
+    // Applied to each symbol's SignalAggregator so the vote threshold matches
+    // the live bot's perSymbol.minConfidence.
+    this.symbolMinConfidence = config.symbolMinConfidence ?? {};
 
     const symbolCount = Object.keys(symbolStrategies).length;
     signalBus.setMaxListeners(Math.max(signalBus.getMaxListeners(), symbolCount + 5));
@@ -121,7 +129,11 @@ export class PortfolioBacktester {
     this.aggregators = Object.fromEntries(
       Object.entries(symbolStrategies).map(([sym, strats]) => [
         sym,
-        new SignalAggregator(strats, config.signals ?? {}),
+        new SignalAggregator(strats, {
+          ...(config.signals ?? {}),
+          // Per-symbol minConfidence override; falls back to global signals.minConfidence
+          ...(this.symbolMinConfidence[sym] != null && { minConfidence: this.symbolMinConfidence[sym] }),
+        }),
       ]),
     );
   }
@@ -341,6 +353,16 @@ export class PortfolioBacktester {
           slippagePct: this.symbolSlippage[sym],
         };
 
+        // Per-symbol SL/TP overrides — match the live bot's perSymbol config.
+        // Computed off the actual fill price so percentages line up with live.
+        const symRisk = this.symbolRisk[sym];
+        if (symRisk?.stopLossPct != null) {
+          entryOpts.stopLossPrice = d.nextOpen * (1 - Number(symRisk.stopLossPct));
+        }
+        if (symRisk?.takeProfitPct != null) {
+          entryOpts.takeProfitPrice = d.nextOpen * (1 + Number(symRisk.takeProfitPct));
+        }
+
         if (this.atrSLTP && d.atrPct > 0) {
           const atrValue = d.atrPct * d.nextOpen;
           entryOpts.stopLossPrice = d.nextOpen - this.atrSLMultiplier * atrValue;
@@ -434,7 +456,13 @@ export class PortfolioBacktester {
         const start = this.maxLookback > 0 ? Math.max(0, i - this.maxLookback) : 0;
         const slice = candles.slice(start, i + 1);
         const candle = slice.at(-1);
-        const result = this.aggregators[sym].aggregate(slice, sym, this.config.signals ?? {});
+        // Pass a per-symbol-aware signals config so updateConfig() inside
+        // aggregate() doesn't overwrite the symbol's minConfidence with the global.
+        const symSignals = {
+          ...(this.config.signals ?? {}),
+          ...(this.symbolMinConfidence[sym] != null && { minConfidence: this.symbolMinConfidence[sym] }),
+        };
+        const result = this.aggregators[sym].aggregate(slice, sym, symSignals);
 
         allData[sym].push({
           decision: result.decision,

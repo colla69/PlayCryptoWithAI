@@ -378,6 +378,24 @@ const trailingLabel = args.trailing > 0 ? `  TrailingStop: ${(args.trailing*100)
 const slLabel = args.sl ? ` (override)` : '';
 console.log(`  Risk config: SL=${(portfolioRisk.stopLossPct*100).toFixed(0)}%${slLabel}  TP=${(portfolioRisk.takeProfitPct*100).toFixed(0)}%${slLabel}${trailingLabel}  (median across all symbols)\n`);
 
+// Build per-symbol risk and minConfidence maps from config.perSymbol{} so the
+// portfolio backtester honours the same overrides the live bot uses.
+const symbolRisk = {};
+const symbolMinConfidence = {};
+for (const sym of Object.keys(symbolCandles)) {
+  const ps = config.perSymbol?.[sym];
+  if (!ps) continue;
+  if (ps.stopLossPct != null || ps.takeProfitPct != null) {
+    symbolRisk[sym] = {
+      ...(ps.stopLossPct   != null && { stopLossPct:   ps.stopLossPct }),
+      ...(ps.takeProfitPct != null && { takeProfitPct: ps.takeProfitPct }),
+    };
+  }
+  if (ps.minConfidence != null) {
+    symbolMinConfidence[sym] = ps.minConfidence;
+  }
+}
+
 // Build backtester
 const backtester = new PortfolioBacktester(symbolStrategies, {
   risk:               { ...portfolioRisk, breakEvenTriggerPct: args.breakEven },
@@ -421,6 +439,8 @@ const backtester = new PortfolioBacktester(symbolStrategies, {
   regimeBoostFactor:  args.regimeBoostFactor,
   regimePenaltyFactor: args.regimePenaltyFactor,
   symbolSlippage:     SLIPPAGE_TIERS,
+  symbolRisk,
+  symbolMinConfidence,
 });
 
 console.log('Running simulation…');
