@@ -77,7 +77,7 @@ export default {
     // Clamped to [minSlPct, maxSlPct] and [minTpPct, maxTpPct] to avoid extremes.
     // The same multipliers apply in live + backtester (live ≡ backtest invariant).
     atrStops: {
-      enabled: true,     // turn on once baseline measured
+      enabled: false,    // A/B (Phase 1): net-negative vs well-tuned per-symbol fixed stops — OFF
       slMultiplier: 1.5, // SL = atrPct × 1.5
       tpMultiplier: 3.0, // TP = atrPct × 3.0  (R:R = 1:2)
       minSlPct: 0.02,    // never tighter than 2%
