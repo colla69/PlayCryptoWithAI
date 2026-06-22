@@ -48,10 +48,10 @@ export default {
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
     breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
     maxDailyLossPct: 0.05,
-    maxOpenPositions: 3,     // 3 slots → ~33% per position; Sortino 10.33, +1912% full OOS, DD -13%
-                              // slots=3 gives +473% but Sharpe 1.44 (below 1.5 floor) and -26.6% DD
-                              // slots=5 gives +269% Sharpe 1.70; 4 is optimal risk-adjusted sweet spot
-                              // slots=3 gives +47% but -20% DD; slots=34 gives +9.6% tiny positions
+    maxOpenPositions: 3,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
+                              //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%  ← BEST RETURN (current)
+                              //   slots=4 mtf=0.45  Y2  +97% Sh 2.27 DD -13%  OOS +73% Sh 1.98 DD -15%  (more trades, slightly better Sh)
+                              //   slots=4 mtf=0.55  Y2  +70% Sh 2.19 DD  -7%  OOS +78% Sh 2.22 DD  -8%  (best risk-adj: halved DD)
     // minConfidence threshold vs 3-strategy vote math:
     //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
     //   2-of-3 majority   → confidence = 0.67  → fails  0.70 ❌ (requires unanimity)
@@ -526,6 +526,12 @@ export default {
   //                 18-month: +31.37% → +36.33% (+5.0pp),  Sharpe 1.06 → 1.17
   // Optimal params: alignBars=16 (4h), minAlignScore=0.50 (≥8 green out of 16)
   // 38/730 BUY signals blocked per year — low false-positive rate.
+  //
+  // Post-fix sweep (2026-06-22, slots=3, all filters on): 0.50 wins on raw return.
+  //   mtf=0.40  Y2  +75% / OOS +37%   (too permissive, OOS hit hard)
+  //   mtf=0.45  Y2 +109% / OOS +67%   (close to baseline)
+  //   mtf=0.50  Y2 +111% / OOS +84%   ← current
+  //   mtf=0.55  Y2  +74% / OOS +80%   (DD halved to -8/-11% — risk-adj alternative)
   mtfFilter: {
     enabled: true,
     alignBars: 16,         // 16 × 15m = 4h lookback window within the 12h candle
