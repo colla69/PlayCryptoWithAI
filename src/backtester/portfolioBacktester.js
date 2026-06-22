@@ -36,6 +36,11 @@ import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
 import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
 import signalBus from '../signals/signalBus.js';
+import {
+  calcCorrelationCap,
+  calcWeeklyDDBreaker,
+  calcPositionAgingExit,
+} from '../risk/portfolioRisk.js';
 
 const MIN_WARMUP = 50;
 const ADX_LOOKBACK = 50;
@@ -64,6 +69,15 @@ export class PortfolioBacktester {
     this.atrTPMultiplier = Number(config.atrTPMultiplier ?? 3.0);
     this.correlationFilter = Boolean(config.correlationFilter ?? false);
     this.correlationThreshold = Number(config.correlationThreshold ?? 0.8);
+    // Phase 7: portfolio risk gates — all opt-in via config.risk.*
+    // weeklyDDBreaker: pause new entries after 7-day rolling P&L breaches threshold
+    this.weeklyDDBreaker = Boolean(config.risk?.weeklyDDBreaker?.enabled ?? false);
+    this.weeklyDDLossThreshold = Number(config.risk?.weeklyDDBreaker?.lossThreshold ?? 0.10);
+    this.weeklyDDCooldownHours = Number(config.risk?.weeklyDDBreaker?.cooldownHours ?? 72);
+    // positionAgingExit: close positions that hit `maxAgeBars` without TP/SL
+    this.positionAgingExit = Boolean(config.risk?.positionAgingExit?.enabled ?? false);
+    this.positionAgingMaxBars = Number(config.risk?.positionAgingExit?.maxAgeBars ?? 14);
+    this.candleIntervalMs = Number(config.candleIntervalMs ?? 12 * 60 * 60 * 1000);
     this.fearGreedFilter = Boolean(config.fearGreedFilter ?? false);
     this.fearGreedThreshold = Number(config.fearGreedThreshold ?? 50);
     this.fearGreedData = Array.isArray(config.fearGreedData) ? config.fearGreedData : null;
@@ -225,6 +239,8 @@ export class PortfolioBacktester {
       fearGreed: 0,
       correlation: 0,
       mtfEarlyExit: 0,
+      positionAging: 0,
+      weeklyDDBreaker: 0,
     };
 
     for (let step = 0; step < maxLen - MIN_WARMUP; step++) {
@@ -273,6 +289,33 @@ export class PortfolioBacktester {
         }
       }
 
+      // ── Position aging exit (Phase 7) ───────────────────────────────────
+      // Close positions open more than maxAgeBars without hitting TP/SL.
+      // Frees capital sitting in sluggish trades; non-adaptive rule (no
+      // overfit risk).
+      if (this.positionAgingExit) {
+        const openPositions = simulator.getStatus().positions;
+        for (const pos of openPositions) {
+          const sym = pos.symbol;
+          const d = allData[sym]?.[step];
+          if (!d) continue;
+          const positionEntryTs = simulator.positions.get(sym)?.entryTime;
+          if (positionEntryTs == null) continue;
+          const aging = calcPositionAgingExit({
+            entryTs: positionEntryTs,
+            nowTs: d.timestamp,
+            candleIntervalMs: this.candleIntervalMs,
+            maxAgeBars: this.positionAgingMaxBars,
+          });
+          if (aging.shouldExit) {
+            simulator.setTimestamp(d.timestamp);
+            simulator.execute(sym, 'SELL', d.price);
+            delete positionOpenedStep[sym];
+            filtersApplied.positionAging = (filtersApplied.positionAging ?? 0) + 1;
+          }
+        }
+      }
+
       for (const sym of symbols) {
         const d = allData[sym]?.[step];
         if (!d) continue;
@@ -295,7 +338,29 @@ export class PortfolioBacktester {
 
       buyQueue.sort((a, b) => b.d.confidence - a.d.confidence);
 
+      // ── Weekly DD circuit breaker (Phase 7) ─────────────────────────────
+      // Check ONCE per step (not per candidate) so all queued buys see the
+      // same gate decision. When triggered, every BUY at this step is
+      // rejected; existing positions are still managed normally.
+      let weeklyDDBlock = null;
+      if (this.weeklyDDBreaker && buyQueue.length > 0) {
+        const nowTs = buyQueue[0]?.d?.timestamp ?? Date.now();
+        const breaker = calcWeeklyDDBreaker({
+          recentTrades: simulator.getTrades(),
+          initialBalance,
+          lossThreshold: this.weeklyDDLossThreshold,
+          cooldownHours: this.weeklyDDCooldownHours,
+          nowMs: nowTs,
+        });
+        if (breaker.blocked) weeklyDDBlock = breaker;
+      }
+
       for (const { sym, d } of buyQueue) {
+        if (weeklyDDBlock) {
+          filtersApplied.weeklyDDBreaker = (filtersApplied.weeklyDDBreaker ?? 0) + 1;
+          continue;
+        }
+
         if (this.regimeFilter && !d.isTrending) {
           filtersApplied.regime++;
           continue;
@@ -318,11 +383,13 @@ export class PortfolioBacktester {
         if (status.positions.some((p) => p.symbol === sym)) continue;
 
         if (this.correlationFilter) {
-          const isBlocked = status.positions.some((p) => {
-            const correlation = correlationMatrix?.[sym]?.[p.symbol];
-            return Number.isFinite(correlation) && correlation > this.correlationThreshold;
+          const cap = calcCorrelationCap({
+            candidateSymbol: sym,
+            openPositions: status.positions,
+            correlationMatrix,
+            threshold: this.correlationThreshold,
           });
-          if (isBlocked) {
+          if (cap.blocked) {
             filtersApplied.correlation++;
             continue;
           }

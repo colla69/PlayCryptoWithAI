@@ -215,6 +215,14 @@ class DashboardState {
     return (this.candleMap.get(symbol) ?? []).map((candle) => ({ ...candle }));
   }
 
+  /**
+   * Get a defensive copy of the trade history (Phase 7 — used by weekly
+   * DD breaker and other filters that need timestamped P&L history).
+   */
+  getTrades() {
+    return this.trades.map((trade) => ({ ...trade }));
+  }
+
   incrementCycle() {
     this.cycleCount += 1;
     this.#touch();

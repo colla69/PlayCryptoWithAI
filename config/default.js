@@ -95,6 +95,31 @@ export default {
       firstStagePctOfTp: 0.5,     // partial close at +50% of TP target
       firstStageFraction: 0.5,    // close 50% of qty
     },
+    // ── Phase 7 portfolio risk gates ──────────────────────────────────────
+    // Weekly DD circuit breaker: pause new entries for `cooldownHours` after
+    // the rolling 7-day P&L breaches `lossThreshold` (fraction of initial).
+    // Existing positions stay managed normally (SL/TP/break-even all active).
+    weeklyDDBreaker: {
+      enabled: true,
+      lossThreshold: 0.10,    // -10% in any 7-day window triggers
+      cooldownHours: 72,      // pause new entries for 3 days
+    },
+    // Position aging exit: close positions open more than maxAgeBars without
+    // hitting TP/SL. Frees capital sitting in sluggish trades; non-adaptive.
+    positionAgingExit: {
+      enabled: true,
+      maxAgeBars: 14,         // 14 × 12h = 7 days
+    },
+  },
+  // Phase 7: correlation cap on new entries — replaces the previously
+  // rejected `correlation` block. The OLD impl was a routing filter
+  // (try-next-symbol). The NEW one is a hard cap on the BUY itself, which
+  // is what the test labelled net-negative. Re-evaluating with the new
+  // confidence-weighted aggregator + a tighter threshold (0.85 vs 0.80).
+  correlation: {
+    enabled: true,
+    threshold: 0.85,
+    period: 60,
   },
   // ──────────────────────────────────────────────────────────────────
   // Per-symbol overrides — 12h holdout-validated (Y1 = unseen year)
@@ -545,15 +570,10 @@ export default {
     emaPeriod: 200,          // BTC EMA period used to detect bear phase
     sizeReduceFactor: 0.5,   // multiply maxPositionPct by this in bear market
   },
-  // ── Correlation filter — avoid holding two coins that move together ──────────
-  // Backtest evidence (isolated test, 1yr): costs -7.6pp return with no DD
-  // improvement. When correlated coins both signal BUY they tend to both be right;
-  // blocking the second entry wastes more than it saves. Disabled.
-  correlation: {
-    enabled: false,
-    threshold: 0.8,  // Pearson r above this → skip the new BUY
-    period: 60,      // candles used for return series (60 × 12h = 30 days)
-  },
+  // ── Correlation filter — moved to risk.correlation block at top of file
+  // (Phase 7 revisit with confidence-weighted aggregator + tighter threshold).
+  // The OLD rejected impl was a routing filter; new impl is a hard cap on the
+  // BUY itself. See risk.correlation above.
   // ── Multi-Timeframe (MTF) entry alignment filter ──────────────────────────────
   // Before entering a 12h BUY, checks the last 15m candles within that 12h period.
   // If fewer than `minAlignScore` fraction of those candles are green (close > open),

@@ -4,6 +4,10 @@
  */
 import { isMarketTrending } from '../utils/indicators.js';
 import { mtfAlignScore, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
+import {
+  calcCorrelationCap,
+  calcWeeklyDDBreaker,
+} from '../risk/portfolioRisk.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -22,6 +26,7 @@ export function checkRegimeFilter(candles, regimeCfg) {
 
 /**
  * Correlation filter: blocks BUY if already holding a correlated coin.
+ * Delegates to calcCorrelationCap so live ≡ backtest.
  * @param {string} symbol
  * @param {Array<{symbol: string}>} openPositions
  * @param {object} correlationMatrix
@@ -30,16 +35,34 @@ export function checkRegimeFilter(candles, regimeCfg) {
  */
 export function checkCorrelationFilter(symbol, openPositions, correlationMatrix, corrConfig) {
   if (!corrConfig?.enabled) return null;
-  const threshold = corrConfig.threshold ?? 0.8;
-  const correlated = openPositions.find((p) => {
-    const r = correlationMatrix[symbol]?.[p.symbol] ?? 0;
-    return r > threshold;
+  const cap = calcCorrelationCap({
+    candidateSymbol: symbol,
+    openPositions,
+    correlationMatrix,
+    threshold: corrConfig.threshold ?? 0.85,
   });
-  if (correlated) {
-    const r = (correlationMatrix[symbol]?.[correlated.symbol] ?? 0).toFixed(2);
-    return `Correlated with open ${correlated.symbol.replace('/USDC', '').replace('/USDT', '')} (r=${r})`;
-  }
-  return null;
+  if (!cap.blocked) return null;
+  const short = cap.conflictSymbol.replace('/USDC', '').replace('/USDT', '');
+  return `Correlated with open ${short} (r=${cap.correlation.toFixed(2)})`;
+}
+
+/**
+ * Weekly DD circuit breaker: blocks new entries after the rolling 7-day
+ * portfolio P&L breaches the loss threshold.
+ * @param {Array<{timestamp: string|number, pnl: number, side: string}>} recentTrades
+ * @param {number} initialBalance
+ * @param {{enabled?: boolean, lossThreshold?: number, cooldownHours?: number}} ddConfig
+ * @returns {string|null} Block reason or null
+ */
+export function checkWeeklyDDBreaker(recentTrades, initialBalance, ddConfig) {
+  if (!ddConfig?.enabled) return null;
+  const breaker = calcWeeklyDDBreaker({
+    recentTrades,
+    initialBalance,
+    lossThreshold: ddConfig.lossThreshold ?? 0.10,
+    cooldownHours: ddConfig.cooldownHours ?? 72,
+  });
+  return breaker.blocked ? breaker.reason : null;
 }
 
 /**
@@ -107,8 +130,15 @@ export async function checkMTF4hFilter(symbol, fetchOHLCV, cfg4h) {
  * @param {object} params.config - Full app config
  * @returns {Promise<{blockReason: string|null, mtfSizeFactor: number}>}
  */
-export async function runEntryFilters({ symbol, candles, openPositions, correlationMatrix, fetchOHLCV, config }) {
+export async function runEntryFilters({ symbol, candles, openPositions, correlationMatrix, fetchOHLCV, config, recentTrades = [], initialBalance = 0 }) {
   let mtfSizeFactor = 1.0;
+
+  // Weekly DD circuit breaker (Phase 7) — check first, cheap and global
+  const ddBlock = checkWeeklyDDBreaker(recentTrades, initialBalance, config.risk?.weeklyDDBreaker);
+  if (ddBlock) {
+    logger.info(`${symbol}: BUY suppressed — ${ddBlock}`);
+    return { blockReason: ddBlock, mtfSizeFactor };
+  }
 
   // Regime filter
   const regimeBlock = checkRegimeFilter(candles, config.regime);

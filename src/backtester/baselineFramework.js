@@ -103,6 +103,10 @@ export const FULL_LIVE_FILTERS = Object.freeze({
   confSizingMax:       1.5,
   confSizingMin:       0.6,
   breakEvenTriggerPct: config.risk?.breakEvenTriggerPct ?? 0.05,
+  // Phase 7 portfolio risk gates
+  correlationFilter:    config.correlation?.enabled ?? false,
+  correlationThreshold: config.correlation?.threshold ?? 0.85,
+  correlationPeriod:    config.correlation?.period ?? 60,
 });
 
 /**

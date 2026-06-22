@@ -9,6 +9,7 @@ import SignalAggregator from './engine/signalAggregator.js';
 import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
+import { calcPositionAgingExit } from './risk/portfolioRisk.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
@@ -140,12 +141,40 @@ async function runCycle(symbol) {
     const currentPrice = Number(candles.at(-1).close);
     const currentStatus = await trader.getStatus();
     const symRisk = getRiskForSymbol(symbol);
+    const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
+
+    // ── Position aging exit (Phase 7) ────────────────────────────────────────
+    // Close positions open more than maxAgeBars without hitting TP/SL.
+    // Runs BEFORE the BUY/SELL decision so an aging exit frees the slot for
+    // a new entry candidate this same cycle.
+    const agingCfg = config.risk?.positionAgingExit;
+    if (agingCfg?.enabled && hasPosition) {
+      const myPos = currentStatus.positions.find((p) => p.symbol === symbol);
+      if (myPos && myPos.openedAt) {
+        const aging = calcPositionAgingExit({
+          entryTs: new Date(myPos.openedAt).getTime(),
+          nowTs: Date.now(),
+          candleIntervalMs: Number(config.pollIntervalMs ?? 12 * 60 * 60 * 1000),
+          maxAgeBars: Number(agingCfg.maxAgeBars ?? 14),
+        });
+        if (aging.shouldExit) {
+          logger.info(`${symbol}: ${aging.reason}`);
+          const agingExit = await trader.execute(symbol, 'SELL', currentPrice, symRisk);
+          if (agingExit) {
+            dashboardState.pushTrade(agingExit);
+            if (typeof agingExit.pnl === 'number') riskManager.recordTrade(agingExit.pnl);
+            notifyTrade(agingExit);
+            pushEvent('trade', agingExit);
+            return; // skip the rest of the cycle for this symbol
+          }
+        }
+      }
+    }
 
     // ── Easier SELL for open positions: lower confidence threshold ────────────
     // If we already hold this symbol and the aggregator says SELL but confidence
     // fell below minConfidence (decision forced to HOLD), re-check at a lower bar.
     // Exiting a position requires less conviction than entering one.
-    const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
     if (hasPosition && result.decision === 'HOLD') {
       const sellVotes = result.signals.filter((s) => s.signal === 'SELL').length;
       const totalStrategies = result.signals.length;
@@ -175,6 +204,8 @@ async function runCycle(symbol) {
       const filterResult = await runEntryFilters({
         symbol, candles, openPositions: currentStatus.positions,
         correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
+        recentTrades: dashboardState.getTrades?.() ?? [],
+        initialBalance: config.risk?.initialBalance ?? 0,
       });
       blockReason = filterResult.blockReason;
       mtfSizeFactor = filterResult.mtfSizeFactor;
