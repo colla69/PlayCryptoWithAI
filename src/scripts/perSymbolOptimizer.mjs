@@ -166,13 +166,55 @@ function runWindow(candles, signalCache, comboNames, minConf, riskConfig) {
     sim.execute('SYM', decision, Number(candle.close));
   }
 
-  const trades     = sim.getTrades();
-  const equity     = sim.getEquityCurve();
-  return calculateMetrics(trades, equity, riskConfig.initialBalance);
+  const trades = sim.getTrades();
+  const equity = sim.getEquityCurve();
+  const metrics = calculateMetrics(trades, equity, riskConfig.initialBalance);
+  // Return both metrics and equity curve so compositeScore can compute DSR.
+  metrics._equityCurve = equity;
+  metrics._initialBalance = riskConfig.initialBalance;
+  return metrics;
 }
 
-// ── Composite score (same formula as optimizeStrategies.js) ──────────────────
-const MIN_TRADES = 3; // require ≥3 holdout trades to trust the out-of-sample result
+// ── Composite score (Phase 1 — robustness-first) ─────────────────────────────
+// Increased MIN_TRADES from 3 to 8: the previous threshold accepted essentially
+// single-event validations as legitimate, which is why many config entries
+// tagged [3t] or [4t] survived but show 0.00 deflated Sharpe in the Phase 0
+// baseline. With 8+ trades we get a defensible win-rate / Sharpe estimate.
+//
+// Sample-size shrinkage: combos with 8 ≤ n < 15 trades get an explicit
+// penalty (multiplies the raw composite by n/15) to discourage upgrading to a
+// borderline-significant combo when a more-traded one is available.
+//
+// Deflated Sharpe cut-off: combos with DSR < 0.50 are penalised — that's the
+// Bailey-Prado threshold below which the observed Sharpe is indistinguishable
+// from data dredging given the search burden (~440 combos × conf thresholds
+// per symbol).
+const MIN_TRADES                 = 8;     // strict holdout sample minimum
+const SAMPLE_SIZE_SHRINKAGE_CEIL = 15;    // below this we shrink toward zero
+const DEFLATED_SHARPE_FLOOR      = 0.50;  // below this we penalise
+const SEARCH_BURDEN_N_TRIALS     = 440;   // per-symbol: ~220 combos × 2 conf
+
+import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
+
+function dailyReturnsFromEquity(equityCurve, initialBalance) {
+  if (!Array.isArray(equityCurve) || equityCurve.length < 2) return [];
+  const byDay = new Map();
+  for (const point of equityCurve) {
+    const ts = Number(point?.timestamp ?? 0);
+    const bal = Number(point?.balance);
+    if (!Number.isFinite(bal) || !Number.isFinite(ts)) continue;
+    byDay.set(new Date(ts).toISOString().slice(0, 10), bal);
+  }
+  const sorted = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
+  if (sorted.length < 2) return [];
+  const rets = [];
+  let prev = initialBalance;
+  for (const bal of sorted) {
+    if (prev > 0) rets.push((bal - prev) / prev);
+    prev = bal;
+  }
+  return rets;
+}
 
 function compositeScore(m) {
   if (!m || m.totalTrades < MIN_TRADES) return -1000;
@@ -180,13 +222,39 @@ function compositeScore(m) {
   const sharpe  = Number.isFinite(m.sharpeRatio)  ? m.sharpeRatio  : 0;
   const calmar  = m.maxDrawdown > 0 ? m.totalReturn / m.maxDrawdown : 0;
   const pf      = Math.min(Number.isFinite(m.profitFactor) ? m.profitFactor : 0, 5);
-  return (
+  const raw = (
     sharpe                          * 0.30 +
     calmar                          * 0.25 +
     m.winRate                       * 0.20 +
     pf                              * 0.10 +
     Math.min(m.totalReturn, 2)      * 0.15
   );
+
+  // Shrink small-sample scores toward zero (linear factor in [n/15, 1])
+  const sampleShrinkage = m.totalTrades >= SAMPLE_SIZE_SHRINKAGE_CEIL
+    ? 1
+    : m.totalTrades / SAMPLE_SIZE_SHRINKAGE_CEIL;
+
+  // Deflated Sharpe penalty — multiplies composite by min(1, DSR/0.5)
+  // when DSR is below threshold. We use a per-symbol N=440 trials (the
+  // search space the optimizer itself ran), not the cross-symbol 16280
+  // burden — each symbol's selection is an independent search.
+  const equity = m._equityCurve ?? [];
+  const initBal = m._initialBalance ?? 1000;
+  const rets = dailyReturnsFromEquity(equity, initBal);
+  let dsrFactor = 1;
+  if (rets.length >= 4 && Number.isFinite(sharpe)) {
+    const dsr = deflatedSharpeRatio({
+      observedSharpe: sharpe,
+      returns: rets,
+      nTrials: SEARCH_BURDEN_N_TRIALS,
+    }).dsr;
+    if (dsr < DEFLATED_SHARPE_FLOOR) {
+      dsrFactor = Math.max(0, dsr / DEFLATED_SHARPE_FLOOR);
+    }
+  }
+
+  return raw * sampleShrinkage * dsrFactor;
 }
 
 // ── Candle loader ──────────────────────────────────────────────────────────────

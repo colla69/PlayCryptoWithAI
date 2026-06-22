@@ -56,6 +56,14 @@ export class SignalAggregator {
     this.externalSignals = new Map();
     this.config = mergeConfig(config);
     this.minimumConfidence = this.config.minConfidence;
+    // Multi-bar entry confirmation (Phase 1):
+    //   When enabled, borderline-confidence directional signals (conf below
+    //   midpoint between minConfidence and 1.0) are suppressed to HOLD unless
+    //   the previous bar agreed on the same direction. Kills one-bar fakeouts.
+    //   Off by default for tests/parity fixtures; live + backtester enable it.
+    //   lastDecisions: Map<symbol, { decision, confidence, timestamp }>
+    this.multiBarConfirmation = Boolean(this.config.multiBarConfirmation ?? false);
+    this.lastDecisions = new Map();
     this.handleExternalSignal = (signal) => this.ingestExternal(signal);
     signalBus.on('signal', this.handleExternalSignal);
   }
@@ -63,6 +71,9 @@ export class SignalAggregator {
   updateConfig(config = {}) {
     this.config = mergeConfig(config);
     this.minimumConfidence = this.config.minConfidence;
+    if (this.config.multiBarConfirmation !== undefined) {
+      this.multiBarConfirmation = Boolean(this.config.multiBarConfirmation);
+    }
     return this.config;
   }
 
@@ -167,12 +178,54 @@ export class SignalAggregator {
 
     if (tie || winner === 'HOLD' || confidence < this.minimumConfidence) {
       logger.debug(`[AGG] ${symbol}: decision=HOLD confidence=${confidence.toFixed(2)} tie=${tie} belowMin=${confidence < this.minimumConfidence} (minConf=${this.minimumConfidence})`);
+      // Reset the multi-bar streak on HOLD so the next non-HOLD requires
+      // genuine confirmation rather than inheriting a stale prior agreement.
+      if (this.multiBarConfirmation) {
+        this.lastDecisions.set(symbol, { decision: 'HOLD', confidence, timestamp: Date.now() });
+      }
       return {
         decision: 'HOLD',
         confidence,
         signals,
         externalSignals,
       };
+    }
+
+    // ── Multi-bar entry confirmation (Phase 1) ────────────────────────────
+    // For *barely-passing* directional signals (within MULTIBAR_MARGIN of
+    // minConfidence), require the previous bar to have produced the same
+    // direction. Filters out one-bar fakeouts. Signals with confidence
+    // comfortably above the threshold execute immediately.
+    //
+    // Margin is absolute (not midpoint-based) because the Phase 1 confidence
+    // formula compresses the typical distribution into [0.3, 0.7] and a
+    // midpoint-based borderline ends up covering almost everything.
+    //
+    // NOTE: This suppresses the *aggregate* decision but does NOT touch
+    // result.signals or result.confidence. The asymmetric-exit code in
+    // main.js reads those raw values, so SELLs on open positions are
+    // still rescued by the lowered exit threshold path even when
+    // multi-bar suppresses entries.
+    const MULTIBAR_MARGIN = 0.10;
+    if (this.multiBarConfirmation) {
+      const borderlineCeiling = this.minimumConfidence + MULTIBAR_MARGIN;
+      if (confidence < borderlineCeiling) {
+        const prev = this.lastDecisions.get(symbol);
+        const confirmed = prev && prev.decision === winner;
+        if (!confirmed) {
+          logger.debug(`[AGG] ${symbol}: decision=HOLD (multi-bar confirmation) winner=${winner} conf=${confidence.toFixed(2)} < borderlineCeiling=${borderlineCeiling.toFixed(2)} prev=${prev?.decision ?? 'none'}`);
+          this.lastDecisions.set(symbol, { decision: winner, confidence, timestamp: Date.now() });
+          return {
+            decision: 'HOLD',
+            confidence,
+            signals,
+            externalSignals,
+            suppressedDecision: winner,
+            suppressedReason: 'multi-bar confirmation pending',
+          };
+        }
+      }
+      this.lastDecisions.set(symbol, { decision: winner, confidence, timestamp: Date.now() });
     }
 
     logger.debug(`[AGG] ${symbol}: decision=${winner} confidence=${confidence.toFixed(2)} tie=${tie}`);

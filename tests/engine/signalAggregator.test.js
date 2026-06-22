@@ -240,3 +240,122 @@ describe('SignalAggregator: Strategy Results Array', () => {
     agg.destroy();
   });
 });
+
+describe('SignalAggregator: Multi-bar Confirmation', () => {
+  // Borderline = conf in [minConfidence, minConfidence + 0.10) — strict
+  // confirmation only for signals BARELY passing the threshold.
+  // With minConfidence=0.55 → borderlineCeiling=0.65
+  // 2-of-3 BUY conf 0.9 + 1 HOLD → vote 1.8/3 = 0.60 (borderline)
+  // 3-of-3 BUY conf 0.9          → vote 0.9    (above ceiling, bypasses gate)
+
+  test('first bar of borderline BUY is suppressed to HOLD', () => {
+    const strategies = [
+      mockStrategy('BUY', 0.9),
+      mockStrategy('BUY', 0.9),
+      mockStrategy('HOLD', 0.5),
+    ];
+    const agg = new SignalAggregator(strategies, {
+      minConfidence: 0.55,
+      multiBarConfirmation: true,
+    });
+    const r1 = agg.aggregate(CANDLES, 'BTC/USDC');
+    assert.equal(r1.decision, 'HOLD', `expected HOLD on first borderline bar, got ${r1.decision}`);
+    assert.equal(r1.suppressedDecision, 'BUY');
+    assert.equal(r1.suppressedReason, 'multi-bar confirmation pending');
+    agg.destroy();
+  });
+
+  test('second consecutive borderline BUY is confirmed and executes', () => {
+    const strategies = [
+      mockStrategy('BUY', 0.9),
+      mockStrategy('BUY', 0.9),
+      mockStrategy('HOLD', 0.5),
+    ];
+    const agg = new SignalAggregator(strategies, {
+      minConfidence: 0.55,
+      multiBarConfirmation: true,
+    });
+    agg.aggregate(CANDLES, 'BTC/USDC');                 // bar 1 → suppressed
+    const r2 = agg.aggregate(CANDLES, 'BTC/USDC');      // bar 2 → confirmed
+    assert.equal(r2.decision, 'BUY', `expected BUY on second bar, got ${r2.decision}`);
+    assert.equal(r2.suppressedDecision, undefined);
+    agg.destroy();
+  });
+
+  test('high-confidence BUY bypasses multi-bar gate', () => {
+    const strategies = [
+      mockStrategy('BUY', 1.0),
+      mockStrategy('BUY', 1.0),
+      mockStrategy('BUY', 1.0),
+    ];
+    const agg = new SignalAggregator(strategies, {
+      minConfidence: 0.55,
+      multiBarConfirmation: true,
+    });
+    const r1 = agg.aggregate(CANDLES, 'BTC/USDC');
+    // 3/3 conf 1.0 → confidence 1.0 ≥ ceiling 0.65 → bypass gate
+    assert.equal(r1.decision, 'BUY', `expected BUY (bypass gate), got ${r1.decision}`);
+    agg.destroy();
+  });
+
+  test('HOLD between two BUY signals resets the streak', () => {
+    const buyStrategies = [
+      mockStrategy('BUY', 0.9),
+      mockStrategy('BUY', 0.9),
+      mockStrategy('HOLD', 0.5),
+    ];
+    const holdStrategies = [
+      mockStrategy('HOLD', 0.3),
+      mockStrategy('HOLD', 0.3),
+      mockStrategy('HOLD', 0.3),
+    ];
+    const agg = new SignalAggregator(buyStrategies, {
+      minConfidence: 0.55,
+      multiBarConfirmation: true,
+    });
+    agg.aggregate(CANDLES, 'BTC/USDC');                                // bar 1 BUY → suppressed
+    agg.strategies = holdStrategies;
+    agg.aggregate(CANDLES, 'BTC/USDC');                                // bar 2 HOLD → streak reset
+    agg.strategies = buyStrategies;
+    const r3 = agg.aggregate(CANDLES, 'BTC/USDC');
+    assert.equal(r3.decision, 'HOLD', `expected HOLD on bar 3 (streak reset), got ${r3.decision}`);
+    assert.equal(r3.suppressedDecision, 'BUY');
+    agg.destroy();
+  });
+
+  test('opposite-direction prior decision does not confirm', () => {
+    const sellStrategies = [
+      mockStrategy('SELL', 0.9),
+      mockStrategy('SELL', 0.9),
+      mockStrategy('HOLD', 0.5),
+    ];
+    const buyStrategies = [
+      mockStrategy('BUY', 0.9),
+      mockStrategy('BUY', 0.9),
+      mockStrategy('HOLD', 0.5),
+    ];
+    const agg = new SignalAggregator(sellStrategies, {
+      minConfidence: 0.55,
+      multiBarConfirmation: true,
+    });
+    agg.aggregate(CANDLES, 'BTC/USDC');                                // bar 1 SELL suppressed
+    agg.strategies = buyStrategies;
+    const r2 = agg.aggregate(CANDLES, 'BTC/USDC');                     // bar 2 BUY (different dir)
+    assert.equal(r2.decision, 'HOLD', `expected HOLD (BUY can't confirm SELL streak)`);
+    assert.equal(r2.suppressedDecision, 'BUY');
+    agg.destroy();
+  });
+
+  test('multi-bar gate is OFF by default (preserves backwards-compat)', () => {
+    const strategies = [
+      mockStrategy('BUY', 0.9),
+      mockStrategy('BUY', 0.9),
+      mockStrategy('HOLD', 0.5),
+    ];
+    // No multiBarConfirmation flag passed
+    const agg = new SignalAggregator(strategies, { minConfidence: 0.55 });
+    const r1 = agg.aggregate(CANDLES, 'BTC/USDC');
+    assert.equal(r1.decision, 'BUY', 'default behaviour must NOT suppress');
+    agg.destroy();
+  });
+});

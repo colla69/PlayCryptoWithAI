@@ -337,7 +337,9 @@ export function runWindow({
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,
     },
-    signals:           { minConfidence: minConfMedian },
+    // Forward the global signals block (carries multiBarConfirmation, algoWeight, etc.)
+    // and only override minConfidence with the per-window median.
+    signals: { ...(config.signals ?? {}), minConfidence: minConfMedian },
     maxOpenPositions,
     symbolSlippage:    SLIPPAGE_TIERS,
     symbolRisk,

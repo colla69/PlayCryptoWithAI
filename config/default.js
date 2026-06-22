@@ -485,6 +485,11 @@ export default {
     },
     algoWeight: 1.0,
     minConfidence: 0.70,
+    // Multi-bar entry confirmation (Phase 1): borderline-confidence directional
+    // signals (conf below midpoint between minConfidence and 1.0) require the
+    // previous bar to agree before being executed. Kills one-bar fakeouts.
+    // Live + backtester enable this; tests opt out via constructor flag.
+    multiBarConfirmation: true,
   },
   // ── Regime filter — suppress BUY signals when the market is ranging ─────────
   // ADX < threshold → choppy / sideways → skip new entries, protect capital.
