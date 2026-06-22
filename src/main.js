@@ -21,6 +21,7 @@ import { runEntryFilters } from './core/filters.js';
 import { calcFearGreedAdjustedThreshold } from './core/filters.js';
 import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
 import { refreshMarketContext } from './data/marketContext.js';
+import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { computePositionSize } from './core/positionSizing.js';
 import {
   buildStrategiesForSymbol,
@@ -73,6 +74,13 @@ let btcMacroBull = true;
 // ── Fear & Greed history (Phase 3) ───────────────────────────────────────────
 // Loaded once at startup; refreshed daily by loadFearGreedHistory's own TTL.
 let fearGreedData = null;
+
+// ── BTC Regime classifier (Phase 4) ──────────────────────────────────────────
+// One stateful tracker shared across all symbols. Updated at the start of each
+// cycle from BTC candles. Current regime is exposed on dashboardState for the
+// UI and used by routing/filters/sizing decisions.
+const regimeTracker = new RegimeTracker(config.regimeClassifier ?? {});
+let currentRegime = REGIME_LABELS.BULL_RANGE;
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -366,6 +374,25 @@ async function runAllSymbols() {
           `Macro filter: BTC ${btcMacroBull ? 'ABOVE' : 'BELOW'} EMA${config.macroFilter.emaPeriod ?? 200} — ` +
           `new positions ${btcMacroBull ? 'normal size' : `reduced to ${factor.toFixed(0)}%`}`,
         );
+      }
+    }
+
+    // ── Regime classifier (Phase 4) ────────────────────────────────────────
+    // Update once per cycle from BTC candles (closed bars only — slice off the
+    // forming one). Reports current regime; future routing/sizing changes
+    // will branch off `currentRegime`.
+    {
+      const btc = dashboardState.getCandles('BTC/USDC');
+      if (btc.length > 0) {
+        const closed = btc.slice(0, -1);
+        const snap = regimeTracker.update(closed, Date.now());
+        const prev = currentRegime;
+        currentRegime = snap.regime;
+        if (snap.regimeChanged) {
+          logger.warn(`[REGIME] BTC regime change: ${prev} → ${currentRegime}  (ADX ${snap.raw.adx} BTC ${snap.raw.btcClose.toFixed(0)} vs EMA200 ${snap.raw.ema200.toFixed(0)})`);
+        } else {
+          logger.debug(`[REGIME] ${currentRegime}  candidate=${snap.candidate ?? '-'} streak=${snap.streak}  (ADX ${snap.raw?.adx ?? 'n/a'})`);
+        }
       }
     }
 

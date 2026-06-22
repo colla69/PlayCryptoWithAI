@@ -6,13 +6,13 @@
  *   - Holdout window   = first 365 candles (Y1, unseen/older)
  *   - Optimise on Y2, validate on Y1 — same as all config comments "Y2 +X% Y1 +Y%"
  *
- * Tests all C(14,3) = 364 three-strategy combinations from the full pool:
+ * Tests all C(20,3) = 1140 three-strategy combinations from the full pool:
  *   RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR,
- *   StochRSI, HeikinAshi
+ *   StochRSI, HeikinAshi, S&R, Donchian, VWAP-σ, VolumeSurge, Ichimoku, PinBar
  *
  * Speed: signals are pre-computed once per strategy (O(N) per strategy),
- * then each combo simulation is just index lookups — ~364 combos × 2 conf
- * × 365 candles ≈ 266k iterations per symbol. Runs in seconds.
+ * then each combo simulation is just index lookups — ~1140 combos × 2 conf
+ * × 365 candles ≈ 832k iterations per symbol. Runs in seconds.
  *
  * Usage:
  *   PAPER_MODE=true node src/scripts/perSymbolOptimizer.mjs
@@ -37,6 +37,8 @@ import {
   EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
   MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
   StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
+  DonchianStrategy, VWAPSigmaStrategy, VolumeSurgeStrategy,
+  IchimokuStrategy, PinBarStrategy,
 } from '../strategies/index.js';
 import { aggregateVotes } from '../engine/aggregatorVoting.js';
 
@@ -63,7 +65,12 @@ function symCfg(symbol, key, defaults) {
   return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
 }
 
-const POOL_NAMES = ['RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV', 'PSAR', 'WR', 'StochRSI', 'HA', 'SR'];
+const POOL_NAMES = [
+  'RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV',
+  'PSAR', 'WR', 'StochRSI', 'HA', 'SR',
+  // Phase 2 — orthogonal additions
+  'Don', 'VWAPs', 'VolS', 'Ich', 'Pin',
+];
 
 function buildStrategy(name, symbol) {
   switch (name) {
@@ -82,6 +89,12 @@ function buildStrategy(name, symbol) {
     case 'StochRSI': return new StochRSIStrategy(symCfg(symbol, 'stochRsi', config.stochRsi ?? {}));
     case 'HA':       return new HeikinAshiStrategy(symCfg(symbol, 'heikinAshi', config.heikinAshi ?? {}));
     case 'SR':       return new SupportResistanceStrategy(symCfg(symbol, 'supportResistance', config.supportResistance ?? {}));
+    // Phase 2 — orthogonal additions
+    case 'Don':      return new DonchianStrategy(symCfg(symbol, 'donchian', config.donchian ?? {}));
+    case 'VWAPs':    return new VWAPSigmaStrategy(symCfg(symbol, 'vwapSigma', config.vwapSigma ?? {}));
+    case 'VolS':     return new VolumeSurgeStrategy(symCfg(symbol, 'volumeSurge', config.volumeSurge ?? {}));
+    case 'Ich':      return new IchimokuStrategy(symCfg(symbol, 'ichimoku', config.ichimoku ?? {}));
+    case 'Pin':      return new PinBarStrategy(symCfg(symbol, 'pinBar', config.pinBar ?? {}));
     default: throw new Error(`Unknown strategy: ${name}`);
   }
 }
@@ -92,6 +105,9 @@ const CONFIG_TO_POOL = {
   EMA: 'EMA', MACD: 'MACD', ADX: 'ADX', Supertrend: 'ST',
   MFI: 'MFI', OBV: 'OBV', PSAR: 'PSAR', WilliamsR: 'WR',
   StochRSI: 'StochRSI', HeikinAshi: 'HA', SR: 'SR',
+  // Phase 2 — orthogonal additions
+  Donchian: 'Don', 'VWAPσ': 'VWAPs', VolSurge: 'VolS',
+  Ichimoku: 'Ich', PinBar: 'Pin',
 };
 
 // ── Combination generator ─────────────────────────────────────────────────────
@@ -109,7 +125,7 @@ function combinations(arr, k) {
   return result;
 }
 
-const ALL_COMBOS = combinations(POOL_NAMES, 3); // C(12,3) = 220
+const ALL_COMBOS = combinations(POOL_NAMES, 3); // C(20,3) = 1140
 
 // ── Signal pre-computation ────────────────────────────────────────────────────
 const WARMUP = 50;
@@ -187,12 +203,12 @@ function runWindow(candles, signalCache, comboNames, minConf, riskConfig) {
 //
 // Deflated Sharpe cut-off: combos with DSR < 0.50 are penalised — that's the
 // Bailey-Prado threshold below which the observed Sharpe is indistinguishable
-// from data dredging given the search burden (~440 combos × conf thresholds
-// per symbol).
+// from data dredging given the search burden (~2280 combos × conf thresholds
+// per symbol after Phase 2 expanded the pool from 15 to 20 strategies).
 const MIN_TRADES                 = 8;     // strict holdout sample minimum
 const SAMPLE_SIZE_SHRINKAGE_CEIL = 15;    // below this we shrink toward zero
 const DEFLATED_SHARPE_FLOOR      = 0.50;  // below this we penalise
-const SEARCH_BURDEN_N_TRIALS     = 440;   // per-symbol: ~220 combos × 2 conf
+const SEARCH_BURDEN_N_TRIALS     = 2280;  // per-symbol: ~1140 combos × 2 conf
 
 import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
 
@@ -350,7 +366,7 @@ for (const symbol of loadedSymbols) {
   const currentHoldoutM = runWindow(holdout, holdoutCache, currentPoolNames, currentConf, holdoutRisk);
   const currentScore    = compositeScore(currentHoldoutM);
 
-  // ── 2. Run all 220 combos × 2 conf on TRAINING window ────────────────────
+  // ── 2. Run all 1140 combos × 2 conf on TRAINING window ──────────────────
   const trainingResults = [];
   for (const combo of ALL_COMBOS) {
     for (const conf of [0.55, 0.70]) {

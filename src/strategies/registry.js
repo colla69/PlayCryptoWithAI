@@ -13,6 +13,11 @@ import { WilliamsRStrategy } from './williamsR.js';
 import { StochRSIStrategy } from './stochRsi.js';
 import { HeikinAshiStrategy } from './heikinAshi.js';
 import { SupportResistanceStrategy } from './supportResistance.js';
+import { DonchianStrategy } from './donchian.js';
+import { VWAPSigmaStrategy } from './vwapSigma.js';
+import { VolumeSurgeStrategy } from './volumeSurge.js';
+import { IchimokuStrategy } from './ichimoku.js';
+import { PinBarStrategy } from './pinBar.js';
 
 /**
  * Registry of all available strategies.
@@ -225,6 +230,74 @@ export const STRATEGY_REGISTRY = [
       { key: 'nearZonePct',   label: 'Near-zone distance',     type: 'number', default: 0.015 },
     ],
     tags: ['structure', 'price-action', 'mean reversion'],
+  },
+  {
+    id: 'donchian',
+    name: 'Donchian',
+    fullName: 'Donchian Channel Breakout',
+    Class: DonchianStrategy,
+    defaultConfig: { period: 20, volumeMultiple: 1.2, volumePeriod: 20 },
+    description: 'Structural breakout: buys when close exceeds the N-bar high with volume confirmation, sells on a symmetric breakdown. Channel excludes the current bar so the breakout cannot reference itself. Adds an orthogonal trend-continuation signal distinct from MAs and oscillators.',
+    params: [
+      { key: 'period',         label: 'Channel period (N bars)',    type: 'number', default: 20  },
+      { key: 'volumeMultiple', label: 'Volume confirmation ratio',  type: 'number', default: 1.2 },
+      { key: 'volumePeriod',   label: 'Mean-volume window',         type: 'number', default: 20  },
+    ],
+    tags: ['breakout', 'structure', 'trend', 'volume'],
+  },
+  {
+    id: 'vwapSigma',
+    name: 'VWAP-σ',
+    fullName: 'VWAP ± σ Mean Reversion',
+    Class: VWAPSigmaStrategy,
+    defaultConfig: { period: 20, stdDevMult: 2 },
+    description: 'Rolling volume-weighted average price with volume-weighted stdev bands. Buys when price ≤ VWAP − kσ, sells when ≥ VWAP + kσ. Volume-weighted basis differs from Bollinger Bands (pure SMA stdev): heavy-volume bars exert more pull on the centerline. Confidence scales with z-score distance.',
+    params: [
+      { key: 'period',     label: 'Rolling window (bars)', type: 'number', default: 20 },
+      { key: 'stdDevMult', label: 'Band width (σ)',        type: 'number', default: 2  },
+    ],
+    tags: ['mean reversion', 'volume', 'volatility'],
+  },
+  {
+    id: 'volumeSurge',
+    name: 'Volume Surge',
+    fullName: 'Volume Surge Confluence',
+    Class: VolumeSurgeStrategy,
+    defaultConfig: { period: 20, multiplier: 2.0 },
+    description: 'Fires only when current-bar volume ≥ multiplier × mean(last N) AND the candle direction confirms (green → BUY, red → SELL). Abstains on quiet bars regardless of price action — adds a real-participation filter to the aggregator. Confidence scales with the surge magnitude.',
+    params: [
+      { key: 'period',     label: 'Mean-volume window', type: 'number', default: 20  },
+      { key: 'multiplier', label: 'Surge ratio (×)',    type: 'number', default: 2.0 },
+    ],
+    tags: ['volume', 'participation', 'confluence'],
+  },
+  {
+    id: 'ichimoku',
+    name: 'Ichimoku',
+    fullName: 'Ichimoku Cloud',
+    Class: IchimokuStrategy,
+    defaultConfig: { tenkanPeriod: 9, kijunPeriod: 26, spanBPeriod: 52, thickCloudPct: 0.01 },
+    description: 'Multi-component indicator (Tenkan/Kijun/Senkou A/Senkou B). BUY when price > cloud top AND Tenkan > Kijun; SELL on the symmetric bearish setup. Combines momentum cross with structural cloud break in one vote. Confidence boosted on fresh TK crosses and thick clouds.',
+    params: [
+      { key: 'tenkanPeriod',  label: 'Tenkan period',         type: 'number', default: 9    },
+      { key: 'kijunPeriod',   label: 'Kijun period',          type: 'number', default: 26   },
+      { key: 'spanBPeriod',   label: 'Senkou B period',       type: 'number', default: 52   },
+      { key: 'thickCloudPct', label: 'Thick-cloud threshold', type: 'number', default: 0.01 },
+    ],
+    tags: ['trend', 'momentum', 'cloud'],
+  },
+  {
+    id: 'pinBar',
+    name: 'Pin Bar',
+    fullName: 'Pin Bar / Wick Rejection',
+    Class: PinBarStrategy,
+    defaultConfig: { wickToBodyMin: 2.0, closeBandFrac: 0.4 },
+    description: 'Pure single-candle price-action signal: long wick (≥ 2× body) in one direction with close in the opposite end of the range. Standalone counterpart to the pin-bar logic embedded in S&R — this voter fires anywhere the pattern prints, not only near zones. Confidence scales with the wick-to-body ratio.',
+    params: [
+      { key: 'wickToBodyMin', label: 'Min wick / body ratio', type: 'number', default: 2.0 },
+      { key: 'closeBandFrac', label: 'Close band fraction',   type: 'number', default: 0.4 },
+    ],
+    tags: ['price-action', 'reversal', 'candle'],
   },
   {
     id: 'telegram',

@@ -43,6 +43,7 @@ import {
 } from '../risk/portfolioRisk.js';
 import { getContextAsOf } from '../data/marketContext.js';
 import { calcFearGreedAdjustedThreshold } from '../core/filters.js';
+import { classifySeries, REGIME_LABELS } from '../engine/regimeClassifier.js';
 
 const MIN_WARMUP = 50;
 const ADX_LOOKBACK = 50;
@@ -238,6 +239,17 @@ export class PortfolioBacktester {
         }
       }
     }
+
+    // ── Regime series (Phase 4) ────────────────────────────────────────────
+    // Pre-compute BTC regime at every bar so per-step logic can branch on it
+    // deterministically. classifySeries handles all warm-up + hysteresis.
+    const btcKey = symbolCandles['BTC/USDC'] ? 'BTC/USDC' : (symbolCandles['BTC/USDT'] ? 'BTC/USDT' : null);
+    const regimeSeries = btcKey
+      ? classifySeries(symbolCandles[btcKey], this.config.regimeClassifier ?? {})
+      : [];
+    // Index regimeSeries by timestamp for fast per-step lookup.
+    const regimeByTs = new Map();
+    for (const r of regimeSeries) regimeByTs.set(r.ts, r.regime);
 
     const maxLen = Math.max(...symbols.map((s) => symbolCandles[s].length));
     const positionOpenedStep = {};
@@ -565,6 +577,14 @@ export class PortfolioBacktester {
       symbolStats,
       regimeFilteredCount: filtersApplied.regime,
       filtersApplied,
+      // Phase 4: regime distribution across the run for diagnostics
+      regimeDistribution: (() => {
+        const dist = {};
+        for (const r of regimeSeries) {
+          if (r.regime) dist[r.regime] = (dist[r.regime] ?? 0) + 1;
+        }
+        return dist;
+      })(),
       config: {
         maxOpenPositions: this.maxOpenPositions,
         basePct,

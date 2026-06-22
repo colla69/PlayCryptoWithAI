@@ -15,6 +15,11 @@ import {
   StochRSIStrategy,
   HeikinAshiStrategy,
   SupportResistanceStrategy,
+  DonchianStrategy,
+  VWAPSigmaStrategy,
+  VolumeSurgeStrategy,
+  IchimokuStrategy,
+  PinBarStrategy,
 } from '../strategies/index.js';
 
 const STRATEGY_REASON_PREFIX = {
@@ -33,6 +38,11 @@ const STRATEGY_REASON_PREFIX = {
   StochRSI:       'stochRsi',
   HeikinAshi:     'heikinAshi',
   SR:             'sr',
+  Donchian:       'donchian',
+  'VWAPσ':        'vwapsigma',
+  VolSurge:       'volsurge',
+  Ichimoku:       'ichimoku',
+  PinBar:         'pinbar',
 };
 
 const STRATEGY_TRIGGER_HINTS = {
@@ -51,6 +61,11 @@ const STRATEGY_TRIGGER_HINTS = {
   StochRSI:   'StochRSI K < 20 crossing up → BUY · K > 80 crossing down → SELL',
   HeikinAshi: 'HA bullish candle (close>open, no lower wick) → BUY · bearish (no upper wick) → SELL',
   SR:         'Price near support zone ≥2 touches → BUY · near resistance zone ≥2 touches → SELL',
+  Donchian:   'Close above 20-bar high + volume confirm → BUY · below 20-bar low → SELL',
+  'VWAPσ':    'Price ≤ VWAP−2σ → BUY (oversold vs participation) · ≥ VWAP+2σ → SELL',
+  VolSurge:   'Volume ≥ 2× mean + green candle → BUY · red candle → SELL',
+  Ichimoku:   'Price above cloud + Tenkan>Kijun → BUY · below cloud + Tenkan<Kijun → SELL',
+  PinBar:     'Long lower wick + close in upper 40% → BUY · long upper wick + close in lower 40% → SELL',
 };
 
 function getStrategyConfigForSymbol(symbol, key, defaults) {
@@ -76,6 +91,11 @@ const STRATEGY_BUILDERS = {
   StochRSI:   (symbol) => new StochRSIStrategy(getStrategyConfigForSymbol(symbol, 'stochRsi', config.stochRsi ?? {})),
   HeikinAshi: (symbol) => new HeikinAshiStrategy(getStrategyConfigForSymbol(symbol, 'heikinAshi', config.heikinAshi ?? {})),
   SR:         (symbol) => new SupportResistanceStrategy(getStrategyConfigForSymbol(symbol, 'supportResistance', config.supportResistance)),
+  Donchian:   (symbol) => new DonchianStrategy(getStrategyConfigForSymbol(symbol, 'donchian', config.donchian ?? {})),
+  'VWAPσ':    (symbol) => new VWAPSigmaStrategy(getStrategyConfigForSymbol(symbol, 'vwapSigma', config.vwapSigma ?? {})),
+  VolSurge:   (symbol) => new VolumeSurgeStrategy(getStrategyConfigForSymbol(symbol, 'volumeSurge', config.volumeSurge ?? {})),
+  Ichimoku:   (symbol) => new IchimokuStrategy(getStrategyConfigForSymbol(symbol, 'ichimoku', config.ichimoku ?? {})),
+  PinBar:     (symbol) => new PinBarStrategy(getStrategyConfigForSymbol(symbol, 'pinBar', config.pinBar ?? {})),
 };
 
 export function buildStrategiesForSymbol(symbol) {

@@ -570,11 +570,14 @@ export default {
     emaPeriod: 200,          // BTC EMA period used to detect bear phase
     sizeReduceFactor: 0.5,   // multiply maxPositionPct by this in bear market
   },
-  // ── BTC Dominance gate (Phase 3) ──────────────────────────────────────────
-  // When BTC dominance is trending UP (BTC.D rises ≥ blockThresholdPp above
-  // its 7-day SMA), block new ALT entries. Money flowing into Bitcoin = alts
-  // about to underperform. Pulls daily samples from CoinGecko free tier.
-  // BTC entries pass through unaffected.
+  // ── Regime classifier (Phase 4) ──────────────────────────────────────────
+  // Optional override for unit tests / experiments. Production uses defaults.
+  regimeClassifier: {
+    emaPeriod: 200,
+    adxPeriod: 14,
+    adxTrendThreshold: 25,
+    hysteresisBars: 3,
+  },
   btcDominance: {
     enabled: true,
     blockThresholdPp: 1.0,   // +1 percentage point above 7-day SMA
