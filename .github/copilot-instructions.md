@@ -53,7 +53,7 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 
 - **20 strategies**: RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR, StochRSI, HeikinAshi, S&R + Donchian, VWAP-σ, VolumeSurge, Ichimoku, PinBar.
 - **Confidence-weighted voting** (`src/engine/aggregatorVoting.js`, shared by live/backtester/optimizer): each strategy's confidence is its vote weight; **HOLD is counted in the denominator** so `confidence = winner_weight / total_voters`. `2/3 BUY + 1 HOLD = 0.67` (not 1.00) — fixes the old resolution bug. Parity enforced by `tests/engine/aggregatorParity.test.js`.
-- **Temp calibration**: `risk.confidenceThresholdScale = 0.65` scales legacy per-symbol thresholds for the new formula; Phase 4 walk-forward retune resets it to 1.0.
+- **Calibration**: `risk.confidenceThresholdScale = 0.65` scales legacy per-symbol thresholds for the new formula. Phase 4 retune **measured** this: 1.0 starves the bot, 0.65 is best risk-adjusted (validated forward-only). Keep at 0.65 unless a from-scratch per-symbol retune replaces the thresholds.
 - **Multi-bar confirmation**: borderline entries (within ~0.10 of minConf) need the previous bar to agree.
 - **Regime gate** (`engine/regimeClassifier.js`): BTC EMA200×ADX 2×2 with 3-bar hysteresis; bear policy closes all + blocks entries on transition into `BEAR_TREND` (`bearPolicy.mode='trend_only'`). Regime routing infra exists but is OFF.
 - **Cross-asset context** (`data/marketContext.js`): BTC.D gate (CoinGecko), ETHBTC sizing, Fear & Greed minConf modulator.

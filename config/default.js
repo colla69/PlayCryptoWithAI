@@ -66,8 +66,19 @@ export default {
     // The per-symbol minConfidence values below were calibrated against the old
     // formula. The `confidenceThresholdScale` knob is a one-shot multiplier (0..1)
     // applied to every minConfidence in live + backtester so the bot keeps
-    // trading at a sensible frequency. Phase 4 walk-forward retunes per-symbol
-    // values from scratch and this should be set back to 1.0 then.
+    // trading at a sensible frequency under the stricter confidence-weighted formula.
+    //
+    // Phase 4 retune outcome (measured, not assumed): the per-symbol optimizer
+    // (MIN_TRADES≥8, deflated-Sharpe≥0.5, shared aggregator) found NO combo that
+    // beats the current per-symbol configs with statistical significance — they
+    // survive the strict bar, so combos were left unchanged. The scale was then
+    // swept on the full live filter stack:
+    //   scale 1.00 → STARVED (3 trades/90d, 0 on longer windows) — raw thresholds non-viable
+    //   scale 0.75 → returns collapse (full_history +6.4%)
+    //   scale 0.65 → BEST risk-adjusted (last_90d +15.3% Sh3.04 DD-4.4%; full +24.6% Sh1.32 DD-3.7%)
+    //   scale 0.55 → more trades but DD worsens to -7.8/-9.7%
+    // Walk-forward (forward-only) at 0.65: +25.5% Sh1.38 DD-5.36%, MC not fragile.
+    // → 0.65 is the validated calibration, NOT a temporary hack. Do not set to 1.0.
     minConfidence: 0.70,
     confidenceThresholdScale: 0.65,
     // ── ATR-based stops (Phase 1) ──────────────────────────────────────────

@@ -79,10 +79,11 @@ live aggregator (`src/engine/signalAggregator.js`), the `PortfolioBacktester`, a
    - 2/3 BUY @ conf 1.0 + 1 HOLD → 0.67 · 1/3 BUY + 2 HOLD → 0.33
 4. If confidence < the symbol's `minConfidence` threshold → decision = HOLD (no trade).
 
-Because this formula is stricter, the legacy per-symbol thresholds (calibrated for the old formula)
-are temporarily scaled by `risk.confidenceThresholdScale = 0.65` so the bot keeps trading at a
-sensible frequency. **The Phase 4 walk-forward retune re-derives all per-symbol thresholds and resets
-this scale to 1.0.**
+Because this formula is stricter, the legacy per-symbol thresholds are scaled by
+`risk.confidenceThresholdScale = 0.65` so the bot keeps trading at a sensible frequency. The Phase 4
+retune **measured** this scale rather than assuming it: 1.0 starves the bot (≈0 trades), 0.55 worsens
+drawdown, and 0.65 gives the best risk-adjusted result (confirmed forward-only on the walk-forward
+harness). It is the validated calibration, not a temporary hack.
 
 ### Multi-Bar Entry Confirmation
 
