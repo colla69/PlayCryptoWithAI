@@ -643,6 +643,18 @@ export default {
     zThreshold: 2,
     driftRefSharpe: null,
   },
+  // ── Logistic-regression meta-overlay (Phase 5) ────────────────────────────
+  // P(win) entry gate trained offline by src/scripts/trainMetaOverlay.mjs →
+  // data/meta_overlay.json. DISABLED: on current data (376 samples) the gate's
+  // held-out admitted win rate (12.5%) is WORSE than the base rate (39.5%) —
+  // it does not beat baseline. Keep enabled=false until a retrain clearly wins
+  // AND the gate is mirrored into BOTH main.js and PortfolioBacktester (parity)
+  // and re-validated on the baseline/walk-forward. Gate-only, never sizing.
+  metaOverlay: {
+    enabled: false,
+    threshold: 0.55,
+    modelPath: 'data/meta_overlay.json',
+  },
   // ── Correlation filter — moved to risk.correlation block at top of file
   // (Phase 7 revisit with confidence-weighted aggregator + tighter threshold).
   // The OLD rejected impl was a routing filter; new impl is a hard cap on the

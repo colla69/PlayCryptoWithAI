@@ -91,8 +91,9 @@ Architecture, data flow, module responsibilities, and deployment.
 | `portfolioBacktest.mjs` | CLI backtest runner with all flags |
 | `downloadHistory.js` | Fetch OHLCV from Binance, save to disk |
 | `perSymbolOptimizer.mjs` | Exhaustive strategy combo search; MIN_TRADES≥8, deflated-Sharpe gate, shared aggregator |
-| `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json` (delta vs prior phases) |
+| `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
 | `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
+| `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
 
 ### Lambda (`src/lambda/`)
 

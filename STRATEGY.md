@@ -244,5 +244,6 @@ retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
 | ATR-based stops | Net-negative vs tuned per-symbol fixed stops on every window | **Infra kept, disabled** |
 | Two-stage exit / chandelier runner | −8pp return, −0.1 Sharpe under current tuning | **Infra kept, disabled** |
 | Regime-conditional strategy routing | Promising but needs the retune first | **Infra shipped, default OFF** |
+| Logistic-regression meta-overlay (P(win) gate) | Held-out gate-admitted WR 12.5% vs 39.5% base (−27pp) — does not beat baseline on 376 samples | **Trainer + gate shipped, default OFF** |
 | Trailing stop (replace TP) | Gives back profit on retracements | Rejected (pre-overhaul) |
 | More slots (5–8) | Dilutes capital, no DD benefit | Rejected (pre-overhaul) |
