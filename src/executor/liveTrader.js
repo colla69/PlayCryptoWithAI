@@ -1,7 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import fs from 'fs';
 import path from 'path';
-import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, fetchOHLCV, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
+import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
 
@@ -227,40 +227,23 @@ export class LiveTrader {
             logger.info(`[LIVE] ${symbol}: restored persisted stop=${position.stopLoss.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)}${saved.breakEvenLocked ? ' (BE)' : ''}`);
           }
 
-          // If stop is still below entry, verify with candle data whether BE should be locked.
-          // This catches: (a) no persisted state, (b) stale file with pre-BE stop, (c) corrupt data.
-          if (breakEvenTriggerPct > 0 && position.stopLoss < position.entryPrice) {
-            const beLevel = entryPrice * (1 + breakEvenTriggerPct);
-            let beLocked = false;
-            if (currentPrice >= beLevel) {
-              beLocked = true;
-            } else {
-              try {
-                const openedAtMs = position.entryTime;
-                const posAgeMs = openedAtMs ? Date.now() - openedAtMs : 7 * 24 * 3600_000;
-                const candleCount = Math.min(500, Math.max(42, Math.ceil(posAgeMs / (4 * 3600_000))));
-                const candles = await fetchOHLCV(symbol, '4h', candleCount);
-                if (candles && candles.length > 0) {
-                  for (const c of candles) {
-                    // Only consider candles after the trade was opened
-                    if (openedAtMs && c.timestamp < openedAtMs) continue;
-                    if (c.high >= beLevel) {
-                      beLocked = true;
-                      break;
-                    }
-                  }
-                }
-                if (!beLocked) {
-                  logger.debug(`[LIVE] ${symbol}: ${candles?.length ?? 0} candles checked, none reached BE level ${beLevel.toFixed(6)}`);
-                }
-              } catch (candleErr) {
-                logger.warn(`[LIVE] ${symbol}: candle BE check failed — ${candleErr.message}`);
-              }
-            }
-            if (beLocked) {
-              position.stopLoss = roundPrice(entryPrice * 1.002);
-              logger.info(`[LIVE] ${symbol}: BE lock confirmed from market data — stop set to ${position.stopLoss.toFixed(8)}`);
-            }
+          // If stop is still below entry, only auto-lock BE when we can directly
+          // observe the position is already at/above the BE level on the live ticker.
+          // The previous heuristic (scan past 4h candles for highs ≥ BE) was unsafe
+          // for positions with no real entry timestamp: it could find a historical
+          // high from days/weeks before the position was opened and set SL above
+          // entry, causing an immediate stop_loss on the next tick (observed June 1
+          // 2026: SUI restored 4 times, stopped out 3 times within 26 minutes).
+          // Without persisted state and without current price already above BE, we
+          // start with the plain initial SL; normal calcBreakEven in the live loop
+          // will lock BE the first time price genuinely reaches that level.
+          if (
+            breakEvenTriggerPct > 0
+            && position.stopLoss < position.entryPrice
+            && currentPrice >= entryPrice * (1 + breakEvenTriggerPct)
+          ) {
+            position.stopLoss = roundPrice(entryPrice * 1.002);
+            logger.info(`[LIVE] ${symbol}: BE lock applied — current price ${currentPrice.toFixed(8)} ≥ BE level ${(entryPrice * (1 + breakEvenTriggerPct)).toFixed(8)}, stop set to ${position.stopLoss.toFixed(8)}`);
           }
 
           // Trailing stop (if enabled and price is above entry)
