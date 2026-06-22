@@ -14,6 +14,7 @@ import { execSync } from 'child_process';
 import config from '../../config/default.js';
 import { loadCachedCandles } from '../exchange/candleCache.js';
 import { PortfolioBacktester } from './index.js';
+import { loadFearGreedHistory } from '../data/fearGreed.js';
 import {
   RSIStrategy, BollingerBandsStrategy, CCIStrategy, StochasticStrategy,
   EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
@@ -107,6 +108,9 @@ export const FULL_LIVE_FILTERS = Object.freeze({
   correlationFilter:    config.correlation?.enabled ?? false,
   correlationThreshold: config.correlation?.threshold ?? 0.85,
   correlationPeriod:    config.correlation?.period ?? 60,
+  // Phase 3 cross-asset / sentiment context
+  btcDominance:         config.btcDominance,
+  fearGreed:            config.fearGreed,
 });
 
 /**
@@ -309,6 +313,7 @@ export function runWindow({
   symbolCandles,
   mtf15mCandles = {},
   mtf4hCandles = {},
+  fearGreedData = null,
   nTrials = 16280,
   budget = 1000,
   maxOpenPositions = config.risk?.maxOpenPositions ?? 4,
@@ -353,6 +358,7 @@ export function runWindow({
     symbolMinConfidence,
     mtfSymbolCandles:  mtf15mCandles,
     mtf4hSymbolCandles: mtf4hCandles,
+    fearGreedData,
     confidenceThresholdScale: Number.isFinite(config.risk?.confidenceThresholdScale)
       ? config.risk.confidenceThresholdScale
       : 1,

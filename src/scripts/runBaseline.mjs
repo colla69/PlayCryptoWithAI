@@ -27,6 +27,8 @@ import {
   runWindow,
   gitMeta,
 } from '../backtester/baselineFramework.js';
+import { loadFearGreedHistory } from '../data/fearGreed.js';
+import { refreshMarketContext } from '../data/marketContext.js';
 
 const argv = process.argv.slice(2);
 let phaseTag = 'p0';
@@ -67,6 +69,14 @@ console.log('Loading 4h candles (MTF momentum filter)…');
 const mtf4hCandles = loadMtfCandles(symbols, '4h');
 console.log(`  ${Object.keys(mtf4hCandles).length} symbols with 4h data\n`);
 
+console.log('Loading Fear & Greed history (Phase 3)…');
+const fearGreedData = await loadFearGreedHistory();
+console.log(`  ${fearGreedData?.length ?? 0} daily samples\n`);
+
+console.log('Refreshing market context cache (Phase 3)…');
+await refreshMarketContext();
+console.log(`  done\n`);
+
 const windows = defineWindows(symbolCandles);
 const stressWindows = includeStress ? findStressWindows(symbolCandles) : [];
 const allWindows = [...windows, ...stressWindows];
@@ -83,6 +93,7 @@ for (const window of allWindows) {
     symbolCandles,
     mtf15mCandles,
     mtf4hCandles,
+    fearGreedData,
     nTrials,
     budget,
     maxOpenPositions: config.risk?.maxOpenPositions ?? 4,

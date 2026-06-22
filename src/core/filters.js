@@ -8,6 +8,7 @@ import {
   calcCorrelationCap,
   calcWeeklyDDBreaker,
 } from '../risk/portfolioRisk.js';
+import { getBtcDominanceTrend, getEthBtcTrend } from '../data/marketContext.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -63,6 +64,74 @@ export function checkWeeklyDDBreaker(recentTrades, initialBalance, ddConfig) {
     cooldownHours: ddConfig.cooldownHours ?? 72,
   });
   return breaker.blocked ? breaker.reason : null;
+}
+
+/**
+ * BTC Dominance gate (Phase 3): block alt entries when BTC.D 7-day SMA is
+ * trending strongly UP. Logic: rising BTC dominance means money is flowing
+ * INTO Bitcoin from alts → alts likely to underperform / crash short-term.
+ *
+ * Pass-through (returns null) when:
+ *   - btcDominance.enabled is false
+ *   - candidate symbol IS BTC/USDC (gate doesn't self-apply)
+ *   - market context cache is empty or SMA not yet established
+ *
+ * @param {string} symbol
+ * @param {{enabled?: boolean, blockThresholdPp?: number}} cfg
+ * @returns {string|null}
+ */
+export function checkBtcDominanceGate(symbol, cfg) {
+  if (!cfg?.enabled) return null;
+  if (typeof symbol !== 'string' || symbol.startsWith('BTC/')) return null;
+  const trend = getBtcDominanceTrend();
+  if (!trend || trend.sma7d == null) return null;
+  const threshold = Number(cfg.blockThresholdPp ?? 1.0); // +1pp above 7d SMA
+  if (trend.deltaPct >= threshold) {
+    return `BTC.D rising +${trend.deltaPct.toFixed(2)}pp vs 7d SMA (${trend.value.toFixed(2)}% vs ${trend.sma7d.toFixed(2)}%) ≥ ${threshold}pp — alt entry blocked`;
+  }
+  return null;
+}
+
+/**
+ * Fear & Greed entry threshold modulator (Phase 3).
+ *
+ * Adjusts the per-symbol minConfidence based on market sentiment:
+ *   - Extreme greed (>= greedHigh): TIGHTEN by tightenBy → demand more conviction
+ *   - Extreme fear (<= fearLow):    LOOSEN by loosenBy → contrarian, easier entry
+ *   - Otherwise: no-op
+ *
+ * Returns the *adjusted* minConfidence. Caller compares signal.confidence
+ * against the returned value.
+ *
+ * @param {number} originalMinConf
+ * @param {number} fearGreedValue   — 0-100
+ * @param {{enabled?: boolean, greedHigh?: number, fearLow?: number,
+ *          tightenBy?: number, loosenBy?: number}} cfg
+ * @returns {{ minConfidence: number, regime: 'greed'|'fear'|'neutral' }}
+ */
+export function calcFearGreedAdjustedThreshold(originalMinConf, fearGreedValue, cfg) {
+  const base = Number(originalMinConf);
+  if (!Number.isFinite(base)) return { minConfidence: 0, regime: 'neutral' };
+  if (!cfg?.enabled || !Number.isFinite(fearGreedValue)) {
+    return { minConfidence: base, regime: 'neutral' };
+  }
+  const greedHigh = Number(cfg.greedHigh ?? 80);
+  const fearLow   = Number(cfg.fearLow   ?? 20);
+  const tightenBy = Number(cfg.tightenBy ?? 0.05);
+  const loosenBy  = Number(cfg.loosenBy  ?? 0.05);
+  if (fearGreedValue >= greedHigh) {
+    return {
+      minConfidence: Math.min(1, Math.max(0, base + tightenBy)),
+      regime: 'greed',
+    };
+  }
+  if (fearGreedValue <= fearLow) {
+    return {
+      minConfidence: Math.min(1, Math.max(0, base - loosenBy)),
+      regime: 'fear',
+    };
+  }
+  return { minConfidence: base, regime: 'neutral' };
 }
 
 /**
@@ -138,6 +207,13 @@ export async function runEntryFilters({ symbol, candles, openPositions, correlat
   if (ddBlock) {
     logger.info(`${symbol}: BUY suppressed — ${ddBlock}`);
     return { blockReason: ddBlock, mtfSizeFactor };
+  }
+
+  // BTC Dominance gate (Phase 3) — block alts during BTC.D spikes
+  const btcdBlock = checkBtcDominanceGate(symbol, config.btcDominance);
+  if (btcdBlock) {
+    logger.info(`${symbol}: BUY suppressed — ${btcdBlock}`);
+    return { blockReason: btcdBlock, mtfSizeFactor };
   }
 
   // Regime filter

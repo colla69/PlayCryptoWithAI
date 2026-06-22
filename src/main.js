@@ -18,6 +18,9 @@ import { dashboardState, startDashboardServer, pushEvent } from './dashboard/ind
 import { initNotifier, notifyTrade, notifyStartup } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
+import { calcFearGreedAdjustedThreshold } from './core/filters.js';
+import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
+import { refreshMarketContext } from './data/marketContext.js';
 import { computePositionSize } from './core/positionSizing.js';
 import {
   buildStrategiesForSymbol,
@@ -66,6 +69,10 @@ let medianATRPct = null;
 // True when BTC price is above its EMA(200) — normal sizing applies.
 // False in bear phase — new positions are opened at sizeReduceFactor × base size.
 let btcMacroBull = true;
+
+// ── Fear & Greed history (Phase 3) ───────────────────────────────────────────
+// Loaded once at startup; refreshed daily by loadFearGreedHistory's own TTL.
+let fearGreedData = null;
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -214,9 +221,24 @@ async function runCycle(symbol) {
     // Track filter-level blocks for the dashboard counter
     if (blockReason) dashboardState.pushBlockedSignal(blockReason);
 
+    // ── Fear & Greed entry threshold modulator (Phase 3) ────────────────────
+    // Adjusts minConfidence based on current sentiment. Greed > 80 demands
+    // more conviction (tighten); Fear < 20 allows easier contrarian entry.
+    const fgValue = fearGreedData
+      ? getFearGreedValue(fearGreedData, Date.now())
+      : 50;
+    const fgAdjusted = calcFearGreedAdjustedThreshold(
+      symRisk.minConfidence,
+      fgValue,
+      config.fearGreed,
+    );
+    if (fgAdjusted.regime !== 'neutral') {
+      logger.debug(`${symbol}: F&G ${fgValue} ${fgAdjusted.regime} → minConf ${symRisk.minConfidence.toFixed(2)} → ${fgAdjusted.minConfidence.toFixed(2)}`);
+    }
+
     const tradeCheck = blockReason
       ? { allowed: false, reason: blockReason }
-      : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
+      : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, fgAdjusted.minConfidence);
     let tradeResult = null;
 
     // ── Position sizing chain (extracted to src/core/positionSizing.js) ──────
@@ -909,6 +931,23 @@ if (config.mtf4hFilter?.enabled) {
   logger.info(`MTF 4h cache: refresh every ${MTF_4H_REFRESH_MS / 3_600_000}h`);
 }
 
+// ── Market context cache (Phase 3) — BTC.D + ETHBTC ────────────────────────
+// Load Fear & Greed history once (its own TTL handles staleness). Refresh
+// market context (BTC.D, ETHBTC) on the configured interval so the BTC.D
+// gate + sizing modulators have fresh values without bothering on every cycle.
+let marketContextRefreshId = null;
+void loadFearGreedHistory().then((data) => {
+  fearGreedData = data;
+  if (data) logger.info(`Fear & Greed history loaded: ${data.length} daily samples`);
+});
+if (config.btcDominance?.enabled) {
+  const ms = Number(config.btcDominance.refreshIntervalMs ?? 6 * 60 * 60 * 1000);
+  void refreshMarketContext().then(() => {
+    marketContextRefreshId = setInterval(() => void refreshMarketContext(), ms);
+  });
+  logger.info(`Market context cache: refresh every ${(ms / 3_600_000).toFixed(1)}h`);
+}
+
 // Refresh the balance from the exchange every 5 minutes so that deposits or
 // withdrawals are reflected on the dashboard without waiting for the next trade.
 // Paper mode skips this — its balance is already tracked in memory.
@@ -963,6 +1002,7 @@ process.on('SIGINT', () => {
   clearInterval(riskCheckId);
   clearInterval(mtf15mRefreshId);
   clearInterval(mtf4hRefreshId);
+  clearInterval(marketContextRefreshId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });

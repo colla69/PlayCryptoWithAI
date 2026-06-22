@@ -570,6 +570,26 @@ export default {
     emaPeriod: 200,          // BTC EMA period used to detect bear phase
     sizeReduceFactor: 0.5,   // multiply maxPositionPct by this in bear market
   },
+  // ── BTC Dominance gate (Phase 3) ──────────────────────────────────────────
+  // When BTC dominance is trending UP (BTC.D rises ≥ blockThresholdPp above
+  // its 7-day SMA), block new ALT entries. Money flowing into Bitcoin = alts
+  // about to underperform. Pulls daily samples from CoinGecko free tier.
+  // BTC entries pass through unaffected.
+  btcDominance: {
+    enabled: true,
+    blockThresholdPp: 1.0,   // +1 percentage point above 7-day SMA
+    refreshIntervalMs: 6 * 60 * 60 * 1000, // 6h
+  },
+  // ── Fear & Greed entry threshold modulator (Phase 3) ──────────────────────
+  // Adjusts per-symbol minConfidence based on market sentiment.
+  // Greed > 80 → tighten (demand more conviction). Fear < 20 → loosen (contrarian).
+  fearGreed: {
+    enabled: true,
+    greedHigh: 80,
+    fearLow:   20,
+    tightenBy: 0.05,
+    loosenBy:  0.05,
+  },
   // ── Correlation filter — moved to risk.correlation block at top of file
   // (Phase 7 revisit with confidence-weighted aggregator + tighter threshold).
   // The OLD rejected impl was a routing filter; new impl is a hard cap on the

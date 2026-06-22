@@ -41,6 +41,8 @@ import {
   calcWeeklyDDBreaker,
   calcPositionAgingExit,
 } from '../risk/portfolioRisk.js';
+import { getContextAsOf } from '../data/marketContext.js';
+import { calcFearGreedAdjustedThreshold } from '../core/filters.js';
 
 const MIN_WARMUP = 50;
 const ADX_LOOKBACK = 50;
@@ -69,6 +71,12 @@ export class PortfolioBacktester {
     this.atrTPMultiplier = Number(config.atrTPMultiplier ?? 3.0);
     this.correlationFilter = Boolean(config.correlationFilter ?? false);
     this.correlationThreshold = Number(config.correlationThreshold ?? 0.8);
+    // Phase 3: BTC dominance gate (block alt entries when BTC.D 7d SMA rising)
+    this.btcDominanceGate = Boolean(config.btcDominance?.enabled ?? false);
+    this.btcDominanceThresholdPp = Number(config.btcDominance?.blockThresholdPp ?? 1.0);
+    // Phase 3: Fear & Greed entry-threshold modulator
+    this.fearGreedModulator = Boolean(config.fearGreed?.enabled ?? false);
+    this.fearGreedCfg = config.fearGreed ?? null;
     // Phase 7: portfolio risk gates — all opt-in via config.risk.*
     // weeklyDDBreaker: pause new entries after 7-day rolling P&L breaches threshold
     this.weeklyDDBreaker = Boolean(config.risk?.weeklyDDBreaker?.enabled ?? false);
@@ -241,6 +249,7 @@ export class PortfolioBacktester {
       mtfEarlyExit: 0,
       positionAging: 0,
       weeklyDDBreaker: 0,
+      btcDominance: 0,
     };
 
     for (let step = 0; step < maxLen - MIN_WARMUP; step++) {
@@ -359,6 +368,33 @@ export class PortfolioBacktester {
         if (weeklyDDBlock) {
           filtersApplied.weeklyDDBreaker = (filtersApplied.weeklyDDBreaker ?? 0) + 1;
           continue;
+        }
+
+        // BTC Dominance gate (Phase 3) — block alt BUYs when BTC.D rising
+        if (this.btcDominanceGate && !sym.startsWith('BTC/')) {
+          const ctx = getContextAsOf(d.timestamp);
+          if (ctx?.btcDominance?.sma7d != null) {
+            const delta = ctx.btcDominance.value - ctx.btcDominance.sma7d;
+            if (delta >= this.btcDominanceThresholdPp) {
+              filtersApplied.btcDominance = (filtersApplied.btcDominance ?? 0) + 1;
+              continue;
+            }
+          }
+        }
+
+        // Fear & Greed modulator (Phase 3): tighten conf in greed, loosen in fear.
+        // The aggregator already evaluated against the base minConfidence; we
+        // re-check with the adjusted value here. Skips silently when no F&G data.
+        if (this.fearGreedModulator && this.fearGreedData) {
+          const fgValue = getFearGreedValue(this.fearGreedData, d.timestamp);
+          const baseMinConf = this.symbolMinConfidence[sym]
+            ?? this.config.signals?.minConfidence
+            ?? 0.5;
+          const adjusted = calcFearGreedAdjustedThreshold(baseMinConf, fgValue, this.fearGreedCfg);
+          if (adjusted.regime === 'greed' && d.confidence < adjusted.minConfidence) {
+            filtersApplied.fearGreed = (filtersApplied.fearGreed ?? 0) + 1;
+            continue;
+          }
         }
 
         if (this.regimeFilter && !d.isTrending) {
