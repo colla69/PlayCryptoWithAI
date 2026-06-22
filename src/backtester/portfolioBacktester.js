@@ -121,20 +121,58 @@ export class PortfolioBacktester {
     // Per-symbol minConfidence overrides — { 'BTC/USDC': 0.55, ... }
     // Applied to each symbol's SignalAggregator so the vote threshold matches
     // the live bot's perSymbol.minConfidence.
-    this.symbolMinConfidence = config.symbolMinConfidence ?? {};
+    const rawSymbolMinConfidence = config.symbolMinConfidence ?? {};
+    // Phase 1 transition: scale every minConfidence by this factor (default 1.0).
+    // The Phase 1 aggregator counts HOLDs in the denominator (a more honest formula)
+    // which made the old per-symbol thresholds too strict. This single knob keeps
+    // the bot tradeable until Phase 4 walk-forward retunes per-symbol values from
+    // scratch — set back to 1.0 then. MUST match config.risk.confidenceThresholdScale
+    // applied by getSignalConfigForSymbol() so live ≡ backtest.
+    this.confidenceThresholdScale = Number.isFinite(config.confidenceThresholdScale)
+      ? config.confidenceThresholdScale
+      : 1;
+    const scaleMinConf = (mc) => {
+      if (!Number.isFinite(mc)) return mc;
+      return Math.max(0, Math.min(1, mc * this.confidenceThresholdScale));
+    };
+    // Store the SCALED values so every read (constructor + per-candle aggregate
+    // override path on line ~485) picks up the same scaled threshold. Without
+    // this, the per-candle override would re-apply the raw value and undo the
+    // construction-time scaling.
+    this.symbolMinConfidence = Object.fromEntries(
+      Object.entries(rawSymbolMinConfidence).map(([sym, mc]) => [sym, scaleMinConf(mc)]),
+    );
+    const scaledGlobalMinConf = (() => {
+      const base = Number(config.signals?.minConfidence);
+      return Number.isFinite(base) ? scaleMinConf(base) : base;
+    })();
+    // Also scale the global signals.minConfidence stored on this.config so that
+    // the per-candle `symSignals` spread (which reads this.config.signals) sees
+    // the scaled value too.
+    if (Number.isFinite(scaledGlobalMinConf)) {
+      this.config = {
+        ...this.config,
+        signals: {
+          ...(this.config.signals ?? {}),
+          minConfidence: scaledGlobalMinConf,
+        },
+      };
+    }
 
     const symbolCount = Object.keys(symbolStrategies).length;
     signalBus.setMaxListeners(Math.max(signalBus.getMaxListeners(), symbolCount + 5));
 
     this.aggregators = Object.fromEntries(
-      Object.entries(symbolStrategies).map(([sym, strats]) => [
-        sym,
-        new SignalAggregator(strats, {
+      Object.entries(symbolStrategies).map(([sym, strats]) => {
+        const aggSignalConfig = {
           ...(config.signals ?? {}),
-          // Per-symbol minConfidence override; falls back to global signals.minConfidence
-          ...(this.symbolMinConfidence[sym] != null && { minConfidence: this.symbolMinConfidence[sym] }),
-        }),
-      ]),
+          ...(Number.isFinite(scaledGlobalMinConf) && { minConfidence: scaledGlobalMinConf }),
+          ...(this.symbolMinConfidence[sym] != null && {
+            minConfidence: this.symbolMinConfidence[sym],
+          }),
+        };
+        return [sym, new SignalAggregator(strats, aggSignalConfig)];
+      }),
     );
   }
 

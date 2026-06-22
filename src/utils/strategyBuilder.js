@@ -112,9 +112,26 @@ export function getRiskForSymbol(symbol) {
 }
 
 export function getSignalConfigForSymbol(symbol, signalConfig) {
-  const symConf = config.perSymbol?.[symbol]?.minConfidence;
-  if (symConf === undefined) return signalConfig;
-  return { ...signalConfig, minConfidence: symConf };
+  const rawMinConf = config.perSymbol?.[symbol]?.minConfidence
+    ?? signalConfig?.minConfidence
+    ?? config.risk?.minConfidence
+    ?? 0.5;
+  // Phase 1 transition: per-symbol minConfidence values were calibrated against
+  // the OLD aggregator formula where HOLD votes were suppressed from the
+  // denominator (so 2/3 BUY + 1 HOLD = conf 1.00). The Phase 1 confidence-weighted
+  // formula counts HOLDs in the denominator, dropping that case to 0.67.
+  // `confidenceThresholdScale` is a one-shot multiplier applied uniformly so the
+  // bot keeps trading at a sensible frequency while we measure the impact of
+  // other Phase 1 changes. Phase 4 walk-forward retunes per-symbol values from
+  // scratch and the scale should be reset to 1.0 once retune lands.
+  const scale = Number.isFinite(config.risk?.confidenceThresholdScale)
+    ? config.risk.confidenceThresholdScale
+    : 1;
+  const scaled = Math.max(0, Math.min(1, rawMinConf * scale));
+  if (config.perSymbol?.[symbol]?.minConfidence === undefined && scale === 1) {
+    return signalConfig;
+  }
+  return { ...signalConfig, minConfidence: scaled };
 }
 
 export function buildSignalReasons(signals = [], decision = 'HOLD') {

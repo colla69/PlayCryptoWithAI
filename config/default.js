@@ -52,13 +52,24 @@ export default {
                               //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%
                               //   slots=4 mtf=0.55  Y2  +70% Sh 2.19 DD  -7%  OOS +78% Sh 2.22 DD  -8%  ← current
                               //   slots=4 mtf=0.45  Y2  +97% Sh 2.27 DD -13%  OOS +73% Sh 1.98 DD -15%  (more return, more DD)
-    // minConfidence threshold vs 3-strategy vote math:
-    //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
-    //   2-of-3 majority   → confidence = 0.67  → fails  0.70 ❌ (requires unanimity)
-    //   2-of-3 majority   → confidence = 0.67  → passes 0.55 ✅ (used for trend symbols)
-    // This is intentional: mean-reversion coins (0.70) need all 3 indicators to agree;
-    // trend-following coins (0.55) allow 2-of-3 for earlier crossover entries.
+    // ── Phase 1 (do_it_again_better branch) ────────────────────────────
+    // OLD aggregator (pre-Phase 1, BROKEN): HOLD votes were suppressed from the
+    // denominator so 2-of-3 BUY + 1 HOLD all returned confidence 1.00, making
+    // minConfidence 0.55 vs 0.70 nearly indistinguishable in practice.
+    // NEW aggregator (Phase 1): HOLDs count in the denominator and per-strategy
+    // confidence is the vote weight, so:
+    //   3-of-3 unanimous BUY all conf 1.0   → confidence = 1.00
+    //   3-of-3 unanimous BUY all conf 0.6   → confidence = 0.60
+    //   2-of-3 BUY conf 1.0 + 1 HOLD        → confidence = 0.67  (was 1.00)
+    //   2-of-3 BUY conf 1.0 + 1 SELL        → confidence = 0.67
+    //   1-of-3 BUY  + 2 HOLD                → conf 0.33, HOLD usually wins by weight
+    // The per-symbol minConfidence values below were calibrated against the old
+    // formula. The `confidenceThresholdScale` knob is a one-shot multiplier (0..1)
+    // applied to every minConfidence in live + backtester so the bot keeps
+    // trading at a sensible frequency. Phase 4 walk-forward retunes per-symbol
+    // values from scratch and this should be set back to 1.0 then.
     minConfidence: 0.70,
+    confidenceThresholdScale: 0.65,
   },
   // ──────────────────────────────────────────────────────────────────
   // Per-symbol overrides — 12h holdout-validated (Y1 = unseen year)

@@ -38,6 +38,7 @@ import {
   MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
   StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
 } from '../strategies/index.js';
+import { aggregateVotes } from '../engine/aggregatorVoting.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -117,12 +118,20 @@ function precomputeSignals(candles, symbol) {
   const cache = {};
   for (const name of POOL_NAMES) {
     const strategy = buildStrategy(name, symbol);
-    const signals  = new Array(candles.length).fill('HOLD');
-    for (let i = WARMUP; i < candles.length; i++) {
+    const signals  = new Array(candles.length);
+    for (let i = 0; i < candles.length; i++) {
+      if (i < WARMUP) {
+        signals[i] = { signal: 'HOLD', confidence: 0 };
+        continue;
+      }
       try {
-        signals[i] = strategy.analyze(candles.slice(0, i + 1)).signal;
+        const r = strategy.analyze(candles.slice(0, i + 1));
+        signals[i] = {
+          signal: r?.signal ?? 'HOLD',
+          confidence: Number(r?.confidence ?? 0),
+        };
       } catch {
-        signals[i] = 'HOLD';
+        signals[i] = { signal: 'HOLD', confidence: 0 };
       }
     }
     cache[name] = signals;
@@ -130,21 +139,16 @@ function precomputeSignals(candles, symbol) {
   return cache;
 }
 
-// ── Aggregator (vote counting, matches live SignalAggregator HOLD suppression) ─
+// ── Aggregator — delegates to the shared pure function that the live
+// SignalAggregator + PortfolioBacktester also use. Guarantees byte-identical
+// decisions; parity is enforced by tests/aggregatorParity.test.mjs.
 function aggregate(comboNames, signalCache, idx, minConf) {
-  const votes = { BUY: 0, SELL: 0, HOLD: 0 };
-  let directionalWeight = 0;
-  for (const name of comboNames) {
-    const sig = signalCache[name]?.[idx] ?? 'HOLD';
-    votes[sig] = (votes[sig] ?? 0) + 1;
-    if (sig !== 'HOLD') directionalWeight += 1;
-  }
-  const ranked = Object.entries(votes).sort((a, b) => b[1] - a[1]);
-  const [winner = 'HOLD', wVotes = 0] = ranked[0] ?? [];
-  const tie = ranked.filter(([, c]) => Math.abs(c - wVotes) < 1e-9).length > 1;
-  // HOLD votes excluded from denominator — confidence = directional / directional total
-  const conf = directionalWeight > 0 ? wVotes / directionalWeight : 0;
-  if (tie || winner === 'HOLD' || conf < minConf) return 'HOLD';
+  const strategySignals = comboNames.map((name) => {
+    const cached = signalCache[name]?.[idx];
+    return cached ?? { signal: 'HOLD', confidence: 0 };
+  });
+  const { winner, confidence, tie } = aggregateVotes({ strategySignals });
+  if (tie || winner === 'HOLD' || confidence < minConf) return 'HOLD';
   return winner;
 }
 

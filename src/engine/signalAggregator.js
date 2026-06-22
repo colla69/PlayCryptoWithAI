@@ -1,6 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import signalBus from '../signals/signalBus.js';
 import logger from '../utils/logger.js';
+import { aggregateVotes, clampConfidence } from './aggregatorVoting.js';
 
 const EXTERNAL_SIGNAL_TTL_MS = 5 * 60 * 1000;
 const MAX_EXTERNAL_SIGNALS = 5;
@@ -41,7 +42,7 @@ function normalizeConfidence(value, fallback = 0.7) {
     return fallback;
   }
 
-  return Math.max(0, Math.min(1, numeric));
+  return clampConfidence(numeric);
 }
 
 function normalizeTimestamp(timestamp) {
@@ -147,39 +148,24 @@ export class SignalAggregator {
     const activeConfig = this.updateConfig(config);
     const signals = this.strategies.map((strategy) => strategy.analyze(candles));
     const externalSignals = this.getRecentExternalSignals(symbol);
-    const votes = { BUY: 0, SELL: 0, HOLD: 0 };
     const algoWeight = Math.max(0, Number(activeConfig.algoWeight ?? 1));
-    let totalWeight = 0;
 
     for (let i = 0; i < signals.length; i++) {
       const result = signals[i];
-      votes[result.signal] = (votes[result.signal] ?? 0) + algoWeight;
-      // HOLD votes don't contribute to totalWeight — they represent absence of
-      // conviction, not conviction about holding. This prevents 2/3 HOLD + 1/3 BUY
-      // from diluting the BUY confidence down to 33%.
-      if (result.signal !== 'HOLD') totalWeight += algoWeight;
       logger.debug(`[AGG] ${symbol}: strategy[${i}]=${this.strategies[i]?.name ?? 'unknown'} → ${result.signal} conf=${(result.confidence ?? 0).toFixed(2)} "${result.reason ?? ''}"`);
     }
 
-    for (const externalSignal of externalSignals) {
-      const sourceWeight = Math.max(0, this.getSourceWeight(externalSignal.source, activeConfig));
-      const weightedVote = Number((sourceWeight * normalizeConfidence(externalSignal.confidence)).toFixed(4));
-      votes[externalSignal.signal] = (votes[externalSignal.signal] ?? 0) + weightedVote;
-      if (externalSignal.signal !== 'HOLD') totalWeight += weightedVote;
-    }
+    const voteResult = aggregateVotes({
+      strategySignals: signals,
+      externalSignals,
+      algoWeight,
+      getSourceWeight: (source) => this.getSourceWeight(source, activeConfig),
+    });
+    const { winner, confidence, tie, votes } = voteResult;
 
-    logger.debug(`[AGG] ${symbol}: votes BUY=${votes.BUY.toFixed(2)} SELL=${votes.SELL.toFixed(2)} HOLD=${votes.HOLD.toFixed(2)} total_weight=${totalWeight.toFixed(2)} external=${externalSignals.length}`);
+    logger.debug(`[AGG] ${symbol}: votes BUY=${votes.BUY.toFixed(2)} SELL=${votes.SELL.toFixed(2)} HOLD=${votes.HOLD.toFixed(2)} total_voters=${voteResult.totalVoters} external=${externalSignals.length}`);
 
-    const rankedSignals = Object.entries(votes).sort((a, b) => b[1] - a[1]);
-    const [winningSignal = 'HOLD', winningVotes = 0] = rankedSignals[0] ?? [];
-    const tie = rankedSignals.filter(([, count]) => Math.abs(count - winningVotes) < 1e-9).length > 1;
-    // Confidence = directional votes / total directional weight
-    // If only HOLD votes exist (totalWeight=0), confidence = 0
-    const confidence = totalWeight > 0
-      ? Number((winningVotes / totalWeight).toFixed(2))
-      : 0;
-
-    if (tie || winningSignal === 'HOLD' || confidence < this.minimumConfidence) {
+    if (tie || winner === 'HOLD' || confidence < this.minimumConfidence) {
       logger.debug(`[AGG] ${symbol}: decision=HOLD confidence=${confidence.toFixed(2)} tie=${tie} belowMin=${confidence < this.minimumConfidence} (minConf=${this.minimumConfidence})`);
       return {
         decision: 'HOLD',
@@ -189,9 +175,9 @@ export class SignalAggregator {
       };
     }
 
-    logger.debug(`[AGG] ${symbol}: decision=${winningSignal} confidence=${confidence.toFixed(2)} tie=${tie}`);
+    logger.debug(`[AGG] ${symbol}: decision=${winner} confidence=${confidence.toFixed(2)} tie=${tie}`);
     return {
-      decision: winningSignal,
+      decision: winner,
       confidence,
       signals,
       externalSignals,
