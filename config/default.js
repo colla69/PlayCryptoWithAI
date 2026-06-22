@@ -578,6 +578,32 @@ export default {
     adxTrendThreshold: 25,
     hysteresisBars: 3,
   },
+  // ── Bear policy (Phase 6a) ───────────────────────────────────────────────
+  // When BTC regime enters BEAR_TREND or BEAR_CHOP:
+  //   1. Block all new entries for the duration of the bear regime
+  //   2. On the BAR of transition into bear, close all open positions
+  //      (subsequent bars do NOT repeatedly force-close — open positions
+  //      become managed by SL/TP/break-even like normal)
+  // Default ON for the user's "low DD imperative" priority. Set
+  // bearPolicy.enabled = false to revert to the prior macro-halving-only
+  // behaviour (positions stay open through bear; sizing halved).
+  bearPolicy: {
+    enabled: true,
+    restrictTo: 'trend_only',   // 'trend_only' (default) or 'all_bear' (more defensive but -17pp return on y2 backtest)
+  },
+  // ── Regime-conditional strategy routing (Phase 4) ───────────────────────
+  // When enabled, the per-symbol strategy LIST swaps based on BTC regime.
+  // BULL_TREND uses trend pack, BULL_RANGE uses mean-reversion pack;
+  // BEAR_* uses an empty list (no entries — overlaps with bearPolicy).
+  // The actual bundle definitions live in src/engine/regimeRouter.js
+  // (DEFAULT_REGIME_BUNDLES) and can be overridden per-symbol via
+  // config.perSymbol[sym].regimeStrategyBundles.
+  //
+  // Defaulting OFF for the initial ship — Phase 4 walk-forward retune
+  // will turn it on after validating the bundle composition.
+  regimeRouting: {
+    enabled: false,
+  },
   btcDominance: {
     enabled: true,
     blockThresholdPp: 1.0,   // +1 percentage point above 7-day SMA

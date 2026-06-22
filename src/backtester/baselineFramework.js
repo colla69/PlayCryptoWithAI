@@ -111,6 +111,10 @@ export const FULL_LIVE_FILTERS = Object.freeze({
   // Phase 3 cross-asset / sentiment context
   btcDominance:         config.btcDominance,
   fearGreed:            config.fearGreed,
+  // Phase 4 + 6a regime classifier + bear policy
+  regimeClassifier:     config.regimeClassifier,
+  bearPolicy:           config.bearPolicy,
+  regimeRouting:        config.regimeRouting,
 });
 
 /**

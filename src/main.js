@@ -22,6 +22,7 @@ import { calcFearGreedAdjustedThreshold } from './core/filters.js';
 import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
 import { refreshMarketContext } from './data/marketContext.js';
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
+import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { computePositionSize } from './core/positionSizing.js';
 import {
   buildStrategiesForSymbol,
@@ -81,6 +82,9 @@ let fearGreedData = null;
 // UI and used by routing/filters/sizing decisions.
 const regimeTracker = new RegimeTracker(config.regimeClassifier ?? {});
 let currentRegime = REGIME_LABELS.BULL_RANGE;
+// Latest bear-policy decision, computed once per cycle in runAllSymbols
+// and consumed by runCycle to block new entries.
+let bearPolicy = { shouldBlockEntries: false, shouldCashExitOpen: false };
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -205,25 +209,32 @@ async function runCycle(symbol) {
     let blockReason = null;
     let mtfSizeFactor = 1.0;
     if (result.decision === 'BUY') {
-      // Use cached MTF candles — falls back to live fetch and warms cache
-      const cachedFetchOHLCV = async (sym, tf, limit) => {
-        if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
-        if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
-        const fresh = await fetchOHLCV(sym, tf, limit);
-        if (fresh.length) {
-          const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
-          cache.set(sym, fresh);
-        }
-        return fresh;
-      };
-      const filterResult = await runEntryFilters({
-        symbol, candles, openPositions: currentStatus.positions,
-        correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
-        recentTrades: dashboardState.getTrades?.() ?? [],
-        initialBalance: config.risk?.initialBalance ?? 0,
-      });
-      blockReason = filterResult.blockReason;
-      mtfSizeFactor = filterResult.mtfSizeFactor;
+      // Phase 6a: hard bear-policy block runs BEFORE the regular filter stack
+      // so we don't waste cycles on filters for a guaranteed-blocked entry.
+      if (bearPolicy.shouldBlockEntries) {
+        blockReason = bearPolicy.reason ?? 'bear regime — entries disabled';
+        logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+      } else {
+        // Use cached MTF candles — falls back to live fetch and warms cache
+        const cachedFetchOHLCV = async (sym, tf, limit) => {
+          if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
+          if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
+          const fresh = await fetchOHLCV(sym, tf, limit);
+          if (fresh.length) {
+            const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
+            cache.set(sym, fresh);
+          }
+          return fresh;
+        };
+        const filterResult = await runEntryFilters({
+          symbol, candles, openPositions: currentStatus.positions,
+          correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
+          recentTrades: dashboardState.getTrades?.() ?? [],
+          initialBalance: config.risk?.initialBalance ?? 0,
+        });
+        blockReason = filterResult.blockReason;
+        mtfSizeFactor = filterResult.mtfSizeFactor;
+      }
     }
 
     // Track filter-level blocks for the dashboard counter
@@ -381,6 +392,7 @@ async function runAllSymbols() {
     // Update once per cycle from BTC candles (closed bars only — slice off the
     // forming one). Reports current regime; future routing/sizing changes
     // will branch off `currentRegime`.
+    let regimeChanged = false;
     {
       const btc = dashboardState.getCandles('BTC/USDC');
       if (btc.length > 0) {
@@ -388,10 +400,43 @@ async function runAllSymbols() {
         const snap = regimeTracker.update(closed, Date.now());
         const prev = currentRegime;
         currentRegime = snap.regime;
-        if (snap.regimeChanged) {
+        regimeChanged = snap.regimeChanged;
+        if (regimeChanged) {
           logger.warn(`[REGIME] BTC regime change: ${prev} → ${currentRegime}  (ADX ${snap.raw.adx} BTC ${snap.raw.btcClose.toFixed(0)} vs EMA200 ${snap.raw.ema200.toFixed(0)})`);
         } else {
           logger.debug(`[REGIME] ${currentRegime}  candidate=${snap.candidate ?? '-'} streak=${snap.streak}  (ADX ${snap.raw?.adx ?? 'n/a'})`);
+        }
+      }
+    }
+
+    // ── Phase 6a: cash-exit on bear regime ──────────────────────────────────
+    // When BTC regime transitions INTO BEAR_TREND or BEAR_CHOP, close ALL
+    // open positions this cycle. Subsequent bars in the same bear regime
+    // continue to block new entries via runEntryFilters (see bear-policy
+    // check) but do NOT repeatedly force-close — open positions are managed
+    // normally by SL/TP/break-even.
+    bearPolicy = computeBearPolicy({
+      regime: currentRegime,
+      regimeChanged,
+      policy: config.bearPolicy,
+    });
+    if (bearPolicy.shouldCashExitOpen) {
+      const status = await trader.getStatus();
+      const open = status.positions ?? [];
+      if (open.length > 0) {
+        logger.warn(`[PHASE6A] BEAR regime entered — closing ${open.length} open position(s): ${open.map((p) => p.symbol).join(', ')}`);
+        for (const pos of open) {
+          try {
+            const exitResult = await trader.execute(pos.symbol, 'SELL', pos.currentPrice ?? pos.entryPrice, getRiskForSymbol(pos.symbol));
+            if (exitResult) {
+              dashboardState.pushTrade(exitResult);
+              if (typeof exitResult.pnl === 'number') riskManager.recordTrade(exitResult.pnl);
+              notifyTrade(exitResult);
+              pushEvent('trade', exitResult);
+            }
+          } catch (err) {
+            logger.error(`[PHASE6A] failed to close ${pos.symbol}: ${err?.message ?? err}`);
+          }
         }
       }
     }

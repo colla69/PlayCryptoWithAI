@@ -44,6 +44,7 @@ import {
 import { getContextAsOf } from '../data/marketContext.js';
 import { calcFearGreedAdjustedThreshold } from '../core/filters.js';
 import { classifySeries, REGIME_LABELS } from '../engine/regimeClassifier.js';
+import { computeBearPolicy } from '../engine/regimeRouter.js';
 
 const MIN_WARMUP = 50;
 const ADX_LOOKBACK = 50;
@@ -87,6 +88,8 @@ export class PortfolioBacktester {
     this.positionAgingExit = Boolean(config.risk?.positionAgingExit?.enabled ?? false);
     this.positionAgingMaxBars = Number(config.risk?.positionAgingExit?.maxAgeBars ?? 14);
     this.candleIntervalMs = Number(config.candleIntervalMs ?? 12 * 60 * 60 * 1000);
+    // Phase 6a: bear policy — block new entries + cash-exit on regime transition
+    this.bearPolicyEnabled = Boolean(config.bearPolicy?.enabled ?? false);
     this.fearGreedFilter = Boolean(config.fearGreedFilter ?? false);
     this.fearGreedThreshold = Number(config.fearGreedThreshold ?? 50);
     this.fearGreedData = Array.isArray(config.fearGreedData) ? config.fearGreedData : null;
@@ -262,11 +265,54 @@ export class PortfolioBacktester {
       positionAging: 0,
       weeklyDDBreaker: 0,
       btcDominance: 0,
+      bearPolicy: 0,
+      bearCashExit: 0,
     };
+
+    // Phase 6a: track the regime label as of the previous step so we can
+    // detect transitions WITHIN the backtest's evolving timeline.
+    let prevRegimeLabel = null;
 
     for (let step = 0; step < maxLen - MIN_WARMUP; step++) {
       const stepSignals = {};
       const buyQueue = [];
+
+      // Resolve current regime at this step from the precomputed series.
+      // The series ts must match the BTC candle ts at this step index.
+      let currentRegimeLabel = null;
+      if (btcKey) {
+        const btcSlice = symbolCandles[btcKey].slice(0, step + MIN_WARMUP + 1);
+        const tsAtStep = btcSlice.at(-1)?.timestamp;
+        if (tsAtStep != null) {
+          currentRegimeLabel = regimeByTs.get(tsAtStep) ?? null;
+        }
+      }
+      const regimeChanged = currentRegimeLabel != null
+        && prevRegimeLabel != null
+        && currentRegimeLabel !== prevRegimeLabel;
+      const bearPolicy = computeBearPolicy({
+        regime: currentRegimeLabel,
+        regimeChanged,
+        policy: { enabled: this.bearPolicyEnabled },
+      });
+
+      // Phase 6a cash-exit-on-bear: on the BAR regime transitions into BEAR,
+      // close every open position. Subsequent BEAR bars only block new
+      // entries (handled in the buy-queue filter below) — open positions
+      // continue under normal SL/TP/break-even management.
+      if (bearPolicy.shouldCashExitOpen) {
+        const openPositions = simulator.getStatus().positions;
+        for (const pos of openPositions) {
+          const sym = pos.symbol;
+          const d = allData[sym]?.[step];
+          if (!d) continue;
+          simulator.setTimestamp(d.timestamp);
+          simulator.execute(sym, 'SELL', d.price);
+          delete positionOpenedStep[sym];
+          filtersApplied.bearCashExit += 1;
+        }
+      }
+      prevRegimeLabel = currentRegimeLabel;
 
       let medianATR = null;
       if (this.atrPositionSizing) {
@@ -379,6 +425,12 @@ export class PortfolioBacktester {
       for (const { sym, d } of buyQueue) {
         if (weeklyDDBlock) {
           filtersApplied.weeklyDDBreaker = (filtersApplied.weeklyDDBreaker ?? 0) + 1;
+          continue;
+        }
+
+        // Phase 6a: bear policy hard block on new entries
+        if (bearPolicy.shouldBlockEntries) {
+          filtersApplied.bearPolicy = (filtersApplied.bearPolicy ?? 0) + 1;
           continue;
         }
 
