@@ -9,7 +9,7 @@ import SignalAggregator from './engine/signalAggregator.js';
 import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
-import { calcPositionAgingExit } from './risk/portfolioRisk.js';
+import { calcPositionAgingExit, calcWeeklyDDBreaker } from './risk/portfolioRisk.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
@@ -20,7 +20,7 @@ import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
 import { calcFearGreedAdjustedThreshold } from './core/filters.js';
 import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
-import { refreshMarketContext } from './data/marketContext.js';
+import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { computePositionSize } from './core/positionSizing.js';
@@ -406,6 +406,18 @@ async function runAllSymbols() {
         } else {
           logger.debug(`[REGIME] ${currentRegime}  candidate=${snap.candidate ?? '-'} streak=${snap.streak}  (ADX ${snap.raw?.adx ?? 'n/a'})`);
         }
+        // Surface regime to the dashboard (Phase 9 — append-only observability)
+        dashboardState.setRegime({
+          label: currentRegime,
+          previous: prev,
+          candidate: snap.candidate ?? null,
+          streak: snap.streak ?? 0,
+          adx: snap.raw?.adx ?? null,
+          btcClose: snap.raw?.btcClose ?? null,
+          ema200: snap.raw?.ema200 ?? null,
+          changedAt: regimeTracker.changedAt,
+          history: regimeTracker.history.slice(-10),
+        });
       }
     }
 
@@ -420,6 +432,31 @@ async function runAllSymbols() {
       regimeChanged,
       policy: config.bearPolicy,
     });
+
+    // Surface cross-asset context + circuit-breaker status (Phase 9 — append-only)
+    {
+      const fgValue = fearGreedData ? getFearGreedValue(fearGreedData, Date.now()) : null;
+      dashboardState.setMarketContext({
+        btcDominance: getBtcDominanceTrend(),
+        ethBtc: getEthBtcTrend(),
+        fearGreed: Number.isFinite(fgValue) ? fgValue : null,
+      });
+      const ddCfg = config.risk?.weeklyDDBreaker ?? {};
+      const ddBreaker = calcWeeklyDDBreaker({
+        recentTrades: dashboardState.getTrades(),
+        initialBalance: config.risk?.initialBalance ?? 1000,
+        lossThreshold: ddCfg.lossThreshold ?? 0.10,
+        cooldownHours: ddCfg.cooldownHours ?? 72,
+      });
+      dashboardState.setCircuitBreaker({
+        bearEntriesBlocked: !!bearPolicy.shouldBlockEntries,
+        bearReason: bearPolicy.reason ?? null,
+        weeklyDDActive: (ddCfg.enabled !== false) && !!ddBreaker.blocked,
+        weeklyPnLPct: ddBreaker.weeklyPnLPct ?? 0,
+        cooldownEndsAt: ddBreaker.cooldownEndsAt ?? null,
+      });
+    }
+
     if (bearPolicy.shouldCashExitOpen) {
       const status = await trader.getStatus();
       const open = status.positions ?? [];

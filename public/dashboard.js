@@ -659,11 +659,68 @@
       inner.innerHTML = pills.join('') || '<span class="filter-pill filter-off">No filter info yet</span>';
     }
 
+    // Phase 9 — BTC regime, cross-asset context, and circuit-breaker status.
+    // Reuses the .filter-pill styling so no new CSS is needed. All fields are
+    // optional (null until the first 12h cycle populates them).
+    function renderMarketContext(summary) {
+      const inner = document.getElementById('marketStripInner');
+      if (!inner) return;
+      const regime = summary?.regime || null;
+      const ctx    = summary?.marketContext || null;
+      const cb     = summary?.circuitBreaker || null;
+      const pills  = [];
+      const niceRegime = (r) => String(r || '').replace('_', ' ');
+
+      if (regime?.label) {
+        const bull = String(regime.label).startsWith('BULL');
+        const adx  = Number.isFinite(regime.adx) ? ` · ADX ${regime.adx}` : '';
+        const when = regime.changedAt ? ' — since ' + new Date(regime.changedAt).toLocaleString() : '';
+        pills.push(`<span class="filter-pill ${bull ? 'filter-on' : 'filter-blocked'}" title="BTC market regime (EMA200 × ADX, 3-bar hysteresis)${escapeHtml(when)}">🧭 ${escapeHtml(niceRegime(regime.label))}${escapeHtml(adx)}</span>`);
+        if (regime.candidate && regime.candidate !== regime.label && regime.streak > 0) {
+          pills.push(`<span class="filter-pill filter-off" title="Pending regime — needs 3 consecutive bars to switch">→ ${escapeHtml(niceRegime(regime.candidate))} (${regime.streak}/3)</span>`);
+        }
+      } else {
+        pills.push('<span class="filter-pill filter-off" title="Regime is computed once per 12h cycle">🧭 Regime — pending first cycle</span>');
+      }
+
+      const ctxPills = [];
+      if (ctx?.btcDominance?.value != null) {
+        const d = ctx.btcDominance;
+        const arrow = d.deltaPct > 0.1 ? '▲' : d.deltaPct < -0.1 ? '▼' : '→';
+        ctxPills.push(`<span class="filter-pill filter-strategies" title="Bitcoin dominance (% of total mcap). Rising dominance pressures alts; the BTC.D gate blocks alt entries when the 7-day trend rises sharply.">₿.D ${d.value.toFixed(1)}% ${arrow}</span>`);
+      }
+      if (ctx?.ethBtc?.value != null) {
+        const e = ctx.ethBtc;
+        const arrow = e.deltaFrac > 0.01 ? '▲' : e.deltaFrac < -0.01 ? '▼' : '→';
+        ctxPills.push(`<span class="filter-pill filter-strategies" title="ETH/BTC ratio — rising = altseason on (size up alts), falling = altseason off.">Ξ/₿ ${e.value.toFixed(5)} ${arrow}</span>`);
+      }
+      if (Number.isFinite(ctx?.fearGreed)) {
+        const fg = ctx.fearGreed;
+        const label = fg >= 80 ? 'Extreme Greed' : fg >= 60 ? 'Greed' : fg >= 40 ? 'Neutral' : fg >= 20 ? 'Fear' : 'Extreme Fear';
+        ctxPills.push(`<span class="filter-pill filter-strategies" title="Crypto Fear &amp; Greed index. >80 tightens entry confidence by +0.05; <20 relaxes it by -0.05 (contrarian).">😱 F&amp;G ${fg} · ${escapeHtml(label)}</span>`);
+      }
+      if (ctxPills.length) { pills.push('<span class="filter-divider"></span>'); pills.push(...ctxPills); }
+
+      if (cb) {
+        const breakers = [];
+        if (cb.bearEntriesBlocked) breakers.push(`<span class="filter-pill filter-blocked" title="${escapeHtml(cb.bearReason || 'Bear regime — new entries blocked')}">🐻 Bear: entries blocked</span>`);
+        if (cb.weeklyDDActive) {
+          const ends = cb.cooldownEndsAt ? ` (ends ${new Date(cb.cooldownEndsAt).toLocaleString()})` : '';
+          breakers.push(`<span class="filter-pill filter-blocked" title="Weekly drawdown circuit breaker active — new entries paused${escapeHtml(ends)}">🚨 Weekly DD breaker</span>`);
+        }
+        pills.push('<span class="filter-divider"></span>');
+        pills.push(breakers.length ? breakers.join('') : '<span class="filter-pill filter-on" title="No circuit breaker active — new entries permitted">✅ Breakers clear</span>');
+      }
+
+      inner.innerHTML = pills.join('') || '<span class="filter-pill filter-off">No market context yet</span>';
+    }
+
     function render(summary) {
       state.summary = summary;
       renderHeader(summary);
       renderSummary(summary);
       renderFilters(summary);
+      renderMarketContext(summary);
       renderPositions(summary);
       renderTrades();
       renderFooter(summary);
