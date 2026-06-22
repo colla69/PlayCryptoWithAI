@@ -70,6 +70,31 @@ export default {
     // values from scratch and this should be set back to 1.0 then.
     minConfidence: 0.70,
     confidenceThresholdScale: 0.65,
+    // ── ATR-based stops (Phase 1) ──────────────────────────────────────────
+    // When enabled, BUY orders compute SL/TP from current ATR% instead of fixed
+    // stopLossPct/takeProfitPct. Volatile coins get wider stops naturally;
+    // less-volatile coins get tighter stops without losing the cushion.
+    // Clamped to [minSlPct, maxSlPct] and [minTpPct, maxTpPct] to avoid extremes.
+    // The same multipliers apply in live + backtester (live ≡ backtest invariant).
+    atrStops: {
+      enabled: true,     // turn on once baseline measured
+      slMultiplier: 1.5, // SL = atrPct × 1.5
+      tpMultiplier: 3.0, // TP = atrPct × 3.0  (R:R = 1:2)
+      minSlPct: 0.02,    // never tighter than 2%
+      maxSlPct: 0.12,    // never wider than 12%
+      minTpPct: 0.04,    // never tighter than 4%
+      maxTpPct: 0.30,    // never wider than 30%
+    },
+    // ── Two-stage exit (Phase 1) ───────────────────────────────────────────
+    // When enabled, partial-close `firstStageFraction` of the position at
+    // `firstStagePctOfTp` of the way to TP, then force break-even on the
+    // remainder. Captures some profit on retracements without giving up
+    // the runner. Only fires once per position.
+    twoStageExit: {
+      enabled: false,             // tested: -8pp return, -0.1 Sharpe — reverting to OFF
+      firstStagePctOfTp: 0.5,     // partial close at +50% of TP target
+      firstStageFraction: 0.5,    // close 50% of qty
+    },
   },
   // ──────────────────────────────────────────────────────────────────
   // Per-symbol overrides — 12h holdout-validated (Y1 = unseen year)

@@ -329,6 +329,9 @@ export function runWindow({
 
   const backtester = new PortfolioBacktester(strategies, {
     risk: {
+      // Spread config.risk first so atrStops, twoStageExit, breakEvenTriggerPct,
+      // and other Phase 1+ additions flow through automatically.
+      ...(config.risk ?? {}),
       initialBalance:      budget,
       stopLossPct:         slMedian,
       takeProfitPct:       tpMedian,

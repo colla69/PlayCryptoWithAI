@@ -108,6 +108,10 @@ export function getRiskForSymbol(symbol) {
     ...(symCfg.takeProfitPct   !== undefined && { takeProfitPct:   symCfg.takeProfitPct }),
     ...(symCfg.trailingStopPct !== undefined && { trailingStopPct: symCfg.trailingStopPct }),
     ...(symCfg.minConfidence   !== undefined && { minConfidence:   symCfg.minConfidence }),
+    // Phase 1: ATR-based stops and two-stage exit are global toggles.
+    // The spread of config.risk already carries them; this comment documents
+    // intent for future maintainers (don't promote them to per-symbol unless
+    // we add a clear reason to).
   };
 }
 

@@ -198,7 +198,14 @@ async function runCycle(symbol) {
 
     logger.debug(`[CYCLE] ${symbol}: sizing positionPct=${positionPct.toFixed(4)} (base=${symRisk.maxPositionPct} atr=${config.atr?.enabled ? (medianATRPct ?? 'n/a') : 'off'} regime=${config.regimeSizing?.enabled ? 'on' : 'off'} conf=${config.confSizing?.enabled ? (result.confidence ?? 0).toFixed(2) : 'off'} macro=${config.macroFilter?.enabled ? (btcMacroBull ? 'bull' : 'bear') : 'off'} mtf=${mtfSizeFactor < 1.0 ? mtfSizeFactor.toFixed(2) : '1.0'})`);
 
-    const effectiveRisk = { ...symRisk, maxPositionPct: positionPct };
+    // Compute the symbol's current ATR% so the trader's ATR-stops path can use it.
+    // No-op when risk.atrStops.enabled is false.
+    const symbolATRPct = computeATRPct(candles, config.atr?.period ?? 14);
+    const effectiveRisk = {
+      ...symRisk,
+      maxPositionPct: positionPct,
+      atrPct: Number.isFinite(symbolATRPct) ? symbolATRPct : undefined,
+    };
 
     if (!tradeCheck.allowed) {
       logger.info(`${symbol}: trade blocked - ${tradeCheck.reason}`);

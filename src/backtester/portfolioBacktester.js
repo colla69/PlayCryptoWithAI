@@ -389,15 +389,21 @@ export class PortfolioBacktester {
           fillPrice: d.nextOpen,
           // Per-symbol slippage: higher for low-liquidity alts.
           slippagePct: this.symbolSlippage[sym],
+          // Pass atrPct so the simulator's ATR-stop path can compute SL/TP
+          // when risk.atrStops.enabled is true. No-op when ATR stops disabled.
+          atrPct: Number.isFinite(d.atrPct) ? d.atrPct : undefined,
         };
 
         // Per-symbol SL/TP overrides — match the live bot's perSymbol config.
         // Computed off the actual fill price so percentages line up with live.
+        // Skipped when ATR stops are enabled (ATR overrides percent-based stops).
         const symRisk = this.symbolRisk[sym];
-        if (symRisk?.stopLossPct != null) {
+        const atrStopsActive = this.config.risk?.atrStops?.enabled
+          && Number.isFinite(d.atrPct) && d.atrPct > 0;
+        if (!atrStopsActive && symRisk?.stopLossPct != null) {
           entryOpts.stopLossPrice = d.nextOpen * (1 - Number(symRisk.stopLossPct));
         }
-        if (symRisk?.takeProfitPct != null) {
+        if (!atrStopsActive && symRisk?.takeProfitPct != null) {
           entryOpts.takeProfitPrice = d.nextOpen * (1 + Number(symRisk.takeProfitPct));
         }
 

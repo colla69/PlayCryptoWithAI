@@ -1,6 +1,6 @@
 import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
-import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
+import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
@@ -94,6 +94,26 @@ export class PaperTrader {
       logger.info(`[PAPER] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
     }
 
+    // Two-stage exit (Phase 1) — partial profit taking at firstStagePctOfTp
+    // of the way to TP. Forces break-even on the remainder so it's risk-free.
+    const twoStage = this.config.twoStageExit;
+    if (twoStage?.enabled && !position.partialExitDone) {
+      const partial = calcPartialExit(
+        position,
+        currentPrice,
+        Number(twoStage.firstStagePctOfTp ?? 0.5),
+        Number(twoStage.firstStageFraction ?? 0.5),
+      );
+      if (partial.shouldExit) {
+        this.#partialClose(symbol, currentPrice, 'partial_exit', partial.fraction);
+        position.partialExitDone = true;
+        if (position.stopLoss < position.entryPrice) {
+          position.stopLoss = roundPrice(position.entryPrice * 1.002);
+          logger.info(`[PAPER] ${symbol}: break-even locked on remainder after partial exit`);
+        }
+      }
+    }
+
     // Exit signal evaluation
     const exit = calcExitSignal(position, currentPrice);
     if (exit.shouldExit) {
@@ -102,6 +122,36 @@ export class PaperTrader {
     }
 
     return null;
+  }
+
+  #partialClose(symbol, price, reason, fraction) {
+    const position = this.positions.get(symbol);
+    if (!position) return null;
+    const closeFrac = Math.min(Math.max(Number(fraction) || 0, 0), 1);
+    if (closeFrac <= 0 || closeFrac >= 1) return null;
+    const closeQty = roundQty(position.qty * closeFrac);
+    if (closeQty <= 0 || closeQty >= position.qty) return null;
+    const proceeds = roundMoney(closeQty * price);
+    const portionEntryCost = roundMoney(closeQty * position.entryPrice);
+    const pnl = roundMoney(proceeds - portionEntryCost);
+    const timestamp = new Date().toISOString();
+
+    this.balance = roundMoney(this.balance + proceeds);
+    this.totalPnL = roundMoney(this.totalPnL + pnl);
+    position.qty = roundQty(position.qty - closeQty);
+
+    logger.info(`[PAPER] ${reason} ${symbol} closed ${(closeFrac * 100).toFixed(0)}% qty=${closeQty.toFixed(8)} price=${price.toFixed(8)} pnl=${pnl.toFixed(2)}`);
+    appendTrade({
+      timestamp,
+      symbol,
+      side: 'SELL',
+      price,
+      qty: closeQty,
+      pnl,
+      balance: this.balance,
+      note: 'partial_exit',
+    });
+    return { symbol, qty: closeQty, price, pnl, partial: true };
   }
 
   #openPosition(symbol, price, riskOverride) {
@@ -135,17 +185,44 @@ export class PaperTrader {
 
     logger.debug(`[PAPER] ${symbol}: sizing balance=${this.balance.toFixed(2)} maxPositionPct=${risk.maxPositionPct.toFixed(4)} allocation=${allocation.toFixed(2)} qty=${qty.toFixed(8)} cost=${cost.toFixed(2)}`);
 
-    const initialStopLoss = roundPrice(price * (1 - risk.stopLossPct));
+    // ── ATR-based stops (Phase 1) ─────────────────────────────────────────
+    // When risk.atrStops.enabled AND riskOverride.atrPct is provided, derive
+    // SL/TP from ATR. Falls back to fixed percent stops otherwise. Keeps
+    // behaviour-compat for callers that don't pass atrPct.
+    let derivedSL = null;
+    let derivedTP = null;
+    const atrStops = risk.atrStops;
+    if (atrStops?.enabled && Number.isFinite(risk.atrPct) && risk.atrPct > 0) {
+      const atrPrices = calcATRStopPrices({
+        fillPrice: price,
+        atrPct: risk.atrPct,
+        slMultiplier: Number(atrStops.slMultiplier ?? 1.5),
+        tpMultiplier: Number(atrStops.tpMultiplier ?? 3.0),
+        minSlPct: Number(atrStops.minSlPct ?? 0.02),
+        maxSlPct: Number(atrStops.maxSlPct ?? 0.12),
+        minTpPct: Number(atrStops.minTpPct ?? 0.04),
+        maxTpPct: Number(atrStops.maxTpPct ?? 0.30),
+      });
+      if (atrPrices) {
+        derivedSL = atrPrices.stopLossPrice;
+        derivedTP = atrPrices.takeProfitPrice;
+        logger.debug(`[PAPER] ${symbol}: ATR stops SL=${derivedSL.toFixed(8)} (${(atrPrices.slPct*100).toFixed(1)}%) TP=${derivedTP.toFixed(8)} (${(atrPrices.tpPct*100).toFixed(1)}%) atrPct=${(risk.atrPct*100).toFixed(2)}%`);
+      }
+    }
+
+    const initialStopLoss = derivedSL ?? roundPrice(price * (1 - risk.stopLossPct));
+    const takeProfitPrice = derivedTP ?? roundPrice(price * (1 + risk.takeProfitPct));
     const timestamp = new Date().toISOString();
     const position = {
       qty,
       entryPrice: price,
       initialStopLoss,
       stopLoss: initialStopLoss,
-      takeProfit: roundPrice(price * (1 + risk.takeProfitPct)),
+      takeProfit: takeProfitPrice,
       highWaterMark: price,
       trailingStopPct: risk.trailingStopPct,
       openedAt: timestamp,
+      partialExitDone: false,
     };
 
     this.balance = roundMoney(this.balance - cost);
