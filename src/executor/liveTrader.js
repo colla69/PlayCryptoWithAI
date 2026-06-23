@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import logger, { appendTrade } from '../utils/logger.js';
-import { calcTrailingStop, calcBreakEven, calcExitSignal } from './traderUtils.js';
+import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
 
 // Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
 const FALLBACK_MIN_NOTIONAL = 11;
@@ -90,6 +90,30 @@ export class LiveTrader {
         position.stopLoss = be.newStopLoss;
         logger.info(`[LIVE] ${symbol}: break-even stop locked at ${position.stopLoss.toFixed(8)} (entry + fees)`);
         this.#savePositionState();
+      }
+
+      // Two-stage exit (Phase 1) — partial profit taking
+      const twoStage = this.config.twoStageExit;
+      if (twoStage?.enabled && !position.partialExitDone) {
+        const partial = calcPartialExit(
+          position,
+          currentPrice,
+          Number(twoStage.firstStagePctOfTp ?? 0.5),
+          Number(twoStage.firstStageFraction ?? 0.5),
+        );
+        if (partial.shouldExit) {
+          try {
+            await this.#partialClose(symbol, currentPrice, 'partial_exit', partial.fraction);
+            position.partialExitDone = true;
+            if (position.stopLoss < position.entryPrice) {
+              position.stopLoss = roundPrice(position.entryPrice * 1.002);
+              logger.info(`[LIVE] ${symbol}: break-even locked on remainder after partial exit`);
+            }
+            this.#savePositionState();
+          } catch (err) {
+            logger.error(`[LIVE] ${symbol}: partial_exit failed - ${this.#formatError(err)}`);
+          }
+        }
       }
 
       // Exit signal evaluation
@@ -369,7 +393,31 @@ export class LiveTrader {
       const entryPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
       const reportedQty = Number(order.filled ?? order.amount ?? qty);
       const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
-      const initialStopLoss = roundPrice(entryPrice * (1 - risk.stopLossPct));
+
+      // ── ATR-based stops (Phase 1) ─────────────────────────────────────────
+      let derivedSL = null;
+      let derivedTP = null;
+      const atrStops = risk.atrStops;
+      if (atrStops?.enabled && Number.isFinite(risk.atrPct) && risk.atrPct > 0) {
+        const atrPrices = calcATRStopPrices({
+          fillPrice: entryPrice,
+          atrPct: risk.atrPct,
+          slMultiplier: Number(atrStops.slMultiplier ?? 1.5),
+          tpMultiplier: Number(atrStops.tpMultiplier ?? 3.0),
+          minSlPct: Number(atrStops.minSlPct ?? 0.02),
+          maxSlPct: Number(atrStops.maxSlPct ?? 0.12),
+          minTpPct: Number(atrStops.minTpPct ?? 0.04),
+          maxTpPct: Number(atrStops.maxTpPct ?? 0.30),
+        });
+        if (atrPrices) {
+          derivedSL = atrPrices.stopLossPrice;
+          derivedTP = atrPrices.takeProfitPrice;
+          logger.debug(`[LIVE] ${symbol}: ATR stops SL=${derivedSL.toFixed(8)} (${(atrPrices.slPct*100).toFixed(1)}%) TP=${derivedTP.toFixed(8)} (${(atrPrices.tpPct*100).toFixed(1)}%) atrPct=${(risk.atrPct*100).toFixed(2)}%`);
+        }
+      }
+
+      const initialStopLoss = derivedSL ?? roundPrice(entryPrice * (1 - risk.stopLossPct));
+      const takeProfit      = derivedTP ?? roundPrice(entryPrice * (1 + risk.takeProfitPct));
       const trailingStopPct = Number.isFinite(risk.trailingStopPct) && risk.trailingStopPct > 0
         ? risk.trailingStopPct
         : undefined;
@@ -379,12 +427,13 @@ export class LiveTrader {
         entryPrice,
         initialStopLoss,
         stopLoss: initialStopLoss,
-        takeProfit: roundPrice(entryPrice * (1 + risk.takeProfitPct)),
+        takeProfit,
         highWaterMark: entryPrice,
         orderId: order.id,
         side: 'buy',
         trailingStopPct,
         openedAt: timestamp,
+        partialExitDone: false,
       };
 
       this.positions.set(symbol, position);
@@ -422,6 +471,59 @@ export class LiveTrader {
       logger.error(`[LIVE] ${symbol}: BUY failed - ${this.#formatError(error)}`);
       return null;
     }
+  }
+
+  async #partialClose(symbol, referencePrice, reason, fraction) {
+    const position = this.positions.get(symbol);
+    if (!position) return null;
+    const closeFrac = Math.min(Math.max(Number(fraction) || 0, 0), 1);
+    if (closeFrac <= 0 || closeFrac >= 1) return null;
+    let sellQty = roundQty(position.qty * closeFrac);
+    if (sellQty <= 0 || sellQty >= position.qty) return null;
+
+    // Apply Binance lot-size step truncation and check minimum notional
+    const base = symbol.split('/')[0];
+    try {
+      const bal = await fetchBalance();
+      const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
+      if (freeBase > 0) {
+        const maxSellable = await amountToPrecision(symbol, Math.min(freeBase, sellQty));
+        if (maxSellable < sellQty) sellQty = maxSellable;
+      }
+    } catch { /* fall back to computed qty */ }
+    if (sellQty <= 0) return null;
+    if (sellQty * referencePrice < FALLBACK_MIN_NOTIONAL) {
+      logger.info(`[LIVE] ${symbol}: ${reason} skipped, notional ${(sellQty * referencePrice).toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} minimum`);
+      return null;
+    }
+
+    const order = await createOrder(symbol, 'market', 'sell', sellQty);
+    const exitPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
+    const proceeds = roundMoney(sellQty * exitPrice);
+    const portionEntryCost = roundMoney(sellQty * position.entryPrice);
+    const pnl = roundMoney(proceeds - portionEntryCost);
+    const timestamp = new Date().toISOString();
+    const balanceAfter = await this.#fetchQuoteBalance();
+
+    this.totalPnL = roundMoney(this.totalPnL + pnl);
+    position.qty = roundQty(position.qty - sellQty);
+
+    logger.info(
+      `[LIVE] ${reason} ${symbol} closed ${(closeFrac * 100).toFixed(0)}% qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
+    );
+
+    appendTrade({
+      timestamp,
+      symbol,
+      side: 'SELL',
+      price: exitPrice,
+      qty: sellQty,
+      pnl,
+      balance: balanceAfter,
+      note: 'partial_exit',
+    });
+
+    return { symbol, qty: sellQty, price: exitPrice, pnl, partial: true };
   }
 
   async #closePosition(symbol, referencePrice, reason) {

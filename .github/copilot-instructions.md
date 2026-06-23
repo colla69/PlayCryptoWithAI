@@ -32,7 +32,9 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 | File | Role |
 |---|---|
 | `src/main.js` | Entry point, trading loop, filters, position restore |
-| `src/engine/signalAggregator.js` | HOLD-suppressed voting engine |
+| `src/engine/signalAggregator.js` | Confidence-weighted voting engine (consumes `aggregatorVoting.js`) |
+| `src/engine/aggregatorVoting.js` | Pure voting math — **parity-locked** across live/backtester/optimizer |
+| `src/engine/regimeClassifier.js` | BTC regime (EMA200×ADX, hysteresis); `regimeRouter.js` = bear policy + bundles |
 | `src/utils/strategyBuilder.js` | Maps config keys → strategy instances (**crash if missing**) |
 | `src/executor/liveTrader.js` | Live orders, position restore, exchange limits |
 | `config/default.js` | All config, per-symbol overrides |
@@ -47,13 +49,18 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - Smoke-test trades tagged `note: '🔬 smoke-test'` — never remove.
 - Never commit secrets. Keys from `.env` only.
 
-## Signal Engine (current state)
+## Signal Engine (current state — post robustness overhaul)
 
-- **15 strategies**: RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR, StochRSI, HeikinAshi, S&R
-- **HOLD suppression**: HOLD votes excluded from denominator. `1 BUY + 2 HOLD = 100%` confidence, not 33%.
+- **20 strategies**: RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR, StochRSI, HeikinAshi, S&R + Donchian, VWAP-σ, VolumeSurge, Ichimoku, PinBar.
+- **Confidence-weighted voting** (`src/engine/aggregatorVoting.js`, shared by live/backtester/optimizer): each strategy's confidence is its vote weight; **HOLD is counted in the denominator** so `confidence = winner_weight / total_voters`. `2/3 BUY + 1 HOLD = 0.67` (not 1.00) — fixes the old resolution bug. Parity enforced by `tests/engine/aggregatorParity.test.js`.
+- **Calibration**: `risk.confidenceThresholdScale = 0.65` scales legacy per-symbol thresholds for the new formula. Phase 4 retune **measured** this: 1.0 starves the bot, 0.65 is best risk-adjusted (validated forward-only). Keep at 0.65 unless a from-scratch per-symbol retune replaces the thresholds.
+- **Multi-bar confirmation**: borderline entries (within ~0.10 of minConf) need the previous bar to agree.
+- **Regime gate** (`engine/regimeClassifier.js`): BTC EMA200×ADX 2×2 with 3-bar hysteresis; bear policy closes all + blocks entries on transition into `BEAR_TREND` (`bearPolicy.mode='trend_only'`). Regime routing infra exists but is OFF.
+- **Cross-asset context** (`data/marketContext.js`): BTC.D gate (CoinGecko), ETHBTC sizing, Fear & Greed minConf modulator.
+- **Portfolio risk gates** (`risk/portfolioRisk.js`): correlation cap (0.85), weekly DD breaker (−10%→72h), position-aging exit (14 bars).
 - **Asymmetric exit**: open positions exit at 70% of normal threshold when SELL majority exists.
 - **MTF filter**: 15m recency-weighted alignment score blocks entries when score < 0.5.
-- **S&R pin-bar confirmation**: without rejection candle, confidence capped at 0.62.
+- **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
 ## Strategy Registration (mandatory)
 
@@ -71,7 +78,8 @@ These apply whenever backtest/optimizer code is touched:
 
 - **Fill model**: BUY fills at next candle's open (`d.nextOpen`), not signal close
 - **Slippage tiers**: Large 0.10%, Mid 0.20%, Micro 0.35% — never flat
-- **Optimizer MIN_TRADES ≥ 3** on holdout; reject `[0t]`/`[1t]`/`[2t]` upgrades
+- **Optimizer MIN_TRADES ≥ 8** on holdout; reject `[0t]`/`[1t]`/`[2t]` upgrades; reject deflated-Sharpe < 0.5
+- **Validation tooling**: `runBaseline.mjs` (multi-window + deflated Sharpe), `runWalkForward.mjs` (forward-only + Monte Carlo). Revert any change that worsens risk-adjusted metrics vs the committed baseline.
 - **Two-window reporting**: always report both Y2 (in-sample) and Y1+Y2 (full OOS)
 - **WR gap**: >10pp = warning, >15pp = blocker
 - **Optimizer aggregator must match live** — if aggregator logic changes, re-run optimizer

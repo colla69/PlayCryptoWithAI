@@ -36,6 +36,15 @@ import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
 import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
 import signalBus from '../signals/signalBus.js';
+import {
+  calcCorrelationCap,
+  calcWeeklyDDBreaker,
+  calcPositionAgingExit,
+} from '../risk/portfolioRisk.js';
+import { getContextAsOf } from '../data/marketContext.js';
+import { calcFearGreedAdjustedThreshold } from '../core/filters.js';
+import { classifySeries, REGIME_LABELS } from '../engine/regimeClassifier.js';
+import { computeBearPolicy } from '../engine/regimeRouter.js';
 
 const MIN_WARMUP = 50;
 const ADX_LOOKBACK = 50;
@@ -64,6 +73,23 @@ export class PortfolioBacktester {
     this.atrTPMultiplier = Number(config.atrTPMultiplier ?? 3.0);
     this.correlationFilter = Boolean(config.correlationFilter ?? false);
     this.correlationThreshold = Number(config.correlationThreshold ?? 0.8);
+    // Phase 3: BTC dominance gate (block alt entries when BTC.D 7d SMA rising)
+    this.btcDominanceGate = Boolean(config.btcDominance?.enabled ?? false);
+    this.btcDominanceThresholdPp = Number(config.btcDominance?.blockThresholdPp ?? 1.0);
+    // Phase 3: Fear & Greed entry-threshold modulator
+    this.fearGreedModulator = Boolean(config.fearGreed?.enabled ?? false);
+    this.fearGreedCfg = config.fearGreed ?? null;
+    // Phase 7: portfolio risk gates — all opt-in via config.risk.*
+    // weeklyDDBreaker: pause new entries after 7-day rolling P&L breaches threshold
+    this.weeklyDDBreaker = Boolean(config.risk?.weeklyDDBreaker?.enabled ?? false);
+    this.weeklyDDLossThreshold = Number(config.risk?.weeklyDDBreaker?.lossThreshold ?? 0.10);
+    this.weeklyDDCooldownHours = Number(config.risk?.weeklyDDBreaker?.cooldownHours ?? 72);
+    // positionAgingExit: close positions that hit `maxAgeBars` without TP/SL
+    this.positionAgingExit = Boolean(config.risk?.positionAgingExit?.enabled ?? false);
+    this.positionAgingMaxBars = Number(config.risk?.positionAgingExit?.maxAgeBars ?? 14);
+    this.candleIntervalMs = Number(config.candleIntervalMs ?? 12 * 60 * 60 * 1000);
+    // Phase 6a: bear policy — block new entries + cash-exit on regime transition
+    this.bearPolicyEnabled = Boolean(config.bearPolicy?.enabled ?? false);
     this.fearGreedFilter = Boolean(config.fearGreedFilter ?? false);
     this.fearGreedThreshold = Number(config.fearGreedThreshold ?? 50);
     this.fearGreedData = Array.isArray(config.fearGreedData) ? config.fearGreedData : null;
@@ -121,20 +147,58 @@ export class PortfolioBacktester {
     // Per-symbol minConfidence overrides — { 'BTC/USDC': 0.55, ... }
     // Applied to each symbol's SignalAggregator so the vote threshold matches
     // the live bot's perSymbol.minConfidence.
-    this.symbolMinConfidence = config.symbolMinConfidence ?? {};
+    const rawSymbolMinConfidence = config.symbolMinConfidence ?? {};
+    // Phase 1 transition: scale every minConfidence by this factor (default 1.0).
+    // The Phase 1 aggregator counts HOLDs in the denominator (a more honest formula)
+    // which made the old per-symbol thresholds too strict. This single knob keeps
+    // the bot tradeable until Phase 4 walk-forward retunes per-symbol values from
+    // scratch — set back to 1.0 then. MUST match config.risk.confidenceThresholdScale
+    // applied by getSignalConfigForSymbol() so live ≡ backtest.
+    this.confidenceThresholdScale = Number.isFinite(config.confidenceThresholdScale)
+      ? config.confidenceThresholdScale
+      : 1;
+    const scaleMinConf = (mc) => {
+      if (!Number.isFinite(mc)) return mc;
+      return Math.max(0, Math.min(1, mc * this.confidenceThresholdScale));
+    };
+    // Store the SCALED values so every read (constructor + per-candle aggregate
+    // override path on line ~485) picks up the same scaled threshold. Without
+    // this, the per-candle override would re-apply the raw value and undo the
+    // construction-time scaling.
+    this.symbolMinConfidence = Object.fromEntries(
+      Object.entries(rawSymbolMinConfidence).map(([sym, mc]) => [sym, scaleMinConf(mc)]),
+    );
+    const scaledGlobalMinConf = (() => {
+      const base = Number(config.signals?.minConfidence);
+      return Number.isFinite(base) ? scaleMinConf(base) : base;
+    })();
+    // Also scale the global signals.minConfidence stored on this.config so that
+    // the per-candle `symSignals` spread (which reads this.config.signals) sees
+    // the scaled value too.
+    if (Number.isFinite(scaledGlobalMinConf)) {
+      this.config = {
+        ...this.config,
+        signals: {
+          ...(this.config.signals ?? {}),
+          minConfidence: scaledGlobalMinConf,
+        },
+      };
+    }
 
     const symbolCount = Object.keys(symbolStrategies).length;
     signalBus.setMaxListeners(Math.max(signalBus.getMaxListeners(), symbolCount + 5));
 
     this.aggregators = Object.fromEntries(
-      Object.entries(symbolStrategies).map(([sym, strats]) => [
-        sym,
-        new SignalAggregator(strats, {
+      Object.entries(symbolStrategies).map(([sym, strats]) => {
+        const aggSignalConfig = {
           ...(config.signals ?? {}),
-          // Per-symbol minConfidence override; falls back to global signals.minConfidence
-          ...(this.symbolMinConfidence[sym] != null && { minConfidence: this.symbolMinConfidence[sym] }),
-        }),
-      ]),
+          ...(Number.isFinite(scaledGlobalMinConf) && { minConfidence: scaledGlobalMinConf }),
+          ...(this.symbolMinConfidence[sym] != null && {
+            minConfidence: this.symbolMinConfidence[sym],
+          }),
+        };
+        return [sym, new SignalAggregator(strats, aggSignalConfig)];
+      }),
     );
   }
 
@@ -179,6 +243,17 @@ export class PortfolioBacktester {
       }
     }
 
+    // ── Regime series (Phase 4) ────────────────────────────────────────────
+    // Pre-compute BTC regime at every bar so per-step logic can branch on it
+    // deterministically. classifySeries handles all warm-up + hysteresis.
+    const btcKey = symbolCandles['BTC/USDC'] ? 'BTC/USDC' : (symbolCandles['BTC/USDT'] ? 'BTC/USDT' : null);
+    const regimeSeries = btcKey
+      ? classifySeries(symbolCandles[btcKey], this.config.regimeClassifier ?? {})
+      : [];
+    // Index regimeSeries by timestamp for fast per-step lookup.
+    const regimeByTs = new Map();
+    for (const r of regimeSeries) regimeByTs.set(r.ts, r.regime);
+
     const maxLen = Math.max(...symbols.map((s) => symbolCandles[s].length));
     const positionOpenedStep = {};
     const filtersApplied = {
@@ -187,11 +262,57 @@ export class PortfolioBacktester {
       fearGreed: 0,
       correlation: 0,
       mtfEarlyExit: 0,
+      positionAging: 0,
+      weeklyDDBreaker: 0,
+      btcDominance: 0,
+      bearPolicy: 0,
+      bearCashExit: 0,
     };
+
+    // Phase 6a: track the regime label as of the previous step so we can
+    // detect transitions WITHIN the backtest's evolving timeline.
+    let prevRegimeLabel = null;
 
     for (let step = 0; step < maxLen - MIN_WARMUP; step++) {
       const stepSignals = {};
       const buyQueue = [];
+
+      // Resolve current regime at this step from the precomputed series.
+      // The series ts must match the BTC candle ts at this step index.
+      let currentRegimeLabel = null;
+      if (btcKey) {
+        const btcSlice = symbolCandles[btcKey].slice(0, step + MIN_WARMUP + 1);
+        const tsAtStep = btcSlice.at(-1)?.timestamp;
+        if (tsAtStep != null) {
+          currentRegimeLabel = regimeByTs.get(tsAtStep) ?? null;
+        }
+      }
+      const regimeChanged = currentRegimeLabel != null
+        && prevRegimeLabel != null
+        && currentRegimeLabel !== prevRegimeLabel;
+      const bearPolicy = computeBearPolicy({
+        regime: currentRegimeLabel,
+        regimeChanged,
+        policy: { enabled: this.bearPolicyEnabled },
+      });
+
+      // Phase 6a cash-exit-on-bear: on the BAR regime transitions into BEAR,
+      // close every open position. Subsequent BEAR bars only block new
+      // entries (handled in the buy-queue filter below) — open positions
+      // continue under normal SL/TP/break-even management.
+      if (bearPolicy.shouldCashExitOpen) {
+        const openPositions = simulator.getStatus().positions;
+        for (const pos of openPositions) {
+          const sym = pos.symbol;
+          const d = allData[sym]?.[step];
+          if (!d) continue;
+          simulator.setTimestamp(d.timestamp);
+          simulator.execute(sym, 'SELL', d.price);
+          delete positionOpenedStep[sym];
+          filtersApplied.bearCashExit += 1;
+        }
+      }
+      prevRegimeLabel = currentRegimeLabel;
 
       let medianATR = null;
       if (this.atrPositionSizing) {
@@ -235,6 +356,33 @@ export class PortfolioBacktester {
         }
       }
 
+      // ── Position aging exit (Phase 7) ───────────────────────────────────
+      // Close positions open more than maxAgeBars without hitting TP/SL.
+      // Frees capital sitting in sluggish trades; non-adaptive rule (no
+      // overfit risk).
+      if (this.positionAgingExit) {
+        const openPositions = simulator.getStatus().positions;
+        for (const pos of openPositions) {
+          const sym = pos.symbol;
+          const d = allData[sym]?.[step];
+          if (!d) continue;
+          const positionEntryTs = simulator.positions.get(sym)?.entryTime;
+          if (positionEntryTs == null) continue;
+          const aging = calcPositionAgingExit({
+            entryTs: positionEntryTs,
+            nowTs: d.timestamp,
+            candleIntervalMs: this.candleIntervalMs,
+            maxAgeBars: this.positionAgingMaxBars,
+          });
+          if (aging.shouldExit) {
+            simulator.setTimestamp(d.timestamp);
+            simulator.execute(sym, 'SELL', d.price);
+            delete positionOpenedStep[sym];
+            filtersApplied.positionAging = (filtersApplied.positionAging ?? 0) + 1;
+          }
+        }
+      }
+
       for (const sym of symbols) {
         const d = allData[sym]?.[step];
         if (!d) continue;
@@ -257,7 +405,62 @@ export class PortfolioBacktester {
 
       buyQueue.sort((a, b) => b.d.confidence - a.d.confidence);
 
+      // ── Weekly DD circuit breaker (Phase 7) ─────────────────────────────
+      // Check ONCE per step (not per candidate) so all queued buys see the
+      // same gate decision. When triggered, every BUY at this step is
+      // rejected; existing positions are still managed normally.
+      let weeklyDDBlock = null;
+      if (this.weeklyDDBreaker && buyQueue.length > 0) {
+        const nowTs = buyQueue[0]?.d?.timestamp ?? Date.now();
+        const breaker = calcWeeklyDDBreaker({
+          recentTrades: simulator.getTrades(),
+          initialBalance,
+          lossThreshold: this.weeklyDDLossThreshold,
+          cooldownHours: this.weeklyDDCooldownHours,
+          nowMs: nowTs,
+        });
+        if (breaker.blocked) weeklyDDBlock = breaker;
+      }
+
       for (const { sym, d } of buyQueue) {
+        if (weeklyDDBlock) {
+          filtersApplied.weeklyDDBreaker = (filtersApplied.weeklyDDBreaker ?? 0) + 1;
+          continue;
+        }
+
+        // Phase 6a: bear policy hard block on new entries
+        if (bearPolicy.shouldBlockEntries) {
+          filtersApplied.bearPolicy = (filtersApplied.bearPolicy ?? 0) + 1;
+          continue;
+        }
+
+        // BTC Dominance gate (Phase 3) — block alt BUYs when BTC.D rising
+        if (this.btcDominanceGate && !sym.startsWith('BTC/')) {
+          const ctx = getContextAsOf(d.timestamp);
+          if (ctx?.btcDominance?.sma7d != null) {
+            const delta = ctx.btcDominance.value - ctx.btcDominance.sma7d;
+            if (delta >= this.btcDominanceThresholdPp) {
+              filtersApplied.btcDominance = (filtersApplied.btcDominance ?? 0) + 1;
+              continue;
+            }
+          }
+        }
+
+        // Fear & Greed modulator (Phase 3): tighten conf in greed, loosen in fear.
+        // The aggregator already evaluated against the base minConfidence; we
+        // re-check with the adjusted value here. Skips silently when no F&G data.
+        if (this.fearGreedModulator && this.fearGreedData) {
+          const fgValue = getFearGreedValue(this.fearGreedData, d.timestamp);
+          const baseMinConf = this.symbolMinConfidence[sym]
+            ?? this.config.signals?.minConfidence
+            ?? 0.5;
+          const adjusted = calcFearGreedAdjustedThreshold(baseMinConf, fgValue, this.fearGreedCfg);
+          if (adjusted.regime === 'greed' && d.confidence < adjusted.minConfidence) {
+            filtersApplied.fearGreed = (filtersApplied.fearGreed ?? 0) + 1;
+            continue;
+          }
+        }
+
         if (this.regimeFilter && !d.isTrending) {
           filtersApplied.regime++;
           continue;
@@ -280,11 +483,13 @@ export class PortfolioBacktester {
         if (status.positions.some((p) => p.symbol === sym)) continue;
 
         if (this.correlationFilter) {
-          const isBlocked = status.positions.some((p) => {
-            const correlation = correlationMatrix?.[sym]?.[p.symbol];
-            return Number.isFinite(correlation) && correlation > this.correlationThreshold;
+          const cap = calcCorrelationCap({
+            candidateSymbol: sym,
+            openPositions: status.positions,
+            correlationMatrix,
+            threshold: this.correlationThreshold,
           });
-          if (isBlocked) {
+          if (cap.blocked) {
             filtersApplied.correlation++;
             continue;
           }
@@ -351,15 +556,21 @@ export class PortfolioBacktester {
           fillPrice: d.nextOpen,
           // Per-symbol slippage: higher for low-liquidity alts.
           slippagePct: this.symbolSlippage[sym],
+          // Pass atrPct so the simulator's ATR-stop path can compute SL/TP
+          // when risk.atrStops.enabled is true. No-op when ATR stops disabled.
+          atrPct: Number.isFinite(d.atrPct) ? d.atrPct : undefined,
         };
 
         // Per-symbol SL/TP overrides — match the live bot's perSymbol config.
         // Computed off the actual fill price so percentages line up with live.
+        // Skipped when ATR stops are enabled (ATR overrides percent-based stops).
         const symRisk = this.symbolRisk[sym];
-        if (symRisk?.stopLossPct != null) {
+        const atrStopsActive = this.config.risk?.atrStops?.enabled
+          && Number.isFinite(d.atrPct) && d.atrPct > 0;
+        if (!atrStopsActive && symRisk?.stopLossPct != null) {
           entryOpts.stopLossPrice = d.nextOpen * (1 - Number(symRisk.stopLossPct));
         }
-        if (symRisk?.takeProfitPct != null) {
+        if (!atrStopsActive && symRisk?.takeProfitPct != null) {
           entryOpts.takeProfitPrice = d.nextOpen * (1 + Number(symRisk.takeProfitPct));
         }
 
@@ -418,6 +629,14 @@ export class PortfolioBacktester {
       symbolStats,
       regimeFilteredCount: filtersApplied.regime,
       filtersApplied,
+      // Phase 4: regime distribution across the run for diagnostics
+      regimeDistribution: (() => {
+        const dist = {};
+        for (const r of regimeSeries) {
+          if (r.regime) dist[r.regime] = (dist[r.regime] ?? 0) + 1;
+        }
+        return dist;
+      })(),
       config: {
         maxOpenPositions: this.maxOpenPositions,
         basePct,

@@ -9,6 +9,8 @@ import SignalAggregator from './engine/signalAggregator.js';
 import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
+import { calcPositionAgingExit, calcWeeklyDDBreaker } from './risk/portfolioRisk.js';
+import { computeLiveStats, evaluateDrift } from './monitor/driftMonitor.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
@@ -17,6 +19,11 @@ import { dashboardState, startDashboardServer, pushEvent } from './dashboard/ind
 import { initNotifier, notifyTrade, notifyStartup } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
+import { calcFearGreedAdjustedThreshold } from './core/filters.js';
+import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
+import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
+import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
+import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { computePositionSize } from './core/positionSizing.js';
 import {
   buildStrategiesForSymbol,
@@ -65,6 +72,20 @@ let medianATRPct = null;
 // True when BTC price is above its EMA(200) — normal sizing applies.
 // False in bear phase — new positions are opened at sizeReduceFactor × base size.
 let btcMacroBull = true;
+
+// ── Fear & Greed history (Phase 3) ───────────────────────────────────────────
+// Loaded once at startup; refreshed daily by loadFearGreedHistory's own TTL.
+let fearGreedData = null;
+
+// ── BTC Regime classifier (Phase 4) ──────────────────────────────────────────
+// One stateful tracker shared across all symbols. Updated at the start of each
+// cycle from BTC candles. Current regime is exposed on dashboardState for the
+// UI and used by routing/filters/sizing decisions.
+const regimeTracker = new RegimeTracker(config.regimeClassifier ?? {});
+let currentRegime = REGIME_LABELS.BULL_RANGE;
+// Latest bear-policy decision, computed once per cycle in runAllSymbols
+// and consumed by runCycle to block new entries.
+let bearPolicy = { shouldBlockEntries: false, shouldCashExitOpen: false };
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -140,12 +161,40 @@ async function runCycle(symbol) {
     const currentPrice = Number(candles.at(-1).close);
     const currentStatus = await trader.getStatus();
     const symRisk = getRiskForSymbol(symbol);
+    const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
+
+    // ── Position aging exit (Phase 7) ────────────────────────────────────────
+    // Close positions open more than maxAgeBars without hitting TP/SL.
+    // Runs BEFORE the BUY/SELL decision so an aging exit frees the slot for
+    // a new entry candidate this same cycle.
+    const agingCfg = config.risk?.positionAgingExit;
+    if (agingCfg?.enabled && hasPosition) {
+      const myPos = currentStatus.positions.find((p) => p.symbol === symbol);
+      if (myPos && myPos.openedAt) {
+        const aging = calcPositionAgingExit({
+          entryTs: new Date(myPos.openedAt).getTime(),
+          nowTs: Date.now(),
+          candleIntervalMs: Number(config.pollIntervalMs ?? 12 * 60 * 60 * 1000),
+          maxAgeBars: Number(agingCfg.maxAgeBars ?? 14),
+        });
+        if (aging.shouldExit) {
+          logger.info(`${symbol}: ${aging.reason}`);
+          const agingExit = await trader.execute(symbol, 'SELL', currentPrice, symRisk);
+          if (agingExit) {
+            dashboardState.pushTrade(agingExit);
+            if (typeof agingExit.pnl === 'number') riskManager.recordTrade(agingExit.pnl);
+            notifyTrade(agingExit);
+            pushEvent('trade', agingExit);
+            return; // skip the rest of the cycle for this symbol
+          }
+        }
+      }
+    }
 
     // ── Easier SELL for open positions: lower confidence threshold ────────────
     // If we already hold this symbol and the aggregator says SELL but confidence
     // fell below minConfidence (decision forced to HOLD), re-check at a lower bar.
     // Exiting a position requires less conviction than entering one.
-    const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
     if (hasPosition && result.decision === 'HOLD') {
       const sellVotes = result.signals.filter((s) => s.signal === 'SELL').length;
       const totalStrategies = result.signals.length;
@@ -161,31 +210,55 @@ async function runCycle(symbol) {
     let blockReason = null;
     let mtfSizeFactor = 1.0;
     if (result.decision === 'BUY') {
-      // Use cached MTF candles — falls back to live fetch and warms cache
-      const cachedFetchOHLCV = async (sym, tf, limit) => {
-        if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
-        if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
-        const fresh = await fetchOHLCV(sym, tf, limit);
-        if (fresh.length) {
-          const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
-          cache.set(sym, fresh);
-        }
-        return fresh;
-      };
-      const filterResult = await runEntryFilters({
-        symbol, candles, openPositions: currentStatus.positions,
-        correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
-      });
-      blockReason = filterResult.blockReason;
-      mtfSizeFactor = filterResult.mtfSizeFactor;
+      // Phase 6a: hard bear-policy block runs BEFORE the regular filter stack
+      // so we don't waste cycles on filters for a guaranteed-blocked entry.
+      if (bearPolicy.shouldBlockEntries) {
+        blockReason = bearPolicy.reason ?? 'bear regime — entries disabled';
+        logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+      } else {
+        // Use cached MTF candles — falls back to live fetch and warms cache
+        const cachedFetchOHLCV = async (sym, tf, limit) => {
+          if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
+          if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
+          const fresh = await fetchOHLCV(sym, tf, limit);
+          if (fresh.length) {
+            const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
+            cache.set(sym, fresh);
+          }
+          return fresh;
+        };
+        const filterResult = await runEntryFilters({
+          symbol, candles, openPositions: currentStatus.positions,
+          correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
+          recentTrades: dashboardState.getTrades?.() ?? [],
+          initialBalance: config.risk?.initialBalance ?? 0,
+        });
+        blockReason = filterResult.blockReason;
+        mtfSizeFactor = filterResult.mtfSizeFactor;
+      }
     }
 
     // Track filter-level blocks for the dashboard counter
     if (blockReason) dashboardState.pushBlockedSignal(blockReason);
 
+    // ── Fear & Greed entry threshold modulator (Phase 3) ────────────────────
+    // Adjusts minConfidence based on current sentiment. Greed > 80 demands
+    // more conviction (tighten); Fear < 20 allows easier contrarian entry.
+    const fgValue = fearGreedData
+      ? getFearGreedValue(fearGreedData, Date.now())
+      : 50;
+    const fgAdjusted = calcFearGreedAdjustedThreshold(
+      symRisk.minConfidence,
+      fgValue,
+      config.fearGreed,
+    );
+    if (fgAdjusted.regime !== 'neutral') {
+      logger.debug(`${symbol}: F&G ${fgValue} ${fgAdjusted.regime} → minConf ${symRisk.minConfidence.toFixed(2)} → ${fgAdjusted.minConfidence.toFixed(2)}`);
+    }
+
     const tradeCheck = blockReason
       ? { allowed: false, reason: blockReason }
-      : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, symRisk.minConfidence);
+      : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, fgAdjusted.minConfidence);
     let tradeResult = null;
 
     // ── Position sizing chain (extracted to src/core/positionSizing.js) ──────
@@ -198,7 +271,14 @@ async function runCycle(symbol) {
 
     logger.debug(`[CYCLE] ${symbol}: sizing positionPct=${positionPct.toFixed(4)} (base=${symRisk.maxPositionPct} atr=${config.atr?.enabled ? (medianATRPct ?? 'n/a') : 'off'} regime=${config.regimeSizing?.enabled ? 'on' : 'off'} conf=${config.confSizing?.enabled ? (result.confidence ?? 0).toFixed(2) : 'off'} macro=${config.macroFilter?.enabled ? (btcMacroBull ? 'bull' : 'bear') : 'off'} mtf=${mtfSizeFactor < 1.0 ? mtfSizeFactor.toFixed(2) : '1.0'})`);
 
-    const effectiveRisk = { ...symRisk, maxPositionPct: positionPct };
+    // Compute the symbol's current ATR% so the trader's ATR-stops path can use it.
+    // No-op when risk.atrStops.enabled is false.
+    const symbolATRPct = computeATRPct(candles, config.atr?.period ?? 14);
+    const effectiveRisk = {
+      ...symRisk,
+      maxPositionPct: positionPct,
+      atrPct: Number.isFinite(symbolATRPct) ? symbolATRPct : undefined,
+    };
 
     if (!tradeCheck.allowed) {
       logger.info(`${symbol}: trade blocked - ${tradeCheck.reason}`);
@@ -306,6 +386,117 @@ async function runAllSymbols() {
           `Macro filter: BTC ${btcMacroBull ? 'ABOVE' : 'BELOW'} EMA${config.macroFilter.emaPeriod ?? 200} — ` +
           `new positions ${btcMacroBull ? 'normal size' : `reduced to ${factor.toFixed(0)}%`}`,
         );
+      }
+    }
+
+    // ── Regime classifier (Phase 4) ────────────────────────────────────────
+    // Update once per cycle from BTC candles (closed bars only — slice off the
+    // forming one). Reports current regime; future routing/sizing changes
+    // will branch off `currentRegime`.
+    let regimeChanged = false;
+    {
+      const btc = dashboardState.getCandles('BTC/USDC');
+      if (btc.length > 0) {
+        const closed = btc.slice(0, -1);
+        const snap = regimeTracker.update(closed, Date.now());
+        const prev = currentRegime;
+        currentRegime = snap.regime;
+        regimeChanged = snap.regimeChanged;
+        if (regimeChanged) {
+          logger.warn(`[REGIME] BTC regime change: ${prev} → ${currentRegime}  (ADX ${snap.raw.adx} BTC ${snap.raw.btcClose.toFixed(0)} vs EMA200 ${snap.raw.ema200.toFixed(0)})`);
+        } else {
+          logger.debug(`[REGIME] ${currentRegime}  candidate=${snap.candidate ?? '-'} streak=${snap.streak}  (ADX ${snap.raw?.adx ?? 'n/a'})`);
+        }
+        // Surface regime to the dashboard (Phase 9 — append-only observability)
+        dashboardState.setRegime({
+          label: currentRegime,
+          previous: prev,
+          candidate: snap.candidate ?? null,
+          streak: snap.streak ?? 0,
+          adx: snap.raw?.adx ?? null,
+          btcClose: snap.raw?.btcClose ?? null,
+          ema200: snap.raw?.ema200 ?? null,
+          changedAt: regimeTracker.changedAt,
+          history: regimeTracker.history.slice(-10),
+        });
+      }
+    }
+
+    // ── Phase 6a: cash-exit on bear regime ──────────────────────────────────
+    // When BTC regime transitions INTO BEAR_TREND or BEAR_CHOP, close ALL
+    // open positions this cycle. Subsequent bars in the same bear regime
+    // continue to block new entries via runEntryFilters (see bear-policy
+    // check) but do NOT repeatedly force-close — open positions are managed
+    // normally by SL/TP/break-even.
+    bearPolicy = computeBearPolicy({
+      regime: currentRegime,
+      regimeChanged,
+      policy: config.bearPolicy,
+    });
+
+    // Surface cross-asset context + circuit-breaker status (Phase 9 — append-only)
+    {
+      const fgValue = fearGreedData ? getFearGreedValue(fearGreedData, Date.now()) : null;
+      dashboardState.setMarketContext({
+        btcDominance: getBtcDominanceTrend(),
+        ethBtc: getEthBtcTrend(),
+        fearGreed: Number.isFinite(fgValue) ? fgValue : null,
+      });
+      const ddCfg = config.risk?.weeklyDDBreaker ?? {};
+      const ddBreaker = calcWeeklyDDBreaker({
+        recentTrades: dashboardState.getTrades(),
+        initialBalance: config.risk?.initialBalance ?? 1000,
+        lossThreshold: ddCfg.lossThreshold ?? 0.10,
+        cooldownHours: ddCfg.cooldownHours ?? 72,
+      });
+      dashboardState.setCircuitBreaker({
+        bearEntriesBlocked: !!bearPolicy.shouldBlockEntries,
+        bearReason: bearPolicy.reason ?? null,
+        weeklyDDActive: (ddCfg.enabled !== false) && !!ddBreaker.blocked,
+        weeklyPnLPct: ddBreaker.weeklyPnLPct ?? 0,
+        cooldownEndsAt: ddBreaker.cooldownEndsAt ?? null,
+      });
+    }
+
+    // ── Live drift monitor (Phase 8) ────────────────────────────────────────
+    // Compare rolling per-trade live performance vs the backtest reference;
+    // warn + notify when it drifts beyond the statistical band. Log-only until
+    // monitor.driftRefSharpe is configured.
+    const monCfg = config.monitor ?? {};
+    if (monCfg.enabled !== false) {
+      const live = computeLiveStats(dashboardState.getTrades(), { windowDays: monCfg.windowDays ?? 30 });
+      const drift = evaluateDrift({
+        liveSharpe: live.sharpe,
+        refSharpe: monCfg.driftRefSharpe ?? null,
+        nLive: live.n,
+        zThreshold: monCfg.zThreshold ?? 2,
+        minTrades: monCfg.minTrades ?? 10,
+      });
+      if (drift.alert) {
+        logger.warn(`[DRIFT] ${drift.reason} — live ${(live.winRate*100).toFixed(0)}% WR, mean ${(live.meanReturn*100).toFixed(2)}%/trade`);
+      } else {
+        logger.debug(`[DRIFT] ${drift.reason} (n=${live.n}, WR ${(live.winRate*100).toFixed(0)}%)`);
+      }
+    }
+
+    if (bearPolicy.shouldCashExitOpen) {
+      const status = await trader.getStatus();
+      const open = status.positions ?? [];
+      if (open.length > 0) {
+        logger.warn(`[PHASE6A] BEAR regime entered — closing ${open.length} open position(s): ${open.map((p) => p.symbol).join(', ')}`);
+        for (const pos of open) {
+          try {
+            const exitResult = await trader.execute(pos.symbol, 'SELL', pos.currentPrice ?? pos.entryPrice, getRiskForSymbol(pos.symbol));
+            if (exitResult) {
+              dashboardState.pushTrade(exitResult);
+              if (typeof exitResult.pnl === 'number') riskManager.recordTrade(exitResult.pnl);
+              notifyTrade(exitResult);
+              pushEvent('trade', exitResult);
+            }
+          } catch (err) {
+            logger.error(`[PHASE6A] failed to close ${pos.symbol}: ${err?.message ?? err}`);
+          }
+        }
       }
     }
 
@@ -871,6 +1062,28 @@ if (config.mtf4hFilter?.enabled) {
   logger.info(`MTF 4h cache: refresh every ${MTF_4H_REFRESH_MS / 3_600_000}h`);
 }
 
+// ── Market context cache (Phase 3) — BTC.D + ETHBTC ────────────────────────
+// Load Fear & Greed history once (its own TTL handles staleness). Refresh
+// market context (BTC.D, ETHBTC) on the configured interval so the BTC.D
+// gate + sizing modulators have fresh values without bothering on every cycle.
+let marketContextRefreshId = null;
+void loadFearGreedHistory().then((data) => {
+  fearGreedData = data;
+  if (data) logger.info(`Fear & Greed history loaded: ${data.length} daily samples`);
+}).catch((err) => logger.error(`Fear & Greed history load failed: ${err?.message ?? err}`));
+if (config.btcDominance?.enabled) {
+  const ms = Number(config.btcDominance.refreshIntervalMs ?? 6 * 60 * 60 * 1000);
+  void refreshMarketContext()
+    .then(() => {
+      marketContextRefreshId = setInterval(
+        () => void refreshMarketContext().catch((err) => logger.error(`Market context refresh failed: ${err?.message ?? err}`)),
+        ms,
+      );
+    })
+    .catch((err) => logger.error(`Market context refresh failed: ${err?.message ?? err}`));
+  logger.info(`Market context cache: refresh every ${(ms / 3_600_000).toFixed(1)}h`);
+}
+
 // Refresh the balance from the exchange every 5 minutes so that deposits or
 // withdrawals are reflected on the dashboard without waiting for the next trade.
 // Paper mode skips this — its balance is already tracked in memory.
@@ -925,6 +1138,7 @@ process.on('SIGINT', () => {
   clearInterval(riskCheckId);
   clearInterval(mtf15mRefreshId);
   clearInterval(mtf4hRefreshId);
+  clearInterval(marketContextRefreshId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });

@@ -14,10 +14,10 @@ Architecture, data flow, module responsibilities, and deployment.
 │  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐  │
 │  │  Exchange     │    │  Signal Engine    │    │  Risk Manager    │  │
 │  │  (Binance)   │    │                  │    │                  │  │
-│  │              │    │  15 Strategies    │    │  Daily loss      │  │
+│  │              │    │  20 Strategies    │    │  Daily loss      │  │
 │  │  fetchOHLCV  │───▶│  SignalAggregator │───▶│  Position sizing │  │
-│  │  createOrder │    │  MTF filters     │    │  Max positions   │  │
-│  │  fetchBalance│    │  Confidence calc  │    │  SL/TP checks    │  │
+│  │  createOrder │    │  MTF + regime     │    │  Correlation cap │  │
+│  │  fetchBalance│    │  Cross-asset ctx  │    │  DD breaker/aging│  │
 │  └──────────────┘    └──────────────────┘    └──────────────────┘  │
 │                                                                     │
 │  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐  │
@@ -47,10 +47,16 @@ Architecture, data flow, module responsibilities, and deployment.
 | Module | File | Responsibility |
 |--------|------|----------------|
 | Entry point | `main.js` | Trading loop, filter orchestration, startup sequence |
-| Signal Aggregator | `engine/signalAggregator.js` | Weighted voting, confidence scoring, HOLD suppression |
-| Strategies | `strategies/*.js` | 15 independent signal generators |
-| Strategy Builder | `utils/strategyBuilder.js` | Per-symbol strategy/risk selection from config |
+| Signal Aggregator | `engine/signalAggregator.js` | Confidence-weighted voting + multi-bar gate (consumes `aggregatorVoting.js`) |
+| Aggregator Voting | `engine/aggregatorVoting.js` | Pure voting math — shared by live, backtester, optimizer (parity-locked) |
+| Regime Classifier | `engine/regimeClassifier.js` | BTC 2×2 regime (EMA200 × ADX) with 3-bar hysteresis |
+| Regime Router | `engine/regimeRouter.js` | Bear policy (cash-exit on BEAR_TREND) + regime→strategy bundles (routing OFF) |
+| Strategies | `strategies/*.js` | 20 independent signal generators (+ `registry.js` catalog) |
+| Strategy Builder | `utils/strategyBuilder.js` | Per-symbol strategy/risk selection; applies `confidenceThresholdScale` |
+| Market Context | `data/marketContext.js` | BTC.D (CoinGecko) + ETHBTC (Binance) cache, replayable in backtest |
+| Fear & Greed | `data/fearGreed.js` | F&G history loader for the entry-threshold modulator |
 | Risk Manager | `risk/index.js` | Daily loss limit, trade gating |
+| Portfolio Risk | `risk/portfolioRisk.js` | Correlation cap, weekly DD breaker, position-aging exit (pure fns, shared live/backtest) |
 | Paper Trader | `executor/paperTrader.js` | Simulated order execution |
 | Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking, position state persistence |
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
@@ -69,9 +75,14 @@ Architecture, data flow, module responsibilities, and deployment.
 
 | Module | Responsibility |
 |--------|----------------|
-| `portfolioBacktester.js` | Multi-symbol shared-balance simulation, all filters |
-| `backtestSimulator.js` | Per-trade execution (next-open fills, tiered slippage) |
+| `portfolioBacktester.js` | Multi-symbol shared-balance simulation, full filter + regime + risk-gate stack |
+| `backtestSimulator.js` | Per-trade execution (next-open fills, tiered slippage, ATR/two-stage infra) |
 | `metrics.js` | Sharpe, Sortino, drawdown, profit factor, win rate |
+| `deflatedSharpe.js` | Deflated/Probabilistic Sharpe (Bailey & López de Prado) — multiple-testing correction |
+| `baselineFramework.js` | Reusable multi-window baseline runner (full live filter stack) |
+| `walkForward.js` | Forward-only walk-forward harness + Monte Carlo trade shuffle |
+| `stressReport.js` | Pure stoplight verdict (🟢/🟡/🔴) over stress windows — used by `runBaseline --stoplight` |
+| `../monitor/driftMonitor.js` | Live vs backtest per-trade Sharpe drift detection (Lo 2002 SE) |
 
 ### Scripts (`src/scripts/`)
 
@@ -79,7 +90,10 @@ Architecture, data flow, module responsibilities, and deployment.
 |--------|---------|
 | `portfolioBacktest.mjs` | CLI backtest runner with all flags |
 | `downloadHistory.js` | Fetch OHLCV from Binance, save to disk |
-| `perSymbolOptimizer.mjs` | Exhaustive strategy combo search with holdout validation |
+| `perSymbolOptimizer.mjs` | Exhaustive strategy combo search; MIN_TRADES≥8, deflated-Sharpe gate, shared aggregator |
+| `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
+| `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
+| `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
 
 ### Lambda (`src/lambda/`)
 
@@ -114,7 +128,8 @@ Architecture, data flow, module responsibilities, and deployment.
      → { decision, confidence, signals[] }
 
 4. Filter cascade (uses cached 15m/4h data — no extra API calls):
-   maxPositions? → dailyLossLimit? → mtf15m? → mtf4h? → minConfidence?
+   bearRegimeBlock? → maxPositions? → dailyLossLimit? → weeklyDDBreaker?
+     → correlationCap? → mtf15m? → mtf4h? → BTC.D gate / F&G modulator → minConfidence?
 
 5. Position sizing:
    base × ATR × confidence × regime × macro → effectiveRisk
@@ -280,19 +295,22 @@ config
 ├── symbols[]              37 USDC pairs
 ├── strategies[]           Default strategy set
 ├── risk{}                 Global risk parameters
-│   ├── initialBalance
-│   ├── maxPositionPct, stopLossPct, takeProfitPct
-│   ├── breakEvenTriggerPct, maxDailyLossPct
-│   └── maxOpenPositions
-├── symbolOverrides{}      Per-symbol strategies + risk
-├── signals{}              External signal config (webhook, telegram)
-├── atr{}                  ATR position sizing params
+│   ├── initialBalance, maxPositionPct, stopLossPct, takeProfitPct
+│   ├── breakEvenTriggerPct, maxDailyLossPct, maxConcurrentPositions (4)
+│   ├── minConfidence, confidenceThresholdScale (0.65, Phase-4 → 1.0)
+│   ├── atrStops{} (disabled), twoStageExit{} (disabled)
+│   └── weeklyDDBreaker{}, positionAgingExit{}
+├── perSymbol{}            Per-symbol strategies + SL/TP + minConfidence (optimizer-tuned)
+├── correlation{}          Correlation cap on new entries (enabled, threshold 0.85)
+├── signals{}              minConfidence, multiBarConfirmation, external signal config
 ├── macroFilter{}          BTC EMA(200) bear detection
-├── correlation{}          Pearson correlation filter (disabled)
-├── mtfFilter{}            15m alignment filter params
-├── confSizing{}           Confidence-proportional sizing
-├── mtf4hFilter{}          4h momentum filter params
-└── regimeSizing{}         ADX regime detection params
+├── mtfFilter{} / mtf4hFilter{}  15m alignment + 4h momentum filter params
+├── confSizing{} / regimeSizing{}  Confidence- and ADX-proportional sizing
+├── regimeClassifier{}     EMA/ADX periods + hysteresis bars
+├── bearPolicy{}           Cash-exit on BEAR_TREND (mode: trend_only)
+├── regimeRouting{}        Regime→strategy bundles (disabled)
+├── btcDominance{}         BTC.D entry gate (CoinGecko)
+└── fearGreed{}            Fear & Greed entry-threshold modulator
 ```
 
 ---
@@ -302,8 +320,10 @@ config
 | Decision | Rationale |
 |----------|-----------|
 | 12h timeframe | Strategies need multi-day patterns; 4h too noisy (38% WR) |
-| HOLD suppression | Prevents inactive strategies from diluting signals |
-| 3 slots | Maximizes per-trade capital; DD only +1pp vs 5 slots |
+| Confidence-weighted voting | Uses each strategy's confidence as its vote weight; HOLD counted in the denominator so `minConfidence` is granular (2/3 ≠ 3/3) |
+| Aggregator parity-locked | One pure `aggregateVotes()` shared by live/backtester/optimizer; fixture-enforced |
+| Deflated Sharpe gate | Corrects for the optimizer's ~16k-trial search burden; honest significance bar |
+| 4 slots | Per-trade capital vs diversification; DD stays well inside the safety margin |
 | Next-open fills | No execution lookahead — realistic fill simulation |
 | Tiered slippage | Large caps 0.10%, mid 0.20%, micro 0.35% |
 | Fixed SL/TP over trailing | Trailing gives back profits on retracements |

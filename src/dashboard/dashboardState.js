@@ -61,6 +61,10 @@ class DashboardState {
     this.blockedStats = { regime: 0, correlation: 0, risk: 0, daily: 0, total: 0 };
     // Timestamp (ms) of the next scheduled cycle — set by main.js after alignment
     this.nextRunAt = null;
+    // Phase 9 observability (append-only; null until first cycle populates them)
+    this.regime = null;          // { label, previous, candidate, streak, adx, btcClose, ema200, changedAt, history }
+    this.marketContext = null;   // { btcDominance, ethBtc, fearGreed }
+    this.circuitBreaker = null;  // { bearEntriesBlocked, bearReason, weeklyDDActive, weeklyPnLPct, cooldownEndsAt }
   }
 
   #touch() {
@@ -215,6 +219,14 @@ class DashboardState {
     return (this.candleMap.get(symbol) ?? []).map((candle) => ({ ...candle }));
   }
 
+  /**
+   * Get a defensive copy of the trade history (Phase 7 — used by weekly
+   * DD breaker and other filters that need timestamped P&L history).
+   */
+  getTrades() {
+    return this.trades.map((trade) => ({ ...trade }));
+  }
+
   incrementCycle() {
     this.cycleCount += 1;
     this.#touch();
@@ -276,6 +288,22 @@ class DashboardState {
 
   setNextRunAt(ts) {
     this.nextRunAt = ts ?? null;
+    this.#touch();
+  }
+
+  // ── Phase 9 observability setters (append-only) ───────────────────────────
+  setRegime(regime) {
+    this.regime = regime ? { ...regime } : null;
+    this.#touch();
+  }
+
+  setMarketContext(ctx) {
+    this.marketContext = ctx ? { ...ctx } : null;
+    this.#touch();
+  }
+
+  setCircuitBreaker(state) {
+    this.circuitBreaker = state ? { ...state } : null;
     this.#touch();
   }
 
@@ -373,6 +401,10 @@ class DashboardState {
       activeFilters: { ...this.activeFilters },
       blockedStats: { ...this.blockedStats },
       nextRunAt: this.nextRunAt,
+      // Phase 9 observability (append-only — null until first cycle)
+      regime: this.regime ? { ...this.regime } : null,
+      marketContext: this.marketContext ? { ...this.marketContext } : null,
+      circuitBreaker: this.circuitBreaker ? { ...this.circuitBreaker } : null,
     };
   }
 }

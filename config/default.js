@@ -52,13 +52,85 @@ export default {
                               //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%
                               //   slots=4 mtf=0.55  Y2  +70% Sh 2.19 DD  -7%  OOS +78% Sh 2.22 DD  -8%  ← current
                               //   slots=4 mtf=0.45  Y2  +97% Sh 2.27 DD -13%  OOS +73% Sh 1.98 DD -15%  (more return, more DD)
-    // minConfidence threshold vs 3-strategy vote math:
-    //   3-of-3 unanimous  → confidence = 1.00  → passes 0.70 ✅
-    //   2-of-3 majority   → confidence = 0.67  → fails  0.70 ❌ (requires unanimity)
-    //   2-of-3 majority   → confidence = 0.67  → passes 0.55 ✅ (used for trend symbols)
-    // This is intentional: mean-reversion coins (0.70) need all 3 indicators to agree;
-    // trend-following coins (0.55) allow 2-of-3 for earlier crossover entries.
+    // ── Phase 1 (do_it_again_better branch) ────────────────────────────
+    // OLD aggregator (pre-Phase 1, BROKEN): HOLD votes were suppressed from the
+    // denominator so 2-of-3 BUY + 1 HOLD all returned confidence 1.00, making
+    // minConfidence 0.55 vs 0.70 nearly indistinguishable in practice.
+    // NEW aggregator (Phase 1): HOLDs count in the denominator and per-strategy
+    // confidence is the vote weight, so:
+    //   3-of-3 unanimous BUY all conf 1.0   → confidence = 1.00
+    //   3-of-3 unanimous BUY all conf 0.6   → confidence = 0.60
+    //   2-of-3 BUY conf 1.0 + 1 HOLD        → confidence = 0.67  (was 1.00)
+    //   2-of-3 BUY conf 1.0 + 1 SELL        → confidence = 0.67
+    //   1-of-3 BUY  + 2 HOLD                → conf 0.33, HOLD usually wins by weight
+    // The per-symbol minConfidence values below were calibrated against the old
+    // formula. The `confidenceThresholdScale` knob is a one-shot multiplier (0..1)
+    // applied to every minConfidence in live + backtester so the bot keeps
+    // trading at a sensible frequency under the stricter confidence-weighted formula.
+    //
+    // Phase 4 retune outcome (measured, not assumed): the per-symbol optimizer
+    // (MIN_TRADES≥8, deflated-Sharpe≥0.5, shared aggregator) found NO combo that
+    // beats the current per-symbol configs with statistical significance — they
+    // survive the strict bar, so combos were left unchanged. The scale was then
+    // swept on the full live filter stack:
+    //   scale 1.00 → STARVED (3 trades/90d, 0 on longer windows) — raw thresholds non-viable
+    //   scale 0.75 → returns collapse (full_history +6.4%)
+    //   scale 0.65 → BEST risk-adjusted (last_90d +15.3% Sh3.04 DD-4.4%; full +24.6% Sh1.32 DD-3.7%)
+    //   scale 0.55 → more trades but DD worsens to -7.8/-9.7%
+    // Walk-forward (forward-only) at 0.65: +25.5% Sh1.38 DD-5.36%, MC not fragile.
+    // → 0.65 is the validated calibration, NOT a temporary hack. Do not set to 1.0.
     minConfidence: 0.70,
+    confidenceThresholdScale: 0.65,
+    // ── ATR-based stops (Phase 1) ──────────────────────────────────────────
+    // When enabled, BUY orders compute SL/TP from current ATR% instead of fixed
+    // stopLossPct/takeProfitPct. Volatile coins get wider stops naturally;
+    // less-volatile coins get tighter stops without losing the cushion.
+    // Clamped to [minSlPct, maxSlPct] and [minTpPct, maxTpPct] to avoid extremes.
+    // The same multipliers apply in live + backtester (live ≡ backtest invariant).
+    atrStops: {
+      enabled: false,    // A/B (Phase 1): net-negative vs well-tuned per-symbol fixed stops — OFF
+      slMultiplier: 1.5, // SL = atrPct × 1.5
+      tpMultiplier: 3.0, // TP = atrPct × 3.0  (R:R = 1:2)
+      minSlPct: 0.02,    // never tighter than 2%
+      maxSlPct: 0.12,    // never wider than 12%
+      minTpPct: 0.04,    // never tighter than 4%
+      maxTpPct: 0.30,    // never wider than 30%
+    },
+    // ── Two-stage exit (Phase 1) ───────────────────────────────────────────
+    // When enabled, partial-close `firstStageFraction` of the position at
+    // `firstStagePctOfTp` of the way to TP, then force break-even on the
+    // remainder. Captures some profit on retracements without giving up
+    // the runner. Only fires once per position.
+    twoStageExit: {
+      enabled: false,             // tested: -8pp return, -0.1 Sharpe — reverting to OFF
+      firstStagePctOfTp: 0.5,     // partial close at +50% of TP target
+      firstStageFraction: 0.5,    // close 50% of qty
+    },
+    // ── Phase 7 portfolio risk gates ──────────────────────────────────────
+    // Weekly DD circuit breaker: pause new entries for `cooldownHours` after
+    // the rolling 7-day P&L breaches `lossThreshold` (fraction of initial).
+    // Existing positions stay managed normally (SL/TP/break-even all active).
+    weeklyDDBreaker: {
+      enabled: true,
+      lossThreshold: 0.10,    // -10% in any 7-day window triggers
+      cooldownHours: 72,      // pause new entries for 3 days
+    },
+    // Position aging exit: close positions open more than maxAgeBars without
+    // hitting TP/SL. Frees capital sitting in sluggish trades; non-adaptive.
+    positionAgingExit: {
+      enabled: true,
+      maxAgeBars: 14,         // 14 × 12h = 7 days
+    },
+  },
+  // Phase 7: correlation cap on new entries — replaces the previously
+  // rejected `correlation` block. The OLD impl was a routing filter
+  // (try-next-symbol). The NEW one is a hard cap on the BUY itself, which
+  // is what the test labelled net-negative. Re-evaluating with the new
+  // confidence-weighted aggregator + a tighter threshold (0.85 vs 0.80).
+  correlation: {
+    enabled: true,
+    threshold: 0.85,
+    period: 60,
   },
   // ──────────────────────────────────────────────────────────────────
   // Per-symbol overrides — 12h holdout-validated (Y1 = unseen year)
@@ -474,6 +546,11 @@ export default {
     },
     algoWeight: 1.0,
     minConfidence: 0.70,
+    // Multi-bar entry confirmation (Phase 1): borderline-confidence directional
+    // signals (conf below midpoint between minConfidence and 1.0) require the
+    // previous bar to agree before being executed. Kills one-bar fakeouts.
+    // Live + backtester enable this; tests opt out via constructor flag.
+    multiBarConfirmation: true,
   },
   // ── Regime filter — suppress BUY signals when the market is ranging ─────────
   // ADX < threshold → choppy / sideways → skip new entries, protect capital.
@@ -504,15 +581,84 @@ export default {
     emaPeriod: 200,          // BTC EMA period used to detect bear phase
     sizeReduceFactor: 0.5,   // multiply maxPositionPct by this in bear market
   },
-  // ── Correlation filter — avoid holding two coins that move together ──────────
-  // Backtest evidence (isolated test, 1yr): costs -7.6pp return with no DD
-  // improvement. When correlated coins both signal BUY they tend to both be right;
-  // blocking the second entry wastes more than it saves. Disabled.
-  correlation: {
-    enabled: false,
-    threshold: 0.8,  // Pearson r above this → skip the new BUY
-    period: 60,      // candles used for return series (60 × 12h = 30 days)
+  // ── Regime classifier (Phase 4) ──────────────────────────────────────────
+  // Optional override for unit tests / experiments. Production uses defaults.
+  regimeClassifier: {
+    emaPeriod: 200,
+    adxPeriod: 14,
+    adxTrendThreshold: 25,
+    hysteresisBars: 3,
   },
+  // ── Bear policy (Phase 6a) ───────────────────────────────────────────────
+  // When BTC regime enters BEAR_TREND or BEAR_CHOP:
+  //   1. Block all new entries for the duration of the bear regime
+  //   2. On the BAR of transition into bear, close all open positions
+  //      (subsequent bars do NOT repeatedly force-close — open positions
+  //      become managed by SL/TP/break-even like normal)
+  // Default ON for the user's "low DD imperative" priority. Set
+  // bearPolicy.enabled = false to revert to the prior macro-halving-only
+  // behaviour (positions stay open through bear; sizing halved).
+  bearPolicy: {
+    enabled: true,
+    restrictTo: 'trend_only',   // 'trend_only' (default) or 'all_bear' (more defensive but -17pp return on y2 backtest)
+  },
+  // ── Regime-conditional strategy routing (Phase 4) ───────────────────────
+  // When enabled, the per-symbol strategy LIST swaps based on BTC regime.
+  // BULL_TREND uses trend pack, BULL_RANGE uses mean-reversion pack;
+  // BEAR_* uses an empty list (no entries — overlaps with bearPolicy).
+  // The actual bundle definitions live in src/engine/regimeRouter.js
+  // (DEFAULT_REGIME_BUNDLES) and can be overridden per-symbol via
+  // config.perSymbol[sym].regimeStrategyBundles.
+  //
+  // Defaulting OFF for the initial ship — Phase 4 walk-forward retune
+  // will turn it on after validating the bundle composition.
+  regimeRouting: {
+    enabled: false,
+  },
+  btcDominance: {
+    enabled: true,
+    blockThresholdPp: 1.0,   // +1 percentage point above 7-day SMA
+    refreshIntervalMs: 6 * 60 * 60 * 1000, // 6h
+  },
+  // ── Fear & Greed entry threshold modulator (Phase 3) ──────────────────────
+  // Adjusts per-symbol minConfidence based on market sentiment.
+  // Greed > 80 → tighten (demand more conviction). Fear < 20 → loosen (contrarian).
+  fearGreed: {
+    enabled: true,
+    greedHigh: 80,
+    fearLow:   20,
+    tightenBy: 0.05,
+    loosenBy:  0.05,
+  },
+  // ── Live drift monitor (Phase 8) ──────────────────────────────────────────
+  // Each cycle, compare the rolling per-trade live Sharpe to the backtest
+  // reference and warn when they diverge beyond `zThreshold` standard errors.
+  // driftRefSharpe is a PER-TRADE Sharpe (not the daily-equity one printed by
+  // runBaseline). Leave null for log-only observability; set it from a per-trade
+  // backtest stat to enable alerts.
+  monitor: {
+    enabled: true,
+    windowDays: 30,
+    minTrades: 10,
+    zThreshold: 2,
+    driftRefSharpe: null,
+  },
+  // ── Logistic-regression meta-overlay (Phase 5) ────────────────────────────
+  // P(win) entry gate trained offline by src/scripts/trainMetaOverlay.mjs →
+  // data/meta_overlay.json. DISABLED: on current data (376 samples) the gate's
+  // held-out admitted win rate (12.5%) is WORSE than the base rate (39.5%) —
+  // it does not beat baseline. Keep enabled=false until a retrain clearly wins
+  // AND the gate is mirrored into BOTH main.js and PortfolioBacktester (parity)
+  // and re-validated on the baseline/walk-forward. Gate-only, never sizing.
+  metaOverlay: {
+    enabled: false,
+    threshold: 0.55,
+    modelPath: 'data/meta_overlay.json',
+  },
+  // ── Correlation filter — moved to risk.correlation block at top of file
+  // (Phase 7 revisit with confidence-weighted aggregator + tighter threshold).
+  // The OLD rejected impl was a routing filter; new impl is a hard cap on the
+  // BUY itself. See risk.correlation above.
   // ── Multi-Timeframe (MTF) entry alignment filter ──────────────────────────────
   // Before entering a 12h BUY, checks the last 15m candles within that 12h period.
   // If fewer than `minAlignScore` fraction of those candles are green (close > open),

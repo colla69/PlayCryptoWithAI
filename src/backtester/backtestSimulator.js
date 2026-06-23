@@ -2,6 +2,8 @@ const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
 const roundQty = (value) => Number(value.toFixed(8));
 
+import { calcPartialExit, calcATRStopPrices } from '../executor/traderUtils.js';
+
 export class BacktestSimulator {
   constructor(riskConfig = {}) {
     this.config = riskConfig;
@@ -111,6 +113,29 @@ export class BacktestSimulator {
       position.stopLoss = roundPrice(position.entryPrice * 1.002);
     }
 
+    // ── Two-stage exit (Phase 1) ────────────────────────────────────────────
+    // When enabled and the position has reached `firstStagePctOfTp` of the way
+    // to its TP target, close `firstStageFraction` of the qty. The remaining
+    // qty stays in the position with the original SL/TP — break-even logic
+    // above will move SL to entry on the next bar if it hasn't already.
+    const twoStage = this.config.twoStageExit;
+    if (twoStage?.enabled && !position.partialExitDone) {
+      const partial = calcPartialExit(
+        position,
+        currentPrice,
+        Number(twoStage.firstStagePctOfTp ?? 0.5),
+        Number(twoStage.firstStageFraction ?? 0.5),
+      );
+      if (partial.shouldExit) {
+        this.#partialClose(symbol, currentPrice, 'partial_exit', partial.fraction);
+        position.partialExitDone = true;
+        // Force break-even lock immediately for the remainder
+        if (position.stopLoss < position.entryPrice) {
+          position.stopLoss = roundPrice(position.entryPrice * 1.002);
+        }
+      }
+    }
+
     if (currentPrice <= position.stopLoss) {
       const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
         ? 'trailing_stop'
@@ -123,6 +148,56 @@ export class BacktestSimulator {
     }
 
     return null;
+  }
+
+  #partialClose(symbol, price, reason, fraction) {
+    const position = this.positions.get(symbol);
+    if (!position) return null;
+    const closeFrac = Math.min(Math.max(Number(fraction) || 0, 0), 1);
+    if (closeFrac <= 0 || closeFrac >= 1) return null;
+    const closeQty = roundQty(position.qty * closeFrac);
+    if (closeQty <= 0 || closeQty >= position.qty) return null;
+    const fillPrice = roundPrice(price * (1 - this.feePct - this.slippagePct));
+    const proceeds = roundMoney(closeQty * fillPrice);
+    const portionCostBasis = roundMoney(
+      (position.costBasis ?? position.qty * position.entryPrice) * closeFrac,
+    );
+    const portionEntryFee = roundMoney((position.entryFee ?? 0) * closeFrac);
+    const exitFee = roundMoney(closeQty * price * this.feePct);
+    const pnl = roundMoney(proceeds - portionCostBasis);
+
+    this.balance = roundMoney(this.balance + proceeds);
+    this.totalPnL = roundMoney(this.totalPnL + pnl);
+    this.totalFees = roundMoney(this.totalFees + exitFee);
+
+    // Reduce the position in-place; preserve entry data on the remainder.
+    position.qty = roundQty(position.qty - closeQty);
+    position.costBasis = roundMoney(
+      (position.costBasis ?? position.qty * position.entryPrice) - portionCostBasis,
+    );
+    position.entryFee = roundMoney((position.entryFee ?? 0) - portionEntryFee);
+
+    const trade = {
+      symbol,
+      side: 'LONG',
+      entryPrice: roundPrice(position.entrySignalPrice ?? position.entryPrice),
+      exitPrice: roundPrice(price),
+      entryFillPrice: roundPrice(position.entryFillPrice ?? position.entryPrice),
+      exitFillPrice: fillPrice,
+      qty: closeQty,
+      costBasis: portionCostBasis,
+      proceeds,
+      entryFee: portionEntryFee,
+      exitFee,
+      totalFees: roundMoney(portionEntryFee + exitFee),
+      pnl,
+      reason,
+      entryTime: position.entryTime,
+      exitTime: this.currentTimestamp,
+      partial: true,
+    };
+    this.trades.push(trade);
+    return trade;
   }
 
   #openPosition(symbol, price, positionPct, opts = {}) {
@@ -149,10 +224,38 @@ export class BacktestSimulator {
     const feeAmount = roundMoney(qty * price * this.feePct);
     const stopLossPrice = Number(opts.stopLossPrice);
     const takeProfitPrice = Number(opts.takeProfitPrice);
+
+    // ── ATR-based stops (Phase 1) ─────────────────────────────────────────
+    // If the caller did not pass an explicit stopLossPrice/takeProfitPrice
+    // AND atrPct is provided AND config.atrStops.enabled is true, derive
+    // SL/TP from ATR. Falls back to fixed percent stops otherwise.
+    let derivedSL = null;
+    let derivedTP = null;
+    const atrStops = this.config.atrStops;
+    if (atrStops?.enabled
+        && !(Number.isFinite(stopLossPrice) && stopLossPrice > 0)
+        && !(Number.isFinite(takeProfitPrice) && takeProfitPrice > 0)
+        && Number.isFinite(opts.atrPct) && opts.atrPct > 0) {
+      const atrPrices = calcATRStopPrices({
+        fillPrice,
+        atrPct: opts.atrPct,
+        slMultiplier: Number(atrStops.slMultiplier ?? 1.5),
+        tpMultiplier: Number(atrStops.tpMultiplier ?? 3.0),
+        minSlPct: Number(atrStops.minSlPct ?? 0.02),
+        maxSlPct: Number(atrStops.maxSlPct ?? 0.12),
+        minTpPct: Number(atrStops.minTpPct ?? 0.04),
+        maxTpPct: Number(atrStops.maxTpPct ?? 0.30),
+      });
+      if (atrPrices) {
+        derivedSL = atrPrices.stopLossPrice;
+        derivedTP = atrPrices.takeProfitPrice;
+      }
+    }
+
     const initialStopLoss = roundPrice(
       Number.isFinite(stopLossPrice) && stopLossPrice > 0
         ? stopLossPrice
-        : fillPrice * (1 - Number(this.config.stopLossPct ?? 0)),
+        : derivedSL ?? fillPrice * (1 - Number(this.config.stopLossPct ?? 0)),
     );
     const trailingStopPct = Number(this.config.trailingStopPct);
     const position = {
@@ -167,11 +270,12 @@ export class BacktestSimulator {
       takeProfit: roundPrice(
         Number.isFinite(takeProfitPrice) && takeProfitPrice > 0
           ? takeProfitPrice
-          : fillPrice * (1 + Number(this.config.takeProfitPct ?? 0)),
+          : derivedTP ?? fillPrice * (1 + Number(this.config.takeProfitPct ?? 0)),
       ),
       trailingStopPct: Number.isFinite(trailingStopPct) && trailingStopPct > 0 ? trailingStopPct : undefined,
       highWaterMark: fillPrice,
       entryTime: this.currentTimestamp,
+      partialExitDone: false,
     };
 
     this.balance = roundMoney(this.balance - cost);

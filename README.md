@@ -1,13 +1,18 @@
 # PlayCryptoWithAI
 
 A multi-strategy crypto trading bot for Binance spot markets.  
-Trades a **37-coin USDC portfolio** on 12h candles using a voting signal engine with multi-timeframe filters.
+Trades a **37-coin USDC portfolio** on 12h candles using a confidence-weighted voting engine with
+multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-level risk circuit breakers.
 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
-**Performance (4 years, 37 coins, realistic fills + slippage):**  
-`Annual: +152% · Sharpe 2.33 · Max DD −7.2% · WR 63.6%`  
-`Full OOS: +1912% · Sortino 10.33 · Max DD −13.0% · WR 62.8%`
+**Performance (honest baseline — full live filter stack, realistic next-open fills + tiered slippage):**  
+`last 90d (most OOS): +15.3% · Sharpe 3.04 · Max DD −4.4% · WR 53%`  
+`full history (386d): +24.6% · Sharpe 1.32 · Max DD −3.7% · WR 40%`
+
+> These come from the committed baseline runner (`runBaseline.mjs`). The robustness overhaul
+> deliberately traded the old (non-reproducible) headline figures for honest, low-drawdown numbers
+> the bot can be trusted to run on unattended. See [STRATEGY.md](STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
 
 📖 **[Strategy Documentation](STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](TECHNICAL.md)** — architecture, modules, deployment

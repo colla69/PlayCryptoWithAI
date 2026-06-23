@@ -1,6 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import signalBus from '../signals/signalBus.js';
 import logger from '../utils/logger.js';
+import { aggregateVotes, clampConfidence } from './aggregatorVoting.js';
 
 const EXTERNAL_SIGNAL_TTL_MS = 5 * 60 * 1000;
 const MAX_EXTERNAL_SIGNALS = 5;
@@ -41,7 +42,7 @@ function normalizeConfidence(value, fallback = 0.7) {
     return fallback;
   }
 
-  return Math.max(0, Math.min(1, numeric));
+  return clampConfidence(numeric);
 }
 
 function normalizeTimestamp(timestamp) {
@@ -55,6 +56,14 @@ export class SignalAggregator {
     this.externalSignals = new Map();
     this.config = mergeConfig(config);
     this.minimumConfidence = this.config.minConfidence;
+    // Multi-bar entry confirmation (Phase 1):
+    //   When enabled, borderline-confidence directional signals (conf below
+    //   midpoint between minConfidence and 1.0) are suppressed to HOLD unless
+    //   the previous bar agreed on the same direction. Kills one-bar fakeouts.
+    //   Off by default for tests/parity fixtures; live + backtester enable it.
+    //   lastDecisions: Map<symbol, { decision, confidence, timestamp }>
+    this.multiBarConfirmation = Boolean(this.config.multiBarConfirmation ?? false);
+    this.lastDecisions = new Map();
     this.handleExternalSignal = (signal) => this.ingestExternal(signal);
     signalBus.on('signal', this.handleExternalSignal);
   }
@@ -62,6 +71,9 @@ export class SignalAggregator {
   updateConfig(config = {}) {
     this.config = mergeConfig(config);
     this.minimumConfidence = this.config.minConfidence;
+    if (this.config.multiBarConfirmation !== undefined) {
+      this.multiBarConfirmation = Boolean(this.config.multiBarConfirmation);
+    }
     return this.config;
   }
 
@@ -147,40 +159,30 @@ export class SignalAggregator {
     const activeConfig = this.updateConfig(config);
     const signals = this.strategies.map((strategy) => strategy.analyze(candles));
     const externalSignals = this.getRecentExternalSignals(symbol);
-    const votes = { BUY: 0, SELL: 0, HOLD: 0 };
     const algoWeight = Math.max(0, Number(activeConfig.algoWeight ?? 1));
-    let totalWeight = 0;
 
     for (let i = 0; i < signals.length; i++) {
       const result = signals[i];
-      votes[result.signal] = (votes[result.signal] ?? 0) + algoWeight;
-      // HOLD votes don't contribute to totalWeight — they represent absence of
-      // conviction, not conviction about holding. This prevents 2/3 HOLD + 1/3 BUY
-      // from diluting the BUY confidence down to 33%.
-      if (result.signal !== 'HOLD') totalWeight += algoWeight;
       logger.debug(`[AGG] ${symbol}: strategy[${i}]=${this.strategies[i]?.name ?? 'unknown'} → ${result.signal} conf=${(result.confidence ?? 0).toFixed(2)} "${result.reason ?? ''}"`);
     }
 
-    for (const externalSignal of externalSignals) {
-      const sourceWeight = Math.max(0, this.getSourceWeight(externalSignal.source, activeConfig));
-      const weightedVote = Number((sourceWeight * normalizeConfidence(externalSignal.confidence)).toFixed(4));
-      votes[externalSignal.signal] = (votes[externalSignal.signal] ?? 0) + weightedVote;
-      if (externalSignal.signal !== 'HOLD') totalWeight += weightedVote;
-    }
+    const voteResult = aggregateVotes({
+      strategySignals: signals,
+      externalSignals,
+      algoWeight,
+      getSourceWeight: (source) => this.getSourceWeight(source, activeConfig),
+    });
+    const { winner, confidence, tie, votes } = voteResult;
 
-    logger.debug(`[AGG] ${symbol}: votes BUY=${votes.BUY.toFixed(2)} SELL=${votes.SELL.toFixed(2)} HOLD=${votes.HOLD.toFixed(2)} total_weight=${totalWeight.toFixed(2)} external=${externalSignals.length}`);
+    logger.debug(`[AGG] ${symbol}: votes BUY=${votes.BUY.toFixed(2)} SELL=${votes.SELL.toFixed(2)} HOLD=${votes.HOLD.toFixed(2)} total_voters=${voteResult.totalVoters} external=${externalSignals.length}`);
 
-    const rankedSignals = Object.entries(votes).sort((a, b) => b[1] - a[1]);
-    const [winningSignal = 'HOLD', winningVotes = 0] = rankedSignals[0] ?? [];
-    const tie = rankedSignals.filter(([, count]) => Math.abs(count - winningVotes) < 1e-9).length > 1;
-    // Confidence = directional votes / total directional weight
-    // If only HOLD votes exist (totalWeight=0), confidence = 0
-    const confidence = totalWeight > 0
-      ? Number((winningVotes / totalWeight).toFixed(2))
-      : 0;
-
-    if (tie || winningSignal === 'HOLD' || confidence < this.minimumConfidence) {
+    if (tie || winner === 'HOLD' || confidence < this.minimumConfidence) {
       logger.debug(`[AGG] ${symbol}: decision=HOLD confidence=${confidence.toFixed(2)} tie=${tie} belowMin=${confidence < this.minimumConfidence} (minConf=${this.minimumConfidence})`);
+      // Reset the multi-bar streak on HOLD so the next non-HOLD requires
+      // genuine confirmation rather than inheriting a stale prior agreement.
+      if (this.multiBarConfirmation) {
+        this.lastDecisions.set(symbol, { decision: 'HOLD', confidence, timestamp: Date.now() });
+      }
       return {
         decision: 'HOLD',
         confidence,
@@ -189,9 +191,46 @@ export class SignalAggregator {
       };
     }
 
-    logger.debug(`[AGG] ${symbol}: decision=${winningSignal} confidence=${confidence.toFixed(2)} tie=${tie}`);
+    // ── Multi-bar entry confirmation (Phase 1) ────────────────────────────
+    // For *barely-passing* directional signals (within MULTIBAR_MARGIN of
+    // minConfidence), require the previous bar to have produced the same
+    // direction. Filters out one-bar fakeouts. Signals with confidence
+    // comfortably above the threshold execute immediately.
+    //
+    // Margin is absolute (not midpoint-based) because the Phase 1 confidence
+    // formula compresses the typical distribution into [0.3, 0.7] and a
+    // midpoint-based borderline ends up covering almost everything.
+    //
+    // NOTE: This suppresses the *aggregate* decision but does NOT touch
+    // result.signals or result.confidence. The asymmetric-exit code in
+    // main.js reads those raw values, so SELLs on open positions are
+    // still rescued by the lowered exit threshold path even when
+    // multi-bar suppresses entries.
+    const MULTIBAR_MARGIN = 0.10;
+    if (this.multiBarConfirmation) {
+      const borderlineCeiling = this.minimumConfidence + MULTIBAR_MARGIN;
+      if (confidence < borderlineCeiling) {
+        const prev = this.lastDecisions.get(symbol);
+        const confirmed = prev && prev.decision === winner;
+        if (!confirmed) {
+          logger.debug(`[AGG] ${symbol}: decision=HOLD (multi-bar confirmation) winner=${winner} conf=${confidence.toFixed(2)} < borderlineCeiling=${borderlineCeiling.toFixed(2)} prev=${prev?.decision ?? 'none'}`);
+          this.lastDecisions.set(symbol, { decision: winner, confidence, timestamp: Date.now() });
+          return {
+            decision: 'HOLD',
+            confidence,
+            signals,
+            externalSignals,
+            suppressedDecision: winner,
+            suppressedReason: 'multi-bar confirmation pending',
+          };
+        }
+      }
+      this.lastDecisions.set(symbol, { decision: winner, confidence, timestamp: Date.now() });
+    }
+
+    logger.debug(`[AGG] ${symbol}: decision=${winner} confidence=${confidence.toFixed(2)} tie=${tie}`);
     return {
-      decision: winningSignal,
+      decision: winner,
       confidence,
       signals,
       externalSignals,

@@ -15,6 +15,11 @@ import {
   StochRSIStrategy,
   HeikinAshiStrategy,
   SupportResistanceStrategy,
+  DonchianStrategy,
+  VWAPSigmaStrategy,
+  VolumeSurgeStrategy,
+  IchimokuStrategy,
+  PinBarStrategy,
 } from '../strategies/index.js';
 
 const STRATEGY_REASON_PREFIX = {
@@ -33,6 +38,11 @@ const STRATEGY_REASON_PREFIX = {
   StochRSI:       'stochRsi',
   HeikinAshi:     'heikinAshi',
   SR:             'sr',
+  Donchian:       'donchian',
+  'VWAPσ':        'vwapsigma',
+  VolSurge:       'volsurge',
+  Ichimoku:       'ichimoku',
+  PinBar:         'pinbar',
 };
 
 const STRATEGY_TRIGGER_HINTS = {
@@ -51,6 +61,11 @@ const STRATEGY_TRIGGER_HINTS = {
   StochRSI:   'StochRSI K < 20 crossing up → BUY · K > 80 crossing down → SELL',
   HeikinAshi: 'HA bullish candle (close>open, no lower wick) → BUY · bearish (no upper wick) → SELL',
   SR:         'Price near support zone ≥2 touches → BUY · near resistance zone ≥2 touches → SELL',
+  Donchian:   'Close above 20-bar high + volume confirm → BUY · below 20-bar low → SELL',
+  'VWAPσ':    'Price ≤ VWAP−2σ → BUY (oversold vs participation) · ≥ VWAP+2σ → SELL',
+  VolSurge:   'Volume ≥ 2× mean + green candle → BUY · red candle → SELL',
+  Ichimoku:   'Price above cloud + Tenkan>Kijun → BUY · below cloud + Tenkan<Kijun → SELL',
+  PinBar:     'Long lower wick + close in upper 40% → BUY · long upper wick + close in lower 40% → SELL',
 };
 
 function getStrategyConfigForSymbol(symbol, key, defaults) {
@@ -76,6 +91,11 @@ const STRATEGY_BUILDERS = {
   StochRSI:   (symbol) => new StochRSIStrategy(getStrategyConfigForSymbol(symbol, 'stochRsi', config.stochRsi ?? {})),
   HeikinAshi: (symbol) => new HeikinAshiStrategy(getStrategyConfigForSymbol(symbol, 'heikinAshi', config.heikinAshi ?? {})),
   SR:         (symbol) => new SupportResistanceStrategy(getStrategyConfigForSymbol(symbol, 'supportResistance', config.supportResistance)),
+  Donchian:   (symbol) => new DonchianStrategy(getStrategyConfigForSymbol(symbol, 'donchian', config.donchian ?? {})),
+  'VWAPσ':    (symbol) => new VWAPSigmaStrategy(getStrategyConfigForSymbol(symbol, 'vwapSigma', config.vwapSigma ?? {})),
+  VolSurge:   (symbol) => new VolumeSurgeStrategy(getStrategyConfigForSymbol(symbol, 'volumeSurge', config.volumeSurge ?? {})),
+  Ichimoku:   (symbol) => new IchimokuStrategy(getStrategyConfigForSymbol(symbol, 'ichimoku', config.ichimoku ?? {})),
+  PinBar:     (symbol) => new PinBarStrategy(getStrategyConfigForSymbol(symbol, 'pinBar', config.pinBar ?? {})),
 };
 
 export function buildStrategiesForSymbol(symbol) {
@@ -108,13 +128,34 @@ export function getRiskForSymbol(symbol) {
     ...(symCfg.takeProfitPct   !== undefined && { takeProfitPct:   symCfg.takeProfitPct }),
     ...(symCfg.trailingStopPct !== undefined && { trailingStopPct: symCfg.trailingStopPct }),
     ...(symCfg.minConfidence   !== undefined && { minConfidence:   symCfg.minConfidence }),
+    // Phase 1: ATR-based stops and two-stage exit are global toggles.
+    // The spread of config.risk already carries them; this comment documents
+    // intent for future maintainers (don't promote them to per-symbol unless
+    // we add a clear reason to).
   };
 }
 
 export function getSignalConfigForSymbol(symbol, signalConfig) {
-  const symConf = config.perSymbol?.[symbol]?.minConfidence;
-  if (symConf === undefined) return signalConfig;
-  return { ...signalConfig, minConfidence: symConf };
+  const rawMinConf = config.perSymbol?.[symbol]?.minConfidence
+    ?? signalConfig?.minConfidence
+    ?? config.risk?.minConfidence
+    ?? 0.5;
+  // Phase 1 transition: per-symbol minConfidence values were calibrated against
+  // the OLD aggregator formula where HOLD votes were suppressed from the
+  // denominator (so 2/3 BUY + 1 HOLD = conf 1.00). The Phase 1 confidence-weighted
+  // formula counts HOLDs in the denominator, dropping that case to 0.67.
+  // `confidenceThresholdScale` is a one-shot multiplier applied uniformly so the
+  // bot keeps trading at a sensible frequency while we measure the impact of
+  // other Phase 1 changes. Phase 4 walk-forward retunes per-symbol values from
+  // scratch and the scale should be reset to 1.0 once retune lands.
+  const scale = Number.isFinite(config.risk?.confidenceThresholdScale)
+    ? config.risk.confidenceThresholdScale
+    : 1;
+  const scaled = Math.max(0, Math.min(1, rawMinConf * scale));
+  if (config.perSymbol?.[symbol]?.minConfidence === undefined && scale === 1) {
+    return signalConfig;
+  }
+  return { ...signalConfig, minConfidence: scaled };
 }
 
 export function buildSignalReasons(signals = [], decision = 'HOLD') {

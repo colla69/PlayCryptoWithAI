@@ -6,13 +6,13 @@
  *   - Holdout window   = first 365 candles (Y1, unseen/older)
  *   - Optimise on Y2, validate on Y1 — same as all config comments "Y2 +X% Y1 +Y%"
  *
- * Tests all C(14,3) = 364 three-strategy combinations from the full pool:
+ * Tests all C(20,3) = 1140 three-strategy combinations from the full pool:
  *   RSI, BB, CCI, Stoch, EMA, MACD, ADX, Supertrend, MFI, OBV, PSAR, WilliamsR,
- *   StochRSI, HeikinAshi
+ *   StochRSI, HeikinAshi, S&R, Donchian, VWAP-σ, VolumeSurge, Ichimoku, PinBar
  *
  * Speed: signals are pre-computed once per strategy (O(N) per strategy),
- * then each combo simulation is just index lookups — ~364 combos × 2 conf
- * × 365 candles ≈ 266k iterations per symbol. Runs in seconds.
+ * then each combo simulation is just index lookups — ~1140 combos × 2 conf
+ * × 365 candles ≈ 832k iterations per symbol. Runs in seconds.
  *
  * Usage:
  *   PAPER_MODE=true node src/scripts/perSymbolOptimizer.mjs
@@ -37,7 +37,10 @@ import {
   EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
   MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
   StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
+  DonchianStrategy, VWAPSigmaStrategy, VolumeSurgeStrategy,
+  IchimokuStrategy, PinBarStrategy,
 } from '../strategies/index.js';
+import { aggregateVotes } from '../engine/aggregatorVoting.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,7 +65,12 @@ function symCfg(symbol, key, defaults) {
   return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
 }
 
-const POOL_NAMES = ['RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV', 'PSAR', 'WR', 'StochRSI', 'HA', 'SR'];
+const POOL_NAMES = [
+  'RSI', 'BB', 'CCI', 'Stoch', 'EMA', 'MACD', 'ADX', 'ST', 'MFI', 'OBV',
+  'PSAR', 'WR', 'StochRSI', 'HA', 'SR',
+  // Phase 2 — orthogonal additions
+  'Don', 'VWAPs', 'VolS', 'Ich', 'Pin',
+];
 
 function buildStrategy(name, symbol) {
   switch (name) {
@@ -81,6 +89,12 @@ function buildStrategy(name, symbol) {
     case 'StochRSI': return new StochRSIStrategy(symCfg(symbol, 'stochRsi', config.stochRsi ?? {}));
     case 'HA':       return new HeikinAshiStrategy(symCfg(symbol, 'heikinAshi', config.heikinAshi ?? {}));
     case 'SR':       return new SupportResistanceStrategy(symCfg(symbol, 'supportResistance', config.supportResistance ?? {}));
+    // Phase 2 — orthogonal additions
+    case 'Don':      return new DonchianStrategy(symCfg(symbol, 'donchian', config.donchian ?? {}));
+    case 'VWAPs':    return new VWAPSigmaStrategy(symCfg(symbol, 'vwapSigma', config.vwapSigma ?? {}));
+    case 'VolS':     return new VolumeSurgeStrategy(symCfg(symbol, 'volumeSurge', config.volumeSurge ?? {}));
+    case 'Ich':      return new IchimokuStrategy(symCfg(symbol, 'ichimoku', config.ichimoku ?? {}));
+    case 'Pin':      return new PinBarStrategy(symCfg(symbol, 'pinBar', config.pinBar ?? {}));
     default: throw new Error(`Unknown strategy: ${name}`);
   }
 }
@@ -91,6 +105,9 @@ const CONFIG_TO_POOL = {
   EMA: 'EMA', MACD: 'MACD', ADX: 'ADX', Supertrend: 'ST',
   MFI: 'MFI', OBV: 'OBV', PSAR: 'PSAR', WilliamsR: 'WR',
   StochRSI: 'StochRSI', HeikinAshi: 'HA', SR: 'SR',
+  // Phase 2 — orthogonal additions
+  Donchian: 'Don', 'VWAPσ': 'VWAPs', VolSurge: 'VolS',
+  Ichimoku: 'Ich', PinBar: 'Pin',
 };
 
 // ── Combination generator ─────────────────────────────────────────────────────
@@ -108,7 +125,7 @@ function combinations(arr, k) {
   return result;
 }
 
-const ALL_COMBOS = combinations(POOL_NAMES, 3); // C(12,3) = 220
+const ALL_COMBOS = combinations(POOL_NAMES, 3); // C(20,3) = 1140
 
 // ── Signal pre-computation ────────────────────────────────────────────────────
 const WARMUP = 50;
@@ -117,12 +134,20 @@ function precomputeSignals(candles, symbol) {
   const cache = {};
   for (const name of POOL_NAMES) {
     const strategy = buildStrategy(name, symbol);
-    const signals  = new Array(candles.length).fill('HOLD');
-    for (let i = WARMUP; i < candles.length; i++) {
+    const signals  = new Array(candles.length);
+    for (let i = 0; i < candles.length; i++) {
+      if (i < WARMUP) {
+        signals[i] = { signal: 'HOLD', confidence: 0 };
+        continue;
+      }
       try {
-        signals[i] = strategy.analyze(candles.slice(0, i + 1)).signal;
+        const r = strategy.analyze(candles.slice(0, i + 1));
+        signals[i] = {
+          signal: r?.signal ?? 'HOLD',
+          confidence: Number(r?.confidence ?? 0),
+        };
       } catch {
-        signals[i] = 'HOLD';
+        signals[i] = { signal: 'HOLD', confidence: 0 };
       }
     }
     cache[name] = signals;
@@ -130,21 +155,16 @@ function precomputeSignals(candles, symbol) {
   return cache;
 }
 
-// ── Aggregator (vote counting, matches live SignalAggregator HOLD suppression) ─
+// ── Aggregator — delegates to the shared pure function that the live
+// SignalAggregator + PortfolioBacktester also use. Guarantees byte-identical
+// decisions; parity is enforced by tests/aggregatorParity.test.mjs.
 function aggregate(comboNames, signalCache, idx, minConf) {
-  const votes = { BUY: 0, SELL: 0, HOLD: 0 };
-  let directionalWeight = 0;
-  for (const name of comboNames) {
-    const sig = signalCache[name]?.[idx] ?? 'HOLD';
-    votes[sig] = (votes[sig] ?? 0) + 1;
-    if (sig !== 'HOLD') directionalWeight += 1;
-  }
-  const ranked = Object.entries(votes).sort((a, b) => b[1] - a[1]);
-  const [winner = 'HOLD', wVotes = 0] = ranked[0] ?? [];
-  const tie = ranked.filter(([, c]) => Math.abs(c - wVotes) < 1e-9).length > 1;
-  // HOLD votes excluded from denominator — confidence = directional / directional total
-  const conf = directionalWeight > 0 ? wVotes / directionalWeight : 0;
-  if (tie || winner === 'HOLD' || conf < minConf) return 'HOLD';
+  const strategySignals = comboNames.map((name) => {
+    const cached = signalCache[name]?.[idx];
+    return cached ?? { signal: 'HOLD', confidence: 0 };
+  });
+  const { winner, confidence, tie } = aggregateVotes({ strategySignals });
+  if (tie || winner === 'HOLD' || confidence < minConf) return 'HOLD';
   return winner;
 }
 
@@ -162,13 +182,55 @@ function runWindow(candles, signalCache, comboNames, minConf, riskConfig) {
     sim.execute('SYM', decision, Number(candle.close));
   }
 
-  const trades     = sim.getTrades();
-  const equity     = sim.getEquityCurve();
-  return calculateMetrics(trades, equity, riskConfig.initialBalance);
+  const trades = sim.getTrades();
+  const equity = sim.getEquityCurve();
+  const metrics = calculateMetrics(trades, equity, riskConfig.initialBalance);
+  // Return both metrics and equity curve so compositeScore can compute DSR.
+  metrics._equityCurve = equity;
+  metrics._initialBalance = riskConfig.initialBalance;
+  return metrics;
 }
 
-// ── Composite score (same formula as optimizeStrategies.js) ──────────────────
-const MIN_TRADES = 3; // require ≥3 holdout trades to trust the out-of-sample result
+// ── Composite score (Phase 1 — robustness-first) ─────────────────────────────
+// Increased MIN_TRADES from 3 to 8: the previous threshold accepted essentially
+// single-event validations as legitimate, which is why many config entries
+// tagged [3t] or [4t] survived but show 0.00 deflated Sharpe in the Phase 0
+// baseline. With 8+ trades we get a defensible win-rate / Sharpe estimate.
+//
+// Sample-size shrinkage: combos with 8 ≤ n < 15 trades get an explicit
+// penalty (multiplies the raw composite by n/15) to discourage upgrading to a
+// borderline-significant combo when a more-traded one is available.
+//
+// Deflated Sharpe cut-off: combos with DSR < 0.50 are penalised — that's the
+// Bailey-Prado threshold below which the observed Sharpe is indistinguishable
+// from data dredging given the search burden (~2280 combos × conf thresholds
+// per symbol after Phase 2 expanded the pool from 15 to 20 strategies).
+const MIN_TRADES                 = 8;     // strict holdout sample minimum
+const SAMPLE_SIZE_SHRINKAGE_CEIL = 15;    // below this we shrink toward zero
+const DEFLATED_SHARPE_FLOOR      = 0.50;  // below this we penalise
+const SEARCH_BURDEN_N_TRIALS     = 2280;  // per-symbol: ~1140 combos × 2 conf
+
+import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
+
+function dailyReturnsFromEquity(equityCurve, initialBalance) {
+  if (!Array.isArray(equityCurve) || equityCurve.length < 2) return [];
+  const byDay = new Map();
+  for (const point of equityCurve) {
+    const ts = Number(point?.timestamp ?? 0);
+    const bal = Number(point?.balance);
+    if (!Number.isFinite(bal) || !Number.isFinite(ts)) continue;
+    byDay.set(new Date(ts).toISOString().slice(0, 10), bal);
+  }
+  const sorted = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
+  if (sorted.length < 2) return [];
+  const rets = [];
+  let prev = initialBalance;
+  for (const bal of sorted) {
+    if (prev > 0) rets.push((bal - prev) / prev);
+    prev = bal;
+  }
+  return rets;
+}
 
 function compositeScore(m) {
   if (!m || m.totalTrades < MIN_TRADES) return -1000;
@@ -176,13 +238,39 @@ function compositeScore(m) {
   const sharpe  = Number.isFinite(m.sharpeRatio)  ? m.sharpeRatio  : 0;
   const calmar  = m.maxDrawdown > 0 ? m.totalReturn / m.maxDrawdown : 0;
   const pf      = Math.min(Number.isFinite(m.profitFactor) ? m.profitFactor : 0, 5);
-  return (
+  const raw = (
     sharpe                          * 0.30 +
     calmar                          * 0.25 +
     m.winRate                       * 0.20 +
     pf                              * 0.10 +
     Math.min(m.totalReturn, 2)      * 0.15
   );
+
+  // Shrink small-sample scores toward zero (linear factor in [n/15, 1])
+  const sampleShrinkage = m.totalTrades >= SAMPLE_SIZE_SHRINKAGE_CEIL
+    ? 1
+    : m.totalTrades / SAMPLE_SIZE_SHRINKAGE_CEIL;
+
+  // Deflated Sharpe penalty — multiplies composite by min(1, DSR/0.5)
+  // when DSR is below threshold. We use a per-symbol N=440 trials (the
+  // search space the optimizer itself ran), not the cross-symbol 16280
+  // burden — each symbol's selection is an independent search.
+  const equity = m._equityCurve ?? [];
+  const initBal = m._initialBalance ?? 1000;
+  const rets = dailyReturnsFromEquity(equity, initBal);
+  let dsrFactor = 1;
+  if (rets.length >= 4 && Number.isFinite(sharpe)) {
+    const dsr = deflatedSharpeRatio({
+      observedSharpe: sharpe,
+      returns: rets,
+      nTrials: SEARCH_BURDEN_N_TRIALS,
+    }).dsr;
+    if (dsr < DEFLATED_SHARPE_FLOOR) {
+      dsrFactor = Math.max(0, dsr / DEFLATED_SHARPE_FLOOR);
+    }
+  }
+
+  return raw * sampleShrinkage * dsrFactor;
 }
 
 // ── Candle loader ──────────────────────────────────────────────────────────────
@@ -278,7 +366,7 @@ for (const symbol of loadedSymbols) {
   const currentHoldoutM = runWindow(holdout, holdoutCache, currentPoolNames, currentConf, holdoutRisk);
   const currentScore    = compositeScore(currentHoldoutM);
 
-  // ── 2. Run all 220 combos × 2 conf on TRAINING window ────────────────────
+  // ── 2. Run all 1140 combos × 2 conf on TRAINING window ──────────────────
   const trainingResults = [];
   for (const combo of ALL_COMBOS) {
     for (const conf of [0.55, 0.70]) {
