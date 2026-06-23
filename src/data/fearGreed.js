@@ -3,9 +3,17 @@ import fs from 'fs';
 const CACHE = 'data/fearGreed.json';
 
 export async function loadFearGreedHistory() {
-  if (fs.existsSync(CACHE)) {
-    const d = JSON.parse(fs.readFileSync(CACHE, 'utf-8'));
-    if (Date.now() - d.fetchedAt < 86400000) return d.data;
+  // Read the on-disk cache defensively. A corrupt/truncated file must fall
+  // through to a fresh fetch, never throw: this function is invoked as an
+  // unawaited `void loadFearGreedHistory()` in main.js, so a synchronous throw
+  // here becomes an unhandled rejection that crashes the process on Node >=15.
+  try {
+    if (fs.existsSync(CACHE)) {
+      const d = JSON.parse(fs.readFileSync(CACHE, 'utf-8'));
+      if (d && Date.now() - d.fetchedAt < 86400000) return d.data;
+    }
+  } catch {
+    // corrupt/unreadable cache — fall through to the network fetch below
   }
   try {
     const res = await fetch('https://api.alternative.me/fng/?limit=1000&format=json');

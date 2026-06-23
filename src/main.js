@@ -1070,12 +1070,17 @@ let marketContextRefreshId = null;
 void loadFearGreedHistory().then((data) => {
   fearGreedData = data;
   if (data) logger.info(`Fear & Greed history loaded: ${data.length} daily samples`);
-});
+}).catch((err) => logger.error(`Fear & Greed history load failed: ${err?.message ?? err}`));
 if (config.btcDominance?.enabled) {
   const ms = Number(config.btcDominance.refreshIntervalMs ?? 6 * 60 * 60 * 1000);
-  void refreshMarketContext().then(() => {
-    marketContextRefreshId = setInterval(() => void refreshMarketContext(), ms);
-  });
+  void refreshMarketContext()
+    .then(() => {
+      marketContextRefreshId = setInterval(
+        () => void refreshMarketContext().catch((err) => logger.error(`Market context refresh failed: ${err?.message ?? err}`)),
+        ms,
+      );
+    })
+    .catch((err) => logger.error(`Market context refresh failed: ${err?.message ?? err}`));
   logger.info(`Market context cache: refresh every ${(ms / 3_600_000).toFixed(1)}h`);
 }
 
