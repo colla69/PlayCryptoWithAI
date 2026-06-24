@@ -46,6 +46,8 @@ let outFile = 'data/walkForward.json';
 let globalParams = false;
 let mtfScoreOverride = NaN;
 let mtfOff = false;
+let momMin = NaN;
+let momRank = false;
 let rideTrail = 0;
 let ridePartialPct = 0;
 let ridePartialFrac = 0.5;
@@ -62,6 +64,8 @@ for (let i = 0; i < argv.length; i++) {
   if (a === '--global-params')        { globalParams = true; continue; }
   if (a === '--mtf-score' && argv[i+1]) { mtfScoreOverride = Number(argv[++i]); continue; }
   if (a === '--mtf-off')                { mtfOff = true; continue; }
+  if (a === '--mom-min' && argv[i+1])   { momMin = Number(argv[++i]); continue; }
+  if (a === '--mom-rank')               { momRank = true; continue; }
   if (a === '--ride-trail'   && argv[i+1]) { rideTrail = Number(argv[++i]); continue; }
   if (a === '--ride-partial' && argv[i+1]) { const [p, f] = argv[++i].split(','); ridePartialPct = Number(p); if (f != null) ridePartialFrac = Number(f); continue; }
   if (a === '--trail-arm'    && argv[i+1]) { trailArm = Number(argv[++i]); continue; }
@@ -74,6 +78,9 @@ if (globalParams) config.perSymbol = {};
 const filterOverrides = {};
 if (mtfOff) filterOverrides.mtfFilter = false;
 else if (Number.isFinite(mtfScoreOverride)) filterOverrides.mtfMinScore = mtfScoreOverride;
+// WS: momentum-leader selection (forward-only validation).
+if (Number.isFinite(momMin)) filterOverrides.momentumMinPct = momMin;
+if (momRank) filterOverrides.momentumRank = true;
 
 // WS4: ride-winners exit (forward-only validation). --ride-trail >0 enables it.
 const rideOpts = rideTrail > 0

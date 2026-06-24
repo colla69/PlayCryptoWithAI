@@ -316,6 +316,7 @@ export function findStressWindows(symbolCandles) {
  * @param {number}  args.rideWinnersTrail — if >0: disable fixed TP + trail the stop by this fraction (e.g. 0.25)
  * @param {?{pct:number,fraction:number}} args.ridePartial — while riding, lock `fraction` at +`pct`, ride the rest
  * @param {number}  args.trailArmPct     — while riding, delay the trailing stop until the position is +trailArmPct up
+ * @param {number}  args.basePctOverride — per-position base size (default 1/maxOpenPositions); e.g. 0.15 models live deployment
  */
 export function runWindow({
   window,
@@ -331,6 +332,7 @@ export function runWindow({
   rideWinnersTrail = 0,
   ridePartial = null,
   trailArmPct = 0,
+  basePctOverride = 0,
 }) {
   const sliced = sliceWindow(symbolCandles, window.startTs, window.endTs);
   const symbols = Object.keys(sliced);
@@ -377,6 +379,8 @@ export function runWindow({
       ...(riding && ridePartial && { ridePartial }),
       // Optional arm-after-profit: delay the trailing stop until +trailArmPct.
       ...(riding && trailArmPct > 0 && { trailArmPct }),
+      // Optional per-position base size override (deployment sweep / live-sizing parity).
+      ...(basePctOverride > 0 && { basePctOverride }),
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,
