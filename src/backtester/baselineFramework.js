@@ -311,6 +311,11 @@ export function findStressWindows(symbolCandles) {
  * @param {number} args.nTrials          — for deflated Sharpe (default 16280)
  * @param {number} args.budget           — starting balance (default 1000)
  * @param {number} args.maxOpenPositions — slots (default from config)
+ * @param {boolean} args.includeRaw      — also return raw `trades` + `symbol_stats` (for attribution)
+ * @param {object}  args.filterOverrides — override individual filter knobs (e.g. {mtfMinScore:0.4}) for sweeps
+ * @param {number}  args.rideWinnersTrail — if >0: disable fixed TP + trail the stop by this fraction (e.g. 0.25)
+ * @param {?{pct:number,fraction:number}} args.ridePartial — while riding, lock `fraction` at +`pct`, ride the rest
+ * @param {number}  args.trailArmPct     — while riding, delay the trailing stop until the position is +trailArmPct up
  */
 export function runWindow({
   window,
@@ -321,6 +326,11 @@ export function runWindow({
   nTrials = 16280,
   budget = 1000,
   maxOpenPositions = config.risk?.maxOpenPositions ?? 4,
+  includeRaw = false,
+  filterOverrides = {},
+  rideWinnersTrail = 0,
+  ridePartial = null,
+  trailArmPct = 0,
 }) {
   const sliced = sliceWindow(symbolCandles, window.startTs, window.endTs);
   const symbols = Object.keys(sliced);
@@ -338,7 +348,18 @@ export function runWindow({
     symbols.map((s) => config.perSymbol?.[s]?.minConfidence ?? config.risk?.minConfidence ?? 0.7),
   );
   const slMedian = median(symbols.map((s) => config.perSymbol?.[s]?.stopLossPct ?? config.risk?.stopLossPct ?? 0.05));
-  const tpMedian = median(symbols.map((s) => config.perSymbol?.[s]?.takeProfitPct ?? config.risk?.takeProfitPct ?? 0.12));
+  let tpMedian = median(symbols.map((s) => config.perSymbol?.[s]?.takeProfitPct ?? config.risk?.takeProfitPct ?? 0.12));
+
+  // WS4 "ride winners": disable the fixed take-profit (neutralise per-symbol TP and
+  // the global fallback) and trail the stop instead, so winners run until the trend
+  // breaks rather than being capped at +12–30%. Keeps per-symbol entries + initial SL.
+  const riding = rideWinnersTrail > 0;
+  if (riding) {
+    tpMedian = 99; // +9900% ⇒ effectively no take-profit
+    for (const s of Object.keys(symbolRisk)) {
+      if (symbolRisk[s]) symbolRisk[s] = { ...symbolRisk[s], takeProfitPct: 99 };
+    }
+  }
 
   const backtester = new PortfolioBacktester(strategies, {
     risk: {
@@ -348,7 +369,14 @@ export function runWindow({
       initialBalance:      budget,
       stopLossPct:         slMedian,
       takeProfitPct:       tpMedian,
-      trailingStopPct:     0,
+      trailingStopPct:     riding ? rideWinnersTrail : 0,
+      // Riding winners requires lifting the 14-bar position-aging cap — otherwise
+      // every position is force-closed at 7 days and a multi-week 10x can never run.
+      ...(riding && { positionAgingExit: { enabled: false } }),
+      // Optional partial scale-out while riding: lock a fraction at +pct, ride the rest.
+      ...(riding && ridePartial && { ridePartial }),
+      // Optional arm-after-profit: delay the trailing stop until +trailArmPct.
+      ...(riding && trailArmPct > 0 && { trailArmPct }),
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,
@@ -367,6 +395,9 @@ export function runWindow({
       ? config.risk.confidenceThresholdScale
       : 1,
     ...FULL_LIVE_FILTERS,
+    // WS3 sweep hook: override individual filter knobs (e.g. mtfMinScore) without
+    // mutating the frozen FULL_LIVE_FILTERS. Spread last so overrides win.
+    ...filterOverrides,
   });
 
   const result = backtester.run(sliced);
@@ -400,6 +431,9 @@ export function runWindow({
     },
     deflated_sharpe: dsr,
     filters_applied: result.filtersApplied ?? {},
+    // Opt-in raw passthrough for attribution tooling (off by default so the
+    // baseline JSON stays lean). The trade records carry symbol/pnl/reason/entryTime.
+    ...(includeRaw && { trades: result.trades, symbol_stats: result.symbolStats }),
   };
 }
 
