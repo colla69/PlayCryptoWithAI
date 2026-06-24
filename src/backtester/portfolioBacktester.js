@@ -134,6 +134,7 @@ export class PortfolioBacktester {
     // ADX > regimeBoostThresh → multiply by regimeBoostFactor (up to 1.3×)
     // ADX < regimePenaltyThresh → multiply by regimePenaltyFactor (down to 0.5×)
     this.regimeSizing = Boolean(config.regimeSizing ?? false);
+    this.regimeSizeMult = config.regimeSizeMult ?? null; // optional per-regime-label size multiplier (exposure tilt)
     this.regimeBoostThresh = Number(config.regimeBoostThresh ?? 25);
     this.regimePenaltyThresh = Number(config.regimePenaltyThresh ?? 15);
     this.regimeBoostFactor = Number(config.regimeBoostFactor ?? 1.3);
@@ -546,6 +547,12 @@ export class PortfolioBacktester {
           } else if (d.adxValue < this.regimePenaltyThresh) {
             positionPct *= this.regimePenaltyFactor;
           }
+        }
+
+        // Regime-LABEL exposure tilt (concentrate deployment where the edge lives:
+        // attribution shows BULL_TREND carries P&L, bears bleed). Off unless configured.
+        if (this.regimeSizeMult && currentRegimeLabel && this.regimeSizeMult[currentRegimeLabel] != null) {
+          positionPct *= Number(this.regimeSizeMult[currentRegimeLabel]);
         }
 
         // MTF alignment filter: check if last 4h of 15m candles are constructive
