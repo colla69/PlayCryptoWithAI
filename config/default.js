@@ -676,12 +676,20 @@ export default {
   // Post-fix sweep (2026-06-22, slots=3, all filters on): 0.50 wins on raw return.
   //   mtf=0.40  Y2  +75% / OOS +37%   (too permissive, OOS hit hard)
   //   mtf=0.45  Y2 +109% / OOS +67%   (close to baseline)
-  //   mtf=0.50  Y2 +111% / OOS +84%   ← current
+  //   mtf=0.50  Y2 +111% / OOS +84%
   //   mtf=0.55  Y2  +74% / OOS +80%   (DD halved to -8/-11% — risk-adj alternative)
+  //
+  // ⚠️ SUPERSEDED 2026-06-24: the sweep above ran when only ~8/37 symbols had 15m data
+  // (the rest passed through UNFILTERED). After backfilling 15m for ALL 37 symbols (deep
+  // 6yr data), this filter now applies portfolio-wide — a different regime. On the
+  // complete data a forward-only walk-forward shows 0.50 is TOO TIGHT:
+  //   0.50→0.30 : WF Sharpe 1.01→1.25, DSR 0.01→0.15, return +73%→+131%
+  //               (cost: forward-only max DD ~-21%→-32%).
+  //   0.40 is the lower-DD middle ground (windowed 6yr +118%/Sh1.19) if DD matters more.
   mtfFilter: {
     enabled: true,
     alignBars: 16,         // 16 × 15m = 4h lookback window within the 12h candle
-    minAlignScore: 0.50,   // minimum fraction of green 15m candles to allow entry
+    minAlignScore: 0.30,   // 2026-06-24: relaxed 0.50→0.30 (full 15m coverage); see note above
     reduceFactor: 0,       // 0 = skip entry; e.g. 0.5 = half position when misaligned
   },
 
