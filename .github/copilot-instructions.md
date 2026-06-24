@@ -48,6 +48,7 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - All trading decisions use past/closed candles only. **No lookahead.**
 - Smoke-test trades tagged `note: '🔬 smoke-test'` — never remove.
 - Never commit secrets. Keys from `.env` only.
+- **Docs live in `docs/`.** All project documentation (`STRATEGY.md`, `TECHNICAL.md`, `TESTNET.md`, `WORKFLOW.md`, etc.) lives under `docs/`; `README.md` is the only `.md` at the repo root. New docs go in `docs/` and are linked from `README.md`. Do **not** move toolchain config that happens to be Markdown — `CLAUDE.md` (root + `public/` + `src/dashboard/`) and everything under `.claude/` and `.github/` must stay where the tooling loads them.
 
 ## Signal Engine (current state — post robustness overhaul)
 

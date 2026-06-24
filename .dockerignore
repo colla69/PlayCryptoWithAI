@@ -27,6 +27,5 @@ seed-volumes.sh
 
 # Docs
 README.md
-WORKFLOW.md
-TESTNET.md
 *.md
+docs/
