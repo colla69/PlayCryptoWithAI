@@ -49,6 +49,23 @@ All portfolio-level backtests MUST run the live filter stack:
 **Blocker** if any are disabled or if MTF data (`{COIN}_USDC_4h.json`, `{COIN}_USDC_15m.json`) is
 missing for tested symbols. Unfiltered results overstate performance and are invalid.
 
+## 7. Windowed vs Forward-Only (the deciding test)
+
+In-window backtests (`runWindow`/`runBaseline`) are **systematically optimistic** — proven this
+overhaul: a windowed max-DD of −6% became −28% forward-only; the "ride-winners" exit looked great
+windowed (+167%, DSR 0.20) but **failed** the walk-forward (DSR 0.02) and was rejected. Rule: **a
+windowed-only improvement is noise until confirmed by forward-only walk-forward (`runWalkForward`) +
+deflated Sharpe.** Blocker to adopt/keep on windowed numbers alone. Bear-regime P&L is the single
+least trustworthy number (label/lookahead artifacts) — demand forward-only for it.
+
+## 8. Live↔Backtest SIZING parity
+
+Parity is not just aggregator math. The backtester sizes each position at `1/maxOpenPositions`
+(≈0.25 → ~100% deployment); the **live** bot uses `maxPositionPct` (0.15 → 60%). A result quoted as
+"live-expected" must match live sizing (`basePctOverride`) — otherwise it overstates live returns.
+**Deployment/position-size is a Sharpe-NEUTRAL risk dial**: bigger size scales return *and* drawdown
+~linearly, Sharpe/DSR flat. More return from sizing ≠ edge — judge Sharpe/DSR, not headline return.
+
 ## Output
 
 Per area: ✅ Pass / ⚠️ Warning / 🔴 Blocker. Conclude: `✅ PASS` or `🔴 BLOCKED — [list]`.

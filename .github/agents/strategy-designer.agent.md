@@ -41,8 +41,21 @@ If you modify `signalAggregator.js` (confidence formula, HOLD handling, threshol
   Never present portfolio numbers from unfiltered runs — they are misleading.
   Download 4h/15m data for new coins BEFORE running backtests.
 
+## Architecture & validation lessons (deep 6yr data, 2026-06)
+
+- **This bot is a TREND-FOLLOWER by construction.** The MTF filters (4h momentum + 15m alignment) and
+  the momentum filter structurally block mean-reversion (oversold/dip) entries — a global MR pack makes
+  0 trades. "Use mean-reversion in chop" is NOT viable without disabling validated filters. Edge
+  concentrates in BULL_TREND; chop is low-opportunity; BEAR_TREND bleeds. Design with the trend grain.
+- **Measure the premise cheaply BEFORE building.** Attribution + a global A/B refuted regime
+  archetype-routing before any wiring. Cheap measurement gates expensive builds.
+- **Forward-only walk-forward decides; windowed is optimistic.** Ride-winners (trailing exits) looked
+  great windowed, died forward-only → rejected. Deployment is a Sharpe-neutral risk dial — pursue
+  higher Sharpe via SELECTION, not leverage.
+
 ## Output Contract
 
 - Strategy file + registration changes.
 - Brief rationale (market condition, indicator logic).
 - Backtest: `Y2: +XX% Sharpe X.XX DD -X.X% WR XX%` / `Y1+Y2: +XX% Sharpe X.XX DD -X.X% WR XX%`
+- For any adopt/keep decision: **forward-only walk-forward + DSR**, not windowed alone.
