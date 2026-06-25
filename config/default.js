@@ -693,6 +693,20 @@ export default {
     reduceFactor: 0,       // 0 = skip entry; e.g. 0.5 = half position when misaligned
   },
 
+  // ── Momentum-leader filter (2026-06-25) ──────────────────────────────────────
+  // Block BUYs in relative-strength laggards: require a non-negative trailing
+  // `lookback`-bar return on the entry timeframe ("don't buy falling knives").
+  // The bot's oversold strategies (RSI/BB/Stoch) otherwise buy dips in downtrends;
+  // requiring positive momentum keeps only dips-in-uptrends.
+  // Forward-only walk-forward (deep 6yr data): Sharpe 1.50→1.60, DSR 0.11→0.18,
+  // WR 60→69%, PF 4.7→7.6. Applied in BOTH live (`core/filters.js`) and backtest
+  // (`portfolioBacktester.js`) via the shared `utils/momentum.js` helper — parity.
+  momentumFilter: {
+    enabled: true,
+    minPct: 0,             // require trailing return ≥ 0 (in an uptrend)
+    lookback: 20,          // bars (20 × 12h = 10 days)
+  },
+
   // ── Confidence-proportional position sizing ────────────────────────────────
   // Scales position size linearly based on signal confidence:
   //   conf ≥ mid (0.65)  → linear from 1.0× to max (1.5×)

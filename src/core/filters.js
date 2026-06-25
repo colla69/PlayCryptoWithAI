@@ -4,6 +4,7 @@
  */
 import { isMarketTrending } from '../utils/indicators.js';
 import { mtfAlignScore, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
+import { trailingReturn } from '../utils/momentum.js';
 import {
   calcCorrelationCap,
   calcWeeklyDDBreaker,
@@ -189,6 +190,26 @@ export async function checkMTF4hFilter(symbol, fetchOHLCV, cfg4h) {
 }
 
 /**
+ * Momentum-leader filter: block BUYs in relative-strength laggards (trailing
+ * N-bar return below `minPct`) — i.e. don't buy falling knives / downtrends.
+ * Mirrors the backtester exactly (shared `trailingReturn`, same insufficient-history
+ * behavior: returns 0, so blocks only when minPct > 0). Live ≡ backtest.
+ * @param {import('../types.js').Candle[]} candles — same series the aggregator saw
+ * @param {{enabled?:boolean, minPct?:number, lookback?:number}} cfg
+ * @returns {string|null} Block reason or null
+ */
+export function checkMomentumFilter(candles, cfg) {
+  if (!cfg?.enabled) return null;
+  const minPct = Number(cfg.minPct ?? 0);
+  const lookback = Number(cfg.lookback ?? 20);
+  const ret = trailingReturn(candles, lookback);
+  if (ret < minPct) {
+    return `Momentum laggard (${lookback}-bar return ${(ret * 100).toFixed(1)}% < ${(minPct * 100).toFixed(0)}% required)`;
+  }
+  return null;
+}
+
+/**
  * Run all entry filters in sequence. Returns the first block reason or null.
  * @param {object} params
  * @param {string} params.symbol
@@ -243,6 +264,14 @@ export async function runEntryFilters({ symbol, candles, openPositions, correlat
   if (mtf4hBlock) {
     logger.info(`${symbol}: BUY suppressed — ${mtf4hBlock}`);
     return { blockReason: mtf4hBlock, mtfSizeFactor };
+  }
+
+  // Momentum-leader filter — skip falling knives (downtrending coins). Uses the
+  // same candle series the aggregator saw, so it matches the backtester.
+  const momBlock = checkMomentumFilter(candles, config.momentumFilter);
+  if (momBlock) {
+    logger.info(`${symbol}: BUY suppressed — ${momBlock}`);
+    return { blockReason: momBlock, mtfSizeFactor };
   }
 
   return { blockReason: null, mtfSizeFactor };

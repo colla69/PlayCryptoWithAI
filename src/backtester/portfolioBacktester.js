@@ -35,6 +35,7 @@ import { calculateMetrics } from './metrics.js';
 import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
 import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
+import { trailingReturn } from '../utils/momentum.js';
 import signalBus from '../signals/signalBus.js';
 import {
   calcCorrelationCap,
@@ -742,14 +743,10 @@ export class PortfolioBacktester {
     return allData;
   }
 
-  // Trailing N-bar return = relative-strength / momentum proxy. Uses only the
-  // closed candles in `slice` (slice ends at the signal candle) → no lookahead.
+  // Trailing N-bar return = relative-strength / momentum proxy. Delegates to the
+  // shared helper so live (`core/filters.js`) and backtest compute it identically.
   #computeMomentum(candles) {
-    const n = this.momentumLookback;
-    if (candles.length < n + 1) return 0;
-    const now = Number(candles.at(-1).close);
-    const then = Number(candles.at(-1 - n).close);
-    return then > 0 ? now / then - 1 : 0;
+    return trailingReturn(candles, this.momentumLookback);
   }
 
   #computeATRpct(candles) {

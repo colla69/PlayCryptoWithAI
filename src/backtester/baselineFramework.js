@@ -88,6 +88,9 @@ export const FULL_LIVE_FILTERS = Object.freeze({
   mtfAlignBars:        config.mtfFilter?.alignBars ?? 16,
   mtfMinScore:         config.mtfFilter?.minAlignScore ?? 0.50,
   mtfReduceFactor:     config.mtfFilter?.reduceFactor ?? 0,
+  // Momentum-leader filter (parity with live `core/filters.js`): sourced from config.
+  momentumMinPct:      config.momentumFilter?.enabled ? Number(config.momentumFilter.minPct ?? 0) : null,
+  momentumLookback:    config.momentumFilter?.lookback ?? 20,
   mtf4hFilter:         true,
   mtf4hMinScore:       0.45,
   mtf4hLookback:       21,
