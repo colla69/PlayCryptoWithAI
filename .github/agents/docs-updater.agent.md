@@ -14,9 +14,16 @@ Sync documentation with code changes. Run before commits. Update only what's sta
 | File | Scope |
 |------|-------|
 | `README.md` | Project overview, quick start, env vars, npm scripts, Docker usage |
-| `STRATEGY.md` | Full strategy description: signals, aggregator, filters, sizing, exits |
-| `TECHNICAL.md` | Architecture, module map, data flow, persistence, deployment |
-| `TESTNET.md` | Testnet setup |
+| `docs/STRATEGY.md` | Full strategy description: signals, aggregator, filters, sizing, exits |
+| `docs/TECHNICAL.md` | Architecture, module map, data flow, persistence, deployment |
+| `docs/TESTNET.md` | Testnet setup |
+| `docs/WORKFLOW.md`, `docs/SHORTING_FEASIBILITY.md` | Supporting docs — update if touched by the change |
+
+**Documentation location:** all project documentation lives in `docs/`. `README.md` is the only
+`.md` that stays at the repo root. When creating a NEW doc, put it under `docs/` and link to it
+from `README.md`. Never move toolchain config that happens to be Markdown — `CLAUDE.md`,
+`public/CLAUDE.md`, `src/dashboard/CLAUDE.md`, and everything under `.claude/` and `.github/`
+stay where the tooling loads them.
 
 ## Workflow
 

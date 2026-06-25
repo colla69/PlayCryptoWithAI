@@ -12,10 +12,10 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 > These come from the committed baseline runner (`runBaseline.mjs`). The robustness overhaul
 > deliberately traded the old (non-reproducible) headline figures for honest, low-drawdown numbers
-> the bot can be trusted to run on unattended. See [STRATEGY.md](STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
+> the bot can be trusted to run on unattended. See [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
 
-📖 **[Strategy Documentation](STRATEGY.md)** — signals, filters, sizing, exits  
-📖 **[Technical Documentation](TECHNICAL.md)** — architecture, modules, deployment
+📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
+📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment
 
 ---
 
@@ -101,7 +101,7 @@ PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
   --slots 3 --candles 730 --budget 1000
 ```
 
-See `--help` or [TECHNICAL.md](TECHNICAL.md) for all flags.
+See `--help` or [TECHNICAL.md](docs/TECHNICAL.md) for all flags.
 
 ---
 

@@ -926,16 +926,61 @@
 
       <div class="legend-panel" id="legendPanel">
         <div class="legend-group">
-          <div class="legend-heading">Risk Protections</div>
-          <div class="legend-row"><span class="legend-icon">⚡</span><div><span class="legend-label">Break-even</span> <span class="legend-desc">— once price rises to the trigger %, the stop loss moves to entry so the position can never close at a loss.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">🔻</span><div><span class="legend-label">Trailing stop</span> <span class="legend-desc">— stop loss follows the price upward, locking in gains as the trade runs in our favour.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">🛑</span><div><span class="legend-label">Fixed stop</span> <span class="legend-desc">— standard stop loss at a fixed % below entry price.</span></div></div>
+          <div class="legend-heading">Signal Scoring</div>
+          <div class="legend-row"><span class="legend-icon">🗳️</span><div><span class="legend-label">Confidence-weighted vote</span> <span class="legend-desc">— all 20 strategies vote BUY / SELL / HOLD each bar. Each vote's weight is its own confidence; HOLD counts in the denominator, so confidence = winning-side weight ÷ all voters. The result must clear the per-symbol minimum to act.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">✅</span><div><span class="legend-label">Multi-bar confirmation</span> <span class="legend-desc">— borderline entries (within ~0.10 of the minimum) also need the previous bar to agree before firing.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">↔️</span><div><span class="legend-label">Asymmetric exit</span> <span class="legend-desc">— an open position exits once SELL pressure reaches 70% of the normal threshold: quicker to protect, slower to enter.</span></div></div>
+        </div>
+
+        <div class="legend-group">
+          <div class="legend-heading">Strategies (20)</div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">RSI</span> <span class="legend-desc">— oversold (&lt;30) → BUY · overbought (&gt;70) → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">EMA</span> <span class="legend-desc">— fast EMA crosses above slow → BUY · below → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">MACD</span> <span class="legend-desc">— MACD crosses above signal → BUY · below → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">BollingerBands</span> <span class="legend-desc">— price at lower band → BUY · upper band → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">Stochastic</span> <span class="legend-desc">— %K crosses above %D below 20 → BUY · above 80 → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">ADX</span> <span class="legend-desc">— confirms trend strength (&gt;25); direction from price vs EMA.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">CCI</span> <span class="legend-desc">— crosses above −100 from oversold → BUY · below +100 → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">Supertrend</span> <span class="legend-desc">— flips bullish → BUY · flips bearish → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">MFI</span> <span class="legend-desc">— volume-weighted RSI: &lt;20 turning up → BUY · &gt;80 turning down → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">OBV</span> <span class="legend-desc">— on-balance volume crosses above EMA-20 → BUY · below → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">PSAR</span> <span class="legend-desc">— Parabolic SAR flips below price → BUY · above → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">WilliamsR</span> <span class="legend-desc">— %R &lt; −80 turning up → BUY · &gt; −20 turning down → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">StochRSI</span> <span class="legend-desc">— K &lt;20 crossing up → BUY · K &gt;80 crossing down → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">HeikinAshi</span> <span class="legend-desc">— bullish HA candle (no lower wick) → BUY · bearish (no upper wick) → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">S&amp;R</span> <span class="legend-desc">— price near support zone (≥2 touches) → BUY · near resistance → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">Donchian</span> <span class="legend-desc">— close above 20-bar high + volume → BUY · below 20-bar low → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">VWAPσ</span> <span class="legend-desc">— price ≤ VWAP−2σ → BUY (cheap vs participation) · ≥ VWAP+2σ → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">VolumeSurge</span> <span class="legend-desc">— volume ≥ 2× mean + green candle → BUY · red candle → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">Ichimoku</span> <span class="legend-desc">— price above cloud + Tenkan&gt;Kijun → BUY · below cloud → SELL.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">PinBar</span> <span class="legend-desc">— long lower wick, close in upper 40% → BUY · long upper wick → SELL.</span></div></div>
         </div>
 
         <div class="legend-group">
           <div class="legend-heading">Entry Filters</div>
           <div class="legend-row"><span class="legend-icon">📉</span><div><span class="legend-label" style="color:#79c0ff">Regime filter</span> <span class="legend-desc">— blocks new BUY entries when ADX is below the threshold, indicating a ranging/choppy market with no clear trend.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">🔗</span><div><span class="legend-label" style="color:#c084fc">Correlation filter</span> <span class="legend-desc">— skips a BUY if an open position is already highly correlated with the incoming coin (Pearson r), avoiding doubling up on the same market move.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🔗</span><div><span class="legend-label" style="color:#c084fc">Correlation filter</span> <span class="legend-desc">— skips a BUY if an open position is already highly correlated (Pearson r ≥ 0.85) with the incoming coin, avoiding doubling up on the same move.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🕒</span><div><span class="legend-label">MTF 15m alignment</span> <span class="legend-desc">— inspects the 15m candles inside the 12h bar; blocks BUY when the short-term trend disagrees (align score &lt; 0.50).</span></div></div>
+          <div class="legend-row"><span class="legend-icon">⏱️</span><div><span class="legend-label">4h momentum</span> <span class="legend-desc">— EMA(8/21) + RSI(14) on 4h candles; blocks BUY when the 4h momentum score &lt; 0.45.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🐻</span><div><span class="legend-label">Macro bear filter</span> <span class="legend-desc">— when BTC trades below its 200-EMA, new position size is halved.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🌧️</span><div><span class="legend-label">Bear policy</span> <span class="legend-desc">— on BTC entering a bear trend, all open positions close and new entries are blocked until the regime clears.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">👑</span><div><span class="legend-label">BTC dominance gate</span> <span class="legend-desc">— blocks alt BUYs when BTC.D is &gt;1pp above its 7-day average (capital rotating into BTC).</span></div></div>
+          <div class="legend-row"><span class="legend-icon">😱</span><div><span class="legend-label">Fear &amp; Greed</span> <span class="legend-desc">— sentiment tweaks the entry bar: extreme greed (&gt;80) demands more conviction, extreme fear (&lt;20) loosens it (contrarian).</span></div></div>
+        </div>
+
+        <div class="legend-group">
+          <div class="legend-heading">Position Sizing</div>
+          <div class="legend-row"><span class="legend-icon">🎚️</span><div><span class="legend-label">Confidence sizing</span> <span class="legend-desc">— bet scales with conviction: 0.6× at low confidence up to 1.5× at full confidence.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">📐</span><div><span class="legend-label">Regime sizing</span> <span class="legend-desc">— ADX-based: strong trends (ADX ≥ 25) sized up 1.3×, choppy ranges (ADX &lt; 15) sized down 0.5×.</span></div></div>
+        </div>
+
+        <div class="legend-group">
+          <div class="legend-heading">Risk Protections</div>
+          <div class="legend-row"><span class="legend-icon">⚡</span><div><span class="legend-label">Break-even</span> <span class="legend-desc">— once price rises to the trigger %, the stop loss moves to entry so the position can never close at a loss.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🔻</span><div><span class="legend-label">Trailing stop</span> <span class="legend-desc">— stop loss follows the price upward, locking in gains as the trade runs in our favour.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🛑</span><div><span class="legend-label">Fixed stop</span> <span class="legend-desc">— standard stop loss at a fixed % below entry price.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">🧯</span><div><span class="legend-label">Weekly drawdown breaker</span> <span class="legend-desc">— a −10% portfolio loss in any 7-day window pauses new entries for 72h.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">⏳</span><div><span class="legend-label">Position aging exit</span> <span class="legend-desc">— positions open 14 bars (~7 days) without hitting TP/SL are closed to free up capital.</span></div></div>
         </div>
 
         <div class="legend-group">
@@ -945,17 +990,7 @@
           <div class="legend-row"><span class="legend-icon">⚪</span><div><span class="legend-label">HOLD</span> <span class="legend-desc">— no actionable signal; bot monitors stops only.</span></div></div>
           <div class="legend-row"><span class="legend-icon">📉</span><div><span class="legend-label" style="color:#79c0ff">Ranging market</span> <span class="legend-desc">— BUY blocked by regime filter (ADX too low).</span></div></div>
           <div class="legend-row"><span class="legend-icon">🔗</span><div><span class="legend-label" style="color:#c084fc">Correlated</span> <span class="legend-desc">— BUY blocked because a correlated coin is already held.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">⚠️</span><div><span class="legend-label" style="color:#f59e0b">Risk block</span> <span class="legend-desc">— BUY blocked by risk manager (daily loss limit, max positions, low confidence, etc.).</span></div></div>
-        </div>
-
-        <div class="legend-group">
-          <div class="legend-heading">Strategies</div>
-          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">RSI</span> <span class="legend-desc">— buys when oversold (&lt;30), sells when overbought (&gt;70).</span></div></div>
-          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">EMA</span> <span class="legend-desc">— buys when price crosses above the fast EMA; sells on cross below.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">MACD</span> <span class="legend-desc">— buys on bullish MACD crossover; sells on bearish.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">BollingerBands</span> <span class="legend-desc">— buys near lower band; sells near upper band.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">Stochastic</span> <span class="legend-desc">— buys on oversold %K/%D crossover; sells when overbought.</span></div></div>
-          <div class="legend-row"><span class="legend-icon">📊</span><div><span class="legend-label">ADX</span> <span class="legend-desc">— confirms trend strength; contributes to confidence score.</span></div></div>
+          <div class="legend-row"><span class="legend-icon">⚠️</span><div><span class="legend-label" style="color:#f59e0b">Risk block</span> <span class="legend-desc">— BUY blocked by risk manager (daily loss limit, max positions, low confidence, MTF/4h/bear/dominance filters, etc.).</span></div></div>
         </div>
       </div>
     </section>
