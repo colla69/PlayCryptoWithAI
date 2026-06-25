@@ -39,6 +39,7 @@ let budget = 1000;
 let nTrials = 16280; // 37 symbols × 220 combos × 2 conf thresholds (per-symbol optimizer search space)
 let symbolsOverride = null;
 let outFile = null;
+let globalParams = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--phase'           && argv[i+1]) { phaseTag = argv[++i]; continue; }
@@ -48,6 +49,14 @@ for (let i = 0; i < argv.length; i++) {
   if (a === '--nTrials'         && argv[i+1]) { nTrials = Number(argv[++i]); continue; }
   if (a === '--symbols'         && argv[i+1]) { symbolsOverride = argv[++i].split(',').map((s) => s.trim()); continue; }
   if (a === '--out'             && argv[i+1]) { outFile = argv[++i]; continue; }
+  if (a === '--global-params')                 { globalParams = true; continue; }
+}
+
+// De-overfit check (Workstream 2b): strip the per-symbol curve-fit so every symbol
+// falls back to the global defaults (strategies RSI/BB/Stoch/SR, SL/TP/conf from config.risk).
+if (globalParams) {
+  config.perSymbol = {};
+  if (phaseTag === 'p0') phaseTag = 'global';
 }
 
 const symbols = symbolsOverride ?? config.symbols;

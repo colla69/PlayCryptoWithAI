@@ -120,7 +120,10 @@ was measured as too costly. This replaces the old "halve size in bear" approach 
 cash-out on confirmed downtrends. Config: `bearPolicy` (`mode: 'trend_only'`).
 
 **Regime routing** (regime-conditional strategy bundles, `src/engine/regimeRouter.js`) is shipped as
-infrastructure but **default OFF** (`regimeRouting.enabled = false`) pending the walk-forward retune.
+infrastructure but **default OFF** (`regimeRouting.enabled = false`). A 2026-06 deep-data study refuted
+the core premise (the trend-alignment filters block mean-reversion, so "different archetype per regime"
+isn't viable as built) and found the infra has latent bugs — leave OFF unless re-engineered. The viable
+regime lever is **exposure** (regime-conditional sizing), not strategy swapping — untested.
 
 Both live (`main.js`) and the backtester consume the same `RegimeTracker` — no behavioural divergence.
 
@@ -153,10 +156,15 @@ Every BUY signal must pass a cascade before execution:
 4. **Weekly DD circuit breaker** (Phase 7) — rolling 7-day P&L ≤ −10% pauses new entries for 72h.
 5. **Portfolio correlation cap** (Phase 7) — block a BUY if it would open a position with rolling
    60-day correlation > 0.85 to an existing one (a hard cap on the new entry, not a reroute).
-6. **15m MTF alignment** — recency-weighted score over the last 16×15m candles; < 0.50 blocks entry.
+6. **15m MTF alignment** — recency-weighted score over the last 16×15m candles; < 0.30 blocks entry
+   (relaxed from 0.50 in 2026-06: once all 37 symbols had 15m data the filter became portfolio-wide and
+   0.50 was too tight; forward-only walk-forward confirmed the relaxation lifts Sharpe 1.01→1.50).
 7. **4h momentum** — EMA(8) vs EMA(21) spread (60%) + RSI(14)/100 (40%); < 0.45 blocks entry.
-8. **BTC.D gate / Fear & Greed modulator** — see Cross-Asset Context.
-9. **Minimum confidence** — per-symbol threshold (× `confidenceThresholdScale` for now).
+8. **Momentum-leader** (2026-06-25) — require trailing 20-bar (10-day) return ≥ 0; blocks "falling-knife"
+   buys (oversold dips in downtrends). Shared `utils/momentum.js` keeps live ≡ backtest. Forward-only WF:
+   Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%.
+9. **BTC.D gate / Fear & Greed modulator** — see Cross-Asset Context.
+10. **Minimum confidence** — per-symbol threshold (× `confidenceThresholdScale` for now).
 
 ---
 
@@ -243,7 +251,11 @@ retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
 | Cash-exit on `BEAR_TREND` (not `BEAR_CHOP`) | last_180d DD −5.9% → −2.9%, small return cost | **Shipped (trend_only)** |
 | ATR-based stops | Net-negative vs tuned per-symbol fixed stops on every window | **Infra kept, disabled** |
 | Two-stage exit / chandelier runner | −8pp return, −0.1 Sharpe under current tuning | **Infra kept, disabled** |
-| Regime-conditional strategy routing | Promising but needs the retune first | **Infra shipped, default OFF** |
+| Regime archetype routing (trend pack in bull, mean-reversion in chop) | **Refuted (2026-06, deep 6yr data):** the trend-alignment filters (4h+15m MTF) structurally block mean-reversion entries (0 trades), and MR isn't range-specialized anyway. Routing infra also has latent bugs (dead code, unregistered strategy keys). | **Not viable as-is; infra stays OFF** |
 | Logistic-regression meta-overlay (P(win) gate) | Held-out gate-admitted WR 12.5% vs 39.5% base (−27pp) — does not beat baseline on 376 samples | **Trainer + gate shipped, default OFF** |
+| **15m MTF relaxation 0.50 → 0.30** (deep 6yr data) | Full 15m coverage made the filter portfolio-wide; 0.50 too tight. Forward-only WF Sharpe 1.01→1.50, DSR 0.01→0.11 | **Shipped (ON)** |
+| **Momentum filter** (buy only positive 10-day trailing return — no falling knives) | Forward-only WF Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%, PF 4.7→6.6 | **Shipped (ON)** — live + backtest via shared `utils/momentum.js` (2026-06-25) |
+| "Ride winners" (kill fixed TP + lift aging, trail the stop) | Looked great windowed (+167%/6yr) but **failed forward-only** (DSR 0.02 < relaxed-MTF baseline) | **Infra kept, disabled** |
+| Deployment / position-size sweep | Pure **Sharpe-neutral risk dial** — scales return *and* DD ~linearly; not an edge | **No change (informational)** |
 | Trailing stop (replace TP) | Gives back profit on retracements | Rejected (pre-overhaul) |
 | More slots (5–8) | Dilutes capital, no DD benefit | Rejected (pre-overhaul) |

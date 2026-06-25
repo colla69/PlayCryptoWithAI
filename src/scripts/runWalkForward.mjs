@@ -43,6 +43,15 @@ let monteCarloIter = 1000;
 let nTrials = 16280;
 let symbolsOverride = null;
 let outFile = 'data/walkForward.json';
+let globalParams = false;
+let mtfScoreOverride = NaN;
+let mtfOff = false;
+let momMin = NaN;
+let momRank = false;
+let rideTrail = 0;
+let ridePartialPct = 0;
+let ridePartialFrac = 0.5;
+let trailArm = 0;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--train'   && argv[i+1]) { trainBars = Number(argv[++i]); continue; }
@@ -52,7 +61,31 @@ for (let i = 0; i < argv.length; i++) {
   if (a === '--nTrials' && argv[i+1]) { nTrials = Number(argv[++i]); continue; }
   if (a === '--symbols' && argv[i+1]) { symbolsOverride = argv[++i].split(',').map((s) => s.trim()); continue; }
   if (a === '--out'     && argv[i+1]) { outFile = argv[++i]; continue; }
+  if (a === '--global-params')        { globalParams = true; continue; }
+  if (a === '--mtf-score' && argv[i+1]) { mtfScoreOverride = Number(argv[++i]); continue; }
+  if (a === '--mtf-off')                { mtfOff = true; continue; }
+  if (a === '--mom-min' && argv[i+1])   { momMin = Number(argv[++i]); continue; }
+  if (a === '--mom-rank')               { momRank = true; continue; }
+  if (a === '--ride-trail'   && argv[i+1]) { rideTrail = Number(argv[++i]); continue; }
+  if (a === '--ride-partial' && argv[i+1]) { const [p, f] = argv[++i].split(','); ridePartialPct = Number(p); if (f != null) ridePartialFrac = Number(f); continue; }
+  if (a === '--trail-arm'    && argv[i+1]) { trailArm = Number(argv[++i]); continue; }
 }
+
+// De-overfit check (Workstream 2b): strip the per-symbol curve-fit → global defaults.
+if (globalParams) config.perSymbol = {};
+
+// WS3(a): relax the 15m MTF throttle for this run (forward-only re-validation of the sweep).
+const filterOverrides = {};
+if (mtfOff) filterOverrides.mtfFilter = false;
+else if (Number.isFinite(mtfScoreOverride)) filterOverrides.mtfMinScore = mtfScoreOverride;
+// WS: momentum-leader selection (forward-only validation).
+if (Number.isFinite(momMin)) filterOverrides.momentumMinPct = momMin;
+if (momRank) filterOverrides.momentumRank = true;
+
+// WS4: ride-winners exit (forward-only validation). --ride-trail >0 enables it.
+const rideOpts = rideTrail > 0
+  ? { rideWinnersTrail: rideTrail, trailArmPct: trailArm, ridePartial: ridePartialPct > 0 ? { pct: ridePartialPct, fraction: ridePartialFrac } : null }
+  : {};
 
 const symbols = symbolsOverride ?? config.symbols;
 const candleIntervalMs = 12 * 60 * 60 * 1000; // hardcoded 12h
@@ -113,6 +146,8 @@ for (const fold of folds) {
     fearGreedData,
     budget,
     maxOpenPositions: config.risk?.maxOpenPositions ?? 4,
+    filterOverrides,
+    ...rideOpts,
   });
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   if (result.skipped) {

@@ -59,6 +59,13 @@ export class BacktestSimulator {
       return null;
     }
 
+    // Arm-after-profit: don't start trailing until the position is up by trailArmPct,
+    // so early noise doesn't shake the rider out before the trend develops.
+    const armPct = Number(this.config.trailArmPct ?? 0);
+    if (armPct > 0 && currentPrice < position.entryPrice * (1 + armPct)) {
+      return null;
+    }
+
     position.highWaterMark = roundPrice(currentPrice);
     const nextStopLoss = roundPrice(currentPrice * (1 - position.trailingStopPct));
 
@@ -133,6 +140,18 @@ export class BacktestSimulator {
         if (position.stopLoss < position.entryPrice) {
           position.stopLoss = roundPrice(position.entryPrice * 1.002);
         }
+      }
+    }
+
+    // ── Ride-winners partial scale-out ──────────────────────────────────────
+    // Take a fraction off at an absolute profit target, then lock break-even on
+    // the remainder (which keeps riding via the trailing stop). No-op unless the
+    // position was opened with a ridePartialTarget (riding mode only).
+    if (position.ridePartialTarget && !position.partialExitDone && currentPrice >= position.ridePartialTarget) {
+      this.#partialClose(symbol, currentPrice, 'partial_exit', position.ridePartialFraction);
+      position.partialExitDone = true;
+      if (position.stopLoss < position.entryPrice) {
+        position.stopLoss = roundPrice(position.entryPrice * 1.002);
       }
     }
 
@@ -276,6 +295,13 @@ export class BacktestSimulator {
       highWaterMark: fillPrice,
       entryTime: this.currentTimestamp,
       partialExitDone: false,
+      // Ride-winners partial scale-out: lock a fraction at an absolute profit %,
+      // ride the remainder on the trailing stop. Independent of the TP-relative
+      // twoStageExit (which is disabled in riding mode). No-op when unconfigured.
+      ridePartialTarget: this.config.ridePartial?.pct > 0
+        ? roundPrice(fillPrice * (1 + Number(this.config.ridePartial.pct)))
+        : undefined,
+      ridePartialFraction: Number(this.config.ridePartial?.fraction ?? 0.5),
     };
 
     this.balance = roundMoney(this.balance - cost);

@@ -29,10 +29,10 @@ BUY fills at **next candle's open** (`d.nextOpen`), not signal candle close.
 
 ## 3. Optimizer Discipline
 
-- `MIN_TRADES ≥ 3` — blocker if lower
-- Reject `[0t]`/`[1t]`/`[2t]` holdout upgrades
+- `MIN_TRADES ≥ 8` on holdout — blocker if lower
+- Reject `[0t]`/`[1t]`/`[2t]` holdout upgrades; reject deflated Sharpe < 0.5
 - Selection on Y2 only, validation on Y1 only — never overlap
-- `aggregate()` in optimizer must match live `signalAggregator.js` logic
+- `aggregate()` in optimizer must match live `signalAggregator.js` logic (shared: `aggregatorVoting.js`)
 
 ## 4. Two-Window Reporting
 
@@ -56,6 +56,21 @@ All portfolio-level backtests MUST run with the same filter stack as the live bo
 
 **Blocker** if any of these are disabled or if MTF data is missing for tested symbols.
 Results without full filter stack are invalid — they will overstate performance.
+
+## 7. Windowed vs Forward-Only (the deciding test)
+
+In-window backtests (`runWindow`/`runBaseline`) are **systematically optimistic** — a windowed max-DD
+of −6% became −28% forward-only; "ride-winners" looked great windowed (+167%, DSR 0.20) but **failed**
+the walk-forward (DSR 0.02) and was rejected. **A windowed-only improvement is noise until confirmed by
+forward-only walk-forward (`runWalkForward`) + deflated Sharpe.** Blocker to adopt on windowed alone.
+Bear-regime P&L is the least trustworthy number (label/lookahead artifacts) — demand forward-only.
+
+## 8. Live↔Backtest SIZING parity
+
+Parity isn't just aggregator math. The backtester sizes positions at `1/maxOpenPositions` (≈0.25,
+~100% deployment); live uses `maxPositionPct` (0.15, 60%). A "live-expected" result must match live
+sizing (`basePctOverride`). **Deployment is a Sharpe-NEUTRAL risk dial** — more return from bigger size
+is not edge; judge Sharpe/DSR, not headline return.
 
 ## Output
 

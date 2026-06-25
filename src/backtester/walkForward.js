@@ -155,6 +155,10 @@ export function runFold({
   fearGreedData = null,
   budget,
   maxOpenPositions,
+  filterOverrides = {},
+  rideWinnersTrail = 0,
+  ridePartial = null,
+  trailArmPct = 0,
 }) {
   // Slice candles to train+forward span. Symbols without enough overlap drop out.
   const sliced = sliceWindow(symbolCandles, fold.trainStart, fold.forwardEnd);
@@ -168,7 +172,16 @@ export function runFold({
     symbols.map((s) => config.perSymbol?.[s]?.minConfidence ?? config.risk?.minConfidence ?? 0.7),
   );
   const slMedian = median(symbols.map((s) => config.perSymbol?.[s]?.stopLossPct ?? config.risk?.stopLossPct ?? 0.05));
-  const tpMedian = median(symbols.map((s) => config.perSymbol?.[s]?.takeProfitPct ?? config.risk?.takeProfitPct ?? 0.12));
+  let tpMedian = median(symbols.map((s) => config.perSymbol?.[s]?.takeProfitPct ?? config.risk?.takeProfitPct ?? 0.12));
+
+  // WS4 ride-winners (mirror of runWindow): disable fixed TP + lift aging, trail instead.
+  const riding = rideWinnersTrail > 0;
+  if (riding) {
+    tpMedian = 99;
+    for (const s of Object.keys(symbolRisk)) {
+      if (symbolRisk[s]) symbolRisk[s] = { ...symbolRisk[s], takeProfitPct: 99 };
+    }
+  }
 
   const backtester = new PortfolioBacktester(strategies, {
     risk: {
@@ -176,10 +189,13 @@ export function runFold({
       initialBalance:      budget,
       stopLossPct:         slMedian,
       takeProfitPct:       tpMedian,
-      trailingStopPct:     0,
+      trailingStopPct:     riding ? rideWinnersTrail : 0,
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,
+      ...(riding && { positionAgingExit: { enabled: false } }),
+      ...(riding && ridePartial && { ridePartial }),
+      ...(riding && trailArmPct > 0 && { trailArmPct }),
     },
     signals: { ...(config.signals ?? {}), minConfidence: minConfMedian },
     maxOpenPositions,
@@ -193,6 +209,8 @@ export function runFold({
       ? config.risk.confidenceThresholdScale
       : 1,
     ...FULL_LIVE_FILTERS,
+    // WS3 sweep hook: per-run filter knob overrides (e.g. {mtfMinScore:0.3}).
+    ...filterOverrides,
   });
 
   const result = backtester.run(sliced);

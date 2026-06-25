@@ -120,7 +120,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 |-------|-----------|--------|
 | Entry | Max 4 positions | BUY blocked |
 | Entry | 4h momentum < 0.45 | BUY blocked |
-| Entry | 15m alignment < 0.50 | BUY blocked |
+| Entry | 15m alignment < 0.30 | BUY blocked |
 | Entry | Daily loss > −5% | All trades blocked |
 | Entry | BTC < EMA(200) | Size halved |
 | Entry | ADX < 15 (chop) | Size halved |

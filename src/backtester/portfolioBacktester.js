@@ -35,6 +35,7 @@ import { calculateMetrics } from './metrics.js';
 import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
 import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
+import { trailingReturn } from '../utils/momentum.js';
 import signalBus from '../signals/signalBus.js';
 import {
   calcCorrelationCap,
@@ -90,6 +91,11 @@ export class PortfolioBacktester {
     this.candleIntervalMs = Number(config.candleIntervalMs ?? 12 * 60 * 60 * 1000);
     // Phase 6a: bear policy — block new entries + cash-exit on regime transition
     this.bearPolicyEnabled = Boolean(config.bearPolicy?.enabled ?? false);
+    this.skipBearTrendEntries = Boolean(config.skipBearTrendEntries ?? false); // loss-avoidance: block steady-state BEAR_TREND entries
+    // Momentum-leader selection: prefer/require strong trailing-return coins.
+    this.momentumLookback = Number(config.momentumLookback ?? 20);      // bars for the relative-strength window
+    this.momentumMinPct = Number.isFinite(config.momentumMinPct) ? Number(config.momentumMinPct) : null; // filter: skip BUY if mom < this
+    this.momentumRank = Boolean(config.momentumRank ?? false);          // fill slots by momentum instead of confidence
     this.fearGreedFilter = Boolean(config.fearGreedFilter ?? false);
     this.fearGreedThreshold = Number(config.fearGreedThreshold ?? 50);
     this.fearGreedData = Array.isArray(config.fearGreedData) ? config.fearGreedData : null;
@@ -129,6 +135,7 @@ export class PortfolioBacktester {
     // ADX > regimeBoostThresh → multiply by regimeBoostFactor (up to 1.3×)
     // ADX < regimePenaltyThresh → multiply by regimePenaltyFactor (down to 0.5×)
     this.regimeSizing = Boolean(config.regimeSizing ?? false);
+    this.regimeSizeMult = config.regimeSizeMult ?? null; // optional per-regime-label size multiplier (exposure tilt)
     this.regimeBoostThresh = Number(config.regimeBoostThresh ?? 25);
     this.regimePenaltyThresh = Number(config.regimePenaltyThresh ?? 15);
     this.regimeBoostFactor = Number(config.regimeBoostFactor ?? 1.3);
@@ -207,7 +214,12 @@ export class PortfolioBacktester {
     if (!symbols.length) throw new Error('No candles provided');
 
     const initialBalance = Number(this.config.risk?.initialBalance ?? 1000);
-    const basePct = 1 / this.maxOpenPositions;
+    // Per-position base size. Default = 1/maxOpenPositions (full deployment when all
+    // slots fill). `basePctOverride` lets tooling model a specific per-position size
+    // (e.g. live's maxPositionPct=0.15 = 60% max deployment) — additive, off by default.
+    const basePct = Number(this.config.risk?.basePctOverride) > 0
+      ? Number(this.config.risk.basePctOverride)
+      : 1 / this.maxOpenPositions;
 
     const simulator = new BacktestSimulator({
       ...this.config.risk,
@@ -403,7 +415,13 @@ export class PortfolioBacktester {
         if (!openSymbols.has(sym)) delete positionOpenedStep[sym];
       }
 
-      buyQueue.sort((a, b) => b.d.confidence - a.d.confidence);
+      // Slot allocation: by default highest-confidence first. Momentum-leader mode
+      // fills the limited slots with the strongest trailing-return coins instead.
+      if (this.momentumRank) {
+        buyQueue.sort((a, b) => (Number(b.d.mom ?? 0)) - (Number(a.d.mom ?? 0)));
+      } else {
+        buyQueue.sort((a, b) => b.d.confidence - a.d.confidence);
+      }
 
       // ── Weekly DD circuit breaker (Phase 7) ─────────────────────────────
       // Check ONCE per step (not per candidate) so all queued buys see the
@@ -431,6 +449,22 @@ export class PortfolioBacktester {
         // Phase 6a: bear policy hard block on new entries
         if (bearPolicy.shouldBlockEntries) {
           filtersApplied.bearPolicy = (filtersApplied.bearPolicy ?? 0) + 1;
+          continue;
+        }
+
+        // Loss-avoidance: skip new entries while the regime is BEAR_TREND (the
+        // autopsy's only net-negative bucket — WR 38%). Unlike bearPolicy (which
+        // only fires on transition INTO bear), this blocks steady-state bear too,
+        // and frees the slot for a non-bear candidate. Off by default.
+        if (this.skipBearTrendEntries && currentRegimeLabel === 'BEAR_TREND') {
+          filtersApplied.bearTrendSkip = (filtersApplied.bearTrendSkip ?? 0) + 1;
+          continue;
+        }
+
+        // Momentum-leader filter: skip BUYs in relative-strength laggards (weak
+        // trailing return) even if they signalled — concentrate on the leaders.
+        if (this.momentumMinPct != null && Number(d.mom ?? 0) < this.momentumMinPct) {
+          filtersApplied.momentum = (filtersApplied.momentum ?? 0) + 1;
           continue;
         }
 
@@ -514,6 +548,12 @@ export class PortfolioBacktester {
           } else if (d.adxValue < this.regimePenaltyThresh) {
             positionPct *= this.regimePenaltyFactor;
           }
+        }
+
+        // Regime-LABEL exposure tilt (concentrate deployment where the edge lives:
+        // attribution shows BULL_TREND carries P&L, bears bleed). Off unless configured.
+        if (this.regimeSizeMult && currentRegimeLabel && this.regimeSizeMult[currentRegimeLabel] != null) {
+          positionPct *= Number(this.regimeSizeMult[currentRegimeLabel]);
         }
 
         // MTF alignment filter: check if last 4h of 15m candles are constructive
@@ -695,11 +735,18 @@ export class PortfolioBacktester {
           isTrending: this.#computeIsTrending(slice),
           adxValue: this.#computeADX(slice),
           volumeOk: this.#computeVolumeOk(slice),
+          mom: this.#computeMomentum(slice), // trailing-return relative strength (no lookahead)
         });
       }
     }
 
     return allData;
+  }
+
+  // Trailing N-bar return = relative-strength / momentum proxy. Delegates to the
+  // shared helper so live (`core/filters.js`) and backtest compute it identically.
+  #computeMomentum(candles) {
+    return trailingReturn(candles, this.momentumLookback);
   }
 
   #computeATRpct(candles) {
