@@ -160,8 +160,11 @@ Every BUY signal must pass a cascade before execution:
    (relaxed from 0.50 in 2026-06: once all 37 symbols had 15m data the filter became portfolio-wide and
    0.50 was too tight; forward-only walk-forward confirmed the relaxation lifts Sharpe 1.01→1.50).
 7. **4h momentum** — EMA(8) vs EMA(21) spread (60%) + RSI(14)/100 (40%); < 0.45 blocks entry.
-8. **BTC.D gate / Fear & Greed modulator** — see Cross-Asset Context.
-9. **Minimum confidence** — per-symbol threshold (× `confidenceThresholdScale` for now).
+8. **Momentum-leader** (2026-06-25) — require trailing 20-bar (10-day) return ≥ 0; blocks "falling-knife"
+   buys (oversold dips in downtrends). Shared `utils/momentum.js` keeps live ≡ backtest. Forward-only WF:
+   Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%.
+9. **BTC.D gate / Fear & Greed modulator** — see Cross-Asset Context.
+10. **Minimum confidence** — per-symbol threshold (× `confidenceThresholdScale` for now).
 
 ---
 
@@ -251,7 +254,7 @@ retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
 | Regime archetype routing (trend pack in bull, mean-reversion in chop) | **Refuted (2026-06, deep 6yr data):** the trend-alignment filters (4h+15m MTF) structurally block mean-reversion entries (0 trades), and MR isn't range-specialized anyway. Routing infra also has latent bugs (dead code, unregistered strategy keys). | **Not viable as-is; infra stays OFF** |
 | Logistic-regression meta-overlay (P(win) gate) | Held-out gate-admitted WR 12.5% vs 39.5% base (−27pp) — does not beat baseline on 376 samples | **Trainer + gate shipped, default OFF** |
 | **15m MTF relaxation 0.50 → 0.30** (deep 6yr data) | Full 15m coverage made the filter portfolio-wide; 0.50 too tight. Forward-only WF Sharpe 1.01→1.50, DSR 0.01→0.11 | **Shipped (ON)** |
-| **Momentum filter** (buy only positive 10-day trailing return — no falling knives) | Forward-only WF Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→69% | **Infra shipped, default OFF** (pending live-parity wiring) |
+| **Momentum filter** (buy only positive 10-day trailing return — no falling knives) | Forward-only WF Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%, PF 4.7→6.6 | **Shipped (ON)** — live + backtest via shared `utils/momentum.js` (2026-06-25) |
 | "Ride winners" (kill fixed TP + lift aging, trail the stop) | Looked great windowed (+167%/6yr) but **failed forward-only** (DSR 0.02 < relaxed-MTF baseline) | **Infra kept, disabled** |
 | Deployment / position-size sweep | Pure **Sharpe-neutral risk dial** — scales return *and* DD ~linearly; not an edge | **No change (informational)** |
 | Trailing stop (replace TP) | Gives back profit on retracements | Rejected (pre-overhaul) |
