@@ -33,6 +33,14 @@ async function broadcast(text) {
 }
 
 /**
+ * Plain operator alert (order failures, stuck exits). No-op when Telegram
+ * is not configured — callers must also log the condition.
+ */
+export async function notifyAlert(text) {
+  await broadcast(`🚨 <b>ALERT</b>\n${text}`);
+}
+
+/**
  * Format a human-readable duration from ms.
  */
 function formatDuration(ms) {

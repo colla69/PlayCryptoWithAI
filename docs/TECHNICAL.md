@@ -51,6 +51,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | Aggregator Voting | `engine/aggregatorVoting.js` | Pure voting math — shared by live, backtester, optimizer (parity-locked) |
 | Regime Classifier | `engine/regimeClassifier.js` | BTC 2×2 regime (EMA200 × ADX) with 3-bar hysteresis |
 | Regime Router | `engine/regimeRouter.js` | Bear policy (cash-exit on BEAR_TREND) + regime→strategy bundles (routing OFF) |
+| TSM Core | `engine/tsmCore.js` | Majors trending-sleeve engine (slow-in momentum vote, vol targeting, resize planning); pure functions |
+| NASDAQ Trend | `data/nasdaqTrend.js` | FRED daily NASDAQ feed (keyless, 12h cache) + equity risk-off computation for the core sleeve |
 | Strategies | `strategies/*.js` | 20 independent signal generators (+ `registry.js` catalog) |
 | Strategy Builder | `utils/strategyBuilder.js` | Per-symbol strategy/risk selection; applies `confidenceThresholdScale` |
 | Market Context | `data/marketContext.js` | BTC.D (CoinGecko) + ETHBTC (Binance) cache, replayable in backtest |
@@ -61,7 +63,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking, position state persistence |
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
 | OCO Orders | `exchange/ocoOrders.js` | Server-side SL/TP for Lambda deployment |
-| Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache |
+| Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache; merge-preserving saves keep deep research history intact |
 | MTF Alignment | `utils/mtfAlignment.js` | 15m and 4h filter scoring |
 | Indicators | `utils/indicators.js` | EMA, ATR, ADX, RSI, Bollinger, etc. |
 | Correlation | `utils/correlation.js` | Pearson correlation matrix builder |
@@ -144,6 +146,13 @@ Architecture, data flow, module responsibilities, and deployment.
     price ≥ takeProfit?   → market sell (take_profit)
     price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
     All closes → notifyTrade() → Telegram alert (if configured)
+
+8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real market orders):
+   runTsmCoreCycle() reads closed 12h candles from dashboardState (no lookahead)
+   For each core symbol: computeTsmVote(trailing momentum) → majority vote
+   If vote flips: openCorePosition / closeCorePosition → position tracked with isCore flag
+   Core positions excluded from risk-loop SL/TP, correlation cap, daily-loss accounting
+   Failed vote-flip closes → Telegram alert + retry via fast risk loop (live only)
 ```
 
 ### Fast Risk-Check Loop (every 2 min)
@@ -154,6 +163,8 @@ Architecture, data flow, module responsibilities, and deployment.
 2. Evaluate: trailing stop, break-even, stop-loss, take-profit
 3. If triggered → market sell, update dashboard, persist state
 4. Reduces market exposure window from 12h to ~2 min
+5. TSM core positions are skipped (no stops) EXCEPT to retry a vote-flip
+   close that failed on the exchange — retried every cycle until it fills
 ```
 
 ### MTF Candle Cache
@@ -263,6 +274,31 @@ docker compose up -d   # bot + dashboard on :3001
 - No external database — all state in JSON files
 - Git pull to upgrade, docker compose build to rebuild
 
+### 1b. TSM core sleeve on the live bot
+
+```bash
+# in the live container's environment (docker-compose.yml or .env):
+TSM_CORE=true
+docker compose up -d --build
+docker logs -f <container> 2>&1 | grep TSM-CORE   # watch sleeve cycles
+```
+
+The sleeve runs inside the main bot process — no separate container. In
+`PAPER_MODE` it simulates; on the LIVE bot it places **real market orders**
+sized to `tsmCore.deploymentPct` of the account (default 50%), so enabling
+`TSM_CORE` on live is a deliberate capital-deployment decision. Expect
+`[TSM-CORE]` log lines each 12h cycle (votes, vol fraction, macro risk-on/off)
+and `🧲 tsm-core`-tagged trades once momentum turns positive. Core positions
+have **no SL/TP** — the only exit is the momentum-vote flip; a close that fails
+on the exchange fires a Telegram alert and is retried by the fast risk loop
+every ~2 min until it fills. Core positions restore across restarts from
+`data/position_state.json` (`qty` + `isCore` are persisted so wallet coins are
+attributed between the core and scalper legs of the same market).
+
+(The former `docker-compose.soak.yml` paper-soak container is retired — real-money
+operation replaced it as the source of operational truth. `data-soak/`/`logs-soak/`
+dirs on hosts that ran it can be deleted.)
+
 ### 2. AWS Lambda (serverless, ~$0.65/month)
 
 ```
@@ -309,6 +345,17 @@ config
 ├── regimeClassifier{}     EMA/ADX periods + hysteresis bars
 ├── bearPolicy{}           Cash-exit on BEAR_TREND (mode: trend_only)
 ├── regimeRouting{}        Regime→strategy bundles (disabled)
+├── tsmCore{}              Majors trending sleeve (paper & live, default OFF)
+│   ├── symbols[]          Core holdings (default ['BTC/USDC','ETH/USDC'])
+│   ├── lookbackBars[]     Trailing-momentum windows (default [60,90,120] = 30/45/60 days)
+│   ├── enterVotes         Positive votes to OPEN (default 3 — slow-in hysteresis)
+│   ├── stayVotes          Positive votes to KEEP (default 2)
+│   ├── deploymentPct      Sleeve share of equity (default 0.5)
+│   ├── volTarget          Annualised vol target — slot × min(1, target/realized) (default 0.6)
+│   ├── volWindowBars      Realized-vol window (default 60 = 30 days)
+│   ├── minFraction        Vol-fraction floor (default 0.2)
+│   ├── resizeThresholdPct Drift rebalance trigger, share of slot (default 0.15)
+│   └── macroOverlay{}     Equity risk-off: ×riskOffFactor while NASDAQ < EMA(emaDays)
 ├── btcDominance{}         BTC.D entry gate (CoinGecko)
 └── fearGreed{}            Fear & Greed entry-threshold modulator
 ```
@@ -332,6 +379,8 @@ config
 | Position state persistence | SL/HWM/entry saved to disk on every change; survives restarts without losing break-even protection |
 | DailyRotateFile logging | 50 MB max per file, 30-day retention; dashboard reads today's dated file with 512 KB tail for speed |
 | OCO for Lambda | Exchange handles exits 24/7 without running process |
+| TSM core positions (#core keys) | Coexist with scalper on same asset; `isCore: true` flag excludes them from risk-loop, correlation cap, daily-loss accounting (ring-fenced sleeve) |
+| Candle cache merge-preserving | `saveCachedCandles` keeps disk bars strictly older than payload's first timestamp; empty payload no-ops (preserves deep research history) |
 
 ---
 

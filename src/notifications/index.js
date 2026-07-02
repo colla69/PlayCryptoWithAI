@@ -1,1 +1,1 @@
-export { initNotifier, notifyTrade, notifyStartup } from './telegramNotifier.js';
+export { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './telegramNotifier.js';

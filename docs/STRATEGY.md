@@ -181,6 +181,62 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 
 ---
 
+## TSM Core Sleeve (experimental, default OFF — live-capable)
+
+**Shipped infrastructure for majors trend-following:** a parallel core portfolio (BTC/ETH/BNB/SOL 
+variants possible, default BTC+ETH) sized as a fixed sleeve (default 50% of equity, split equally) 
+that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
+`tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
+env var; runs in **paper and live** — on the live bot it places real market orders sized to 
+`deploymentPct` of the account, so enabling it is a deliberate capital-deployment decision. A 
+vote-flip close that fails on the exchange fires a Telegram alert and is retried by the fast risk 
+loop (~2 min) until it fills.
+
+**The rule:** `computeTsmVote()` counts positive trailing-momentum votes on three lookback windows 
+(default 60/90/120 bars = 30/45/60 days on 12h), with **slow-in hysteresis**: OPEN only when all 3 
+votes are positive (`enterVotes: 3`), HOLD while ≥2 stay positive (`stayVotes: 2`), CLOSE below 
+that. Validated on 9yr USDT data incl. the 2018 + 2022 bears: vs the symmetric 2-of-3 vote it 
+raises Sharpe (0.93→1.04 BTC+ETH) and cuts round trips ~3×. Position key is `'<symbol>#core'` 
+(e.g. `BTC/USDC#core`) with `isCore: true` flag, coexisting with the scalper's positions on the 
+same asset.
+
+**Portfolio treatment:** core positions are excluded from:
+- Stop-loss/take-profit/break-even/aging (only exit trigger is vote flip)
+- Portfolio correlation cap (don't block a new core entry or penalise it)
+- Daily-loss accounting (core sleeve is ring-fenced, doesn't block scalper trades)
+- Risk-loop SL/TP management (both traders early-return on core positions; the live fast 
+  risk loop touches them only to retry a failed vote-flip close)
+- The scalper's `maxOpenPositions` slots (core positions have their own capital budget)
+
+Trades tagged `note: '🧲 tsm-core'`.
+
+**Rationale & performance:** 
+time-series momentum is the defensible edge found in this codebase's data. On the full 6-year 
+window (2020-06-27 → 2026-07-02, 4,066 candles), the vote BTC+ETH sleeve returns +596% / Sharpe 
+0.99 / DD −52% vs +582% / 0.85 / −77% for equal-weight B&H of the same coins — captures upside, 
+cuts the bear tail. DSR 0.72 (robust across 15–90d lookbacks on both universes tested — a plateau, 
+not luck). Matches the crypto literature on TSM. See `docs/TREND_CORE_STUDY.md` for the full study 
+and start-date sensitivity: it beats same-universe B&H on return/Sharpe/DD from every walk-in date 
+tested (including the exact 2021 top), but absolute return still requires the asset class to go up.
+
+**Caveat:** In-sample only — 2026 YTD the sleeve is ~−9% (Q1 chop whipsaws). Real drawdowns are 
+−40/−60% at full deployment; sizing is a Sharpe-neutral risk dial. This is "smart beta" (captures 
+asset-class upside, not alpha); infrastructure is shipped, operator chooses whether/when to 
+activate and how much capital to allocate.
+
+**Sizing (combo rule):** each slot is `deploymentPct/n × volFraction × macroFactor` —
+vol targeting (`min(1, volTarget/realized 30d vol)`, floor 0.2, no leverage) times the equity
+risk-off overlay (×0.5 while the NASDAQ Composite is below its 100d EMA; FRED keyless feed with
+12h cache, neutral on fetch failure). Held positions drift-rebalance when they deviate >15% of
+their slot (`resizeCorePosition`, partial fills carry post-state for restart restore). Full combo
+on the 9yr study: Sharpe 1.27, DD −36%, DSR 0.94 — see `docs/TREND_CORE_STUDY.md`.
+
+Implementation: `src/engine/tsmCore.js` (pure functions), `src/data/nasdaqTrend.js` (macro feed), 
+`src/main.js` orchestration (`runTsmCoreCycle`), PaperTrader additions (`openCorePosition`, 
+`closeCorePosition`, `resizeCorePosition`).
+
+---
+
 ## Exit Rules
 
 - **Stop-Loss** — per-symbol fixed % (3–8%, default 5%). *(ATR-derived stops exist as infrastructure

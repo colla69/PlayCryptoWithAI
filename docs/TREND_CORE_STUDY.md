@@ -49,10 +49,137 @@ Window 2020-06-20 → 2026-06-25 (4,066 × 12h bars — full bull top + 2022 bea
    2026 YTD (whipsaw chop — an overlay adopted today starts in its worst regime); deep candle
    history predates real USDC-pair liquidity for some coins.
 
+## Start-date sensitivity ("didn't you just test in a bull window?")
+
+Legitimate challenge: the full window starts June 2020, right before a historic bull run, so
+*absolute* returns flatter any long-exposure strategy. `runTrendCore --from` re-measures the same
+simulated curves from adversarial walk-in dates. (Numbers here differ slightly from the table
+above — the 12h data was re-downloaded through 2026-07-02 after the cache-truncation incident;
+e.g. the full-window vote cell is +596%/Sharpe 0.99 on the new vintage vs +615%/1.01 originally.) Vote 30/45/60d BTC+ETH vs the honest same-universe
+benchmark (equal-weight BTC+ETH buy-and-hold):
+
+| Walk-in date | TSM vote | EW B&H (same coins) | BTC-only B&H |
+|---|---|---|---|
+| 2020-06 (full, bull-favored) | +596% / Sh 0.99 / DD −52% | +582% / 0.85 / −77% | +558% / 0.87 / −73% |
+| **2021-11-08 (exact cycle top — worst entry)** | **+7.9% / 0.22 / −52%** | −51.1% / 0.03 / −77% | −8.9% / 0.22 / −73% |
+| 2023-03 (bear over — B&H-favored) | +105% / 0.82 / −38% | +50.6% / 0.50 / −61% | +181% / 0.90 / −53% |
+| 2024-01 (recent chop) | +47.8% / 0.63 / −38% | −7.3% / 0.23 / −61% | +41.1% / 0.53 / −53% |
+
+Reading this honestly, both ways:
+
+- **The critique is right about absolute numbers.** Walk in at the top and TSM returns ~0% for
+  4.6 years. The +596% headline needs the 2020–21 bull inside the window. TSM cannot manufacture
+  return when the asset class gives none — it is an overlay on crypto beta, not alpha.
+- **The relative claim survives every window, including B&H-favored ones.** Against equal-weight
+  B&H of the same coins, the TSM vote wins return, Sharpe, AND drawdown in all four windows —
+  the worst-case entry turns −51% into +8%. (BTC-only B&H wins the 2023 window because half the
+  TSM sleeve sat in weak ETH — a universe-selection effect, not a timing failure.)
+
+**Data caveat (affects all studies on this dataset, including the original):** Binance USDC pairs
+have a gap 2022-09-29 → 2023-03-12 (BUSD-era delisting), so the FTX crash and the exact bear
+bottom are invisible to the sim. This *flatters buy-and-hold* (true BTC DD was −77.6%, measured
+−72.7%) and is ~neutral for TSM (its momentum votes were OFF through that whole stretch — it
+would have been in cash). Directionally the gap biases against TSM's relative case, not for it.
+
+## Recent regime (last two months)
+
+Vote 30/45/60d BTC+ETH vs single-asset benchmarks, 2026-05-01 → 2026-07-02:
+
+| Construct | Return | Max DD |
+|---|---|---|
+| TSM vote BTC+ETH (core sleeve) | **−4.2%** | **−9.6%** |
+| BTC buy&hold | −22.3% | −29.0% |
+| ETH buy&hold | −29.2% | −36.0% |
+| Equal-weight BTC+ETH B&H | −26.0% | −32.3% |
+
+**Flip trace:** BTC LONG 2026-04-05 @69,019 → CASH 2026-05-28 @73,547 (exited +6.6% above entry, before the fall to ~60,200); ETH LONG 04-05 @2,110 → CASH 05-15 @2,258 (+7%), two small whipsaw flips around 2,130, fully CASH since 05-22 (ETH later 1,618). Both signals are currently CASH — the sleeve sat out the June crash entirely, holding no positions while the benchmarks fell 22–29%.
+
+**2026 YTD counterweight:** the sleeve is ~−9% on the year — Jan–Mar chop produced whipsaw losses
+(e.g. BTC LONG @70,108 → CASH @68,789, −1.9%). That is the deal in one sentence: the overlay pays a
+small whipsaw cost in sideways markets and, in exchange, steps out of large crashes. Deployment
+sizing (50% sleeve share) remains the dial for absolute DD tolerance.
+
+## Widening the edge (2017+ data, hysteresis, vol targeting)
+
+To escape the USDC data limits, USDT-pair 12h history was downloaded back to **2017-08-17**
+(6,482 bars, gap-free — adds the 2018 bear (−84%) and covers the 2022 USDC hole). On this 9-year
+window, pre-declared widening experiments (`--quote USDT --universe ... --hysteresis --vol-target
+0.6`; every DSR deflated for the cumulative 33-trial search):
+
+| Rule (BTC+ETH+BNB+SOL universe) | Return | CAGR | Sharpe | Max DD | DSR | Round trips |
+|---|---|---|---|---|---|---|
+| EW 4-major B&H (reference: BTC B&H Sh 0.78, DD −84%) | — | — | ~0.8 | ~−85% | — | — |
+| vote 2-of-3 (previous shipping rule) | +4,108% | 52% | 1.07 | −60% | 0.86 | 482 |
+| + slow-in (enter 3/3, stay ≥2) | +4,260% | 53% | 1.12 | −58% | 0.89 | **160** |
+| + vol-target 0.6 (sizing ∝ 0.6/realized vol) | +1,590% | 38% | 1.12 | −49% | 0.88 | 482 |
+| **+ both (combo)** | +1,925% | 40% | **1.23** | **−44%** | **0.94** | 160 |
+
+**Findings (each replicated across all three universes tested — BTC+ETH, 4-major, 8-major):**
+
+1. **Slow-in hysteresis widens the edge for free**: higher Sharpe everywhere, ~3× fewer round
+   trips (86 vs 251 on BTC+ETH), same architecture. **Adopted in the sleeve config**
+   (`enterVotes: 3, stayVotes: 2`). The open position itself is the hysteresis state.
+2. **Vol targeting works as the literature says**: sizing down when 30d realized vol spikes cuts
+   DD by ~10–25pp at equal-or-better Sharpe. **Stacks with slow-in** — the combo is the best
+   cell family this project has produced (Sharpe 1.15–1.23, DSR 0.90–0.94 on 9yr with two full
+   bears). Requires fractional position resizing in the sleeve — documented next step, not yet
+   implemented live.
+3. **Worst-entry robustness improved**: combo walked in at the 2021-11-08 top = **+54→59%**
+   (holding: −29→−37%); walked in at the 2018-01-06 top = CAGR 32–35% (holding: 6–17%).
+4. **Slow-out hysteresis (exit only at 0/3) — refuted** (Sharpe flat, DD worse).
+5. **Majors-only rotation — refuted**: far better than the 37-coin version (Sharpe up to 0.93 vs
+   ≤0.55) but still below the plain 4-major vote at worse DD, with heavy survivorship bias.
+6. **Universe: 4 majors > 2 majors > 8 majors.** Adding BNB+SOL diversifies trend bets (Sharpe
+   1.07 vs 0.93); adding the weaker alts (XRP/ADA/LTC/DOGE) dilutes back down (0.93). Caveat:
+   BNB/SOL are today's survivors — the ex-ante argument is diversification, not coin-picking,
+   so BTC+ETH stays the default and the 4-major universe is a documented config option.
+
+## New information sources (context overlays)
+
+Price momentum kept converging to Sharpe ~1.2, so the next round tested genuinely new
+information. `src/scripts/downloadContextData.mjs` fetches four free, keyless sources into
+`data/context/` (gitignored, reproducible): **perp funding rates** (Binance fapi, 8h prints since
+2019-09 — a positioning signal, usable despite the spot-only account), **macro cross-asset**
+(FRED: NASDAQ Composite since 1971, broad dollar index, 10y yield), **on-chain valuation**
+(CoinMetrics community: MVRV + active addresses since 2016), and the **full Fear & Greed history**
+(alternative.me since 2018). Six pre-declared overlays scale the combo rule's target exposure
+(missing data → neutral 1; DSR deflated for the cumulative 45-trial search):
+
+| Overlay on combo (4-major, 9yr) | Sharpe | Max DD | Verdict |
+|---|---|---|---|
+| combo baseline (slow-in + volT 0.6) | 1.23 | −44.3% | — |
+| **+M1: half size while NASDAQ < 100d EMA** | **1.27** | **−35.7%** | **improves BOTH universes** |
+| +F1: block while 7d funding > 50%/yr | 1.24 | −44.1% | neutral (worse on BTC+ETH) |
+| +O1: half size while MVRV > 3 | 1.22 | −44.2% | neutral |
+| +F2: scale down as funding rises | 1.18 | −42.0% | negative |
+| +M2: half size while dollar +2%/30d | 1.17 | −43.8% | negative |
+| +G1: half size at Fear&Greed ≥ 80 | 1.14 | −43.5% | negative |
+
+**Findings:**
+
+1. **The equity risk-off overlay (M1) is the one that works.** Sharpe up in both universes
+   (1.15→1.21 BTC+ETH, 1.23→1.27 4-major), max DD −44%→−36%, and it improves the worst-entry
+   window (walk-in at the 2021 top: +76–83% vs +54–59%, DD −36% vs −44/−46%). Yearly attribution
+   is mechanism-consistent: the gain comes from equity-crash years (2022: −33%→−22%) at small
+   cost in some bull years, and it is ~neutral pre-2020 when crypto wasn't equity-correlated.
+   Matches the well-documented post-2020 crypto–NASDAQ correlation regime. Full-window DSR 0.94.
+2. **Funding, dollar, MVRV, and greed overlays do not add** — trend-following already holds
+   through (and profits from) exactly the frothy stretches those signals would trim. High funding
+   / greed / MVRV are features of the trends the sleeve lives off.
+3. **Selection caveat:** M1 is the best of six tried (the search is charged in the DSR, and the
+   two-universe + worst-entry + attribution checks all pass), but it is a single cell family.
+   It is now wired into the sleeve (`src/data/nasdaqTrend.js`, FRED keyless feed, neutral
+   on failure) alongside vol-targeted sizing with drift rebalancing. The combo now runs on real
+   money — live operation replaced the paper soak as the source of operational truth.
+
+**Cumulative ladder (4-major universe, 2017-08 → 2026-07, honest fills):**
+vote 2-of-3 → Sharpe 1.07 / DD −60% ⇒ +slow-in → 1.12 / −58% ⇒ +vol-target → 1.23 / −44%
+⇒ +NASDAQ risk-off → **1.27 / −36%, DSR 0.94** (buy&hold BTC: 0.78 / −84%).
+
 ## Bottom line vs the ensemble bot (same window, honest fills)
 
 Ensemble: +59% / Sharpe 0.95 / DD −10.5% / DSR ~0.02 — proven-null, barely participates.
 TSM vote core: +615% / Sharpe 1.01 / DD −52% / DSR 0.73 — literature-backed, captures the
 upside, real drawdowns. No configuration of this codebase gets both the upside capture *and*
 −10% DD; the honest construction is a **sized TSM core sleeve** (deployment fraction chosen for
-DD tolerance) alongside the scalper. Implementation: `config.tsmCore` (paper-first, default OFF).
+DD tolerance) alongside the scalper. Implementation: `config.tsmCore` (default OFF; simulates in paper, real market orders in live).

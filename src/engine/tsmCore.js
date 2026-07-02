@@ -59,23 +59,96 @@ export function computeTsmVote(closedCandles, lookbackBars) {
 }
 
 /**
+ * Annualised realized volatility from the last `windowBars` bar returns of a
+ * CLOSED-candle series. Returns null when history is insufficient.
+ *
+ * @param {Array<{close: number}>} closedCandles
+ * @returns {number|null}
+ */
+export function computeRealizedVolAnnual(closedCandles, { windowBars = 60, barsPerYear = 730 } = {}) {
+  const n = closedCandles?.length ?? 0;
+  if (n < windowBars + 1) return null;
+  const rets = [];
+  for (let i = n - windowBars; i < n; i++) {
+    const prev = Number(closedCandles[i - 1].close);
+    const cur = Number(closedCandles[i].close);
+    if (!(prev > 0) || !Number.isFinite(cur)) return null;
+    rets.push(cur / prev - 1);
+  }
+  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const sd = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / (rets.length - 1));
+  return sd * Math.sqrt(barsPerYear);
+}
+
+/**
+ * Target deployment fraction for one core slot, in [0, 1] (spot — no leverage):
+ * vol targeting (volTarget/realizedVol, floored) × macro risk-off factor.
+ * Missing inputs are neutral: no realized vol → 1, no macro factor → 1.
+ * Study basis: combo rule in docs/TREND_CORE_STUDY.md (Sharpe 1.23→1.27 with
+ * the macro overlay, DD −44→−36%).
+ */
+export function computeTargetFraction({ volTarget = null, realizedVol = null, minFraction = 0.2, macroFactor = 1 } = {}) {
+  let f = 1;
+  if (volTarget && realizedVol && realizedVol > 0) {
+    f = Math.min(1, Math.max(minFraction, volTarget / realizedVol));
+  }
+  f *= Number.isFinite(macroFactor) ? macroFactor : 1;
+  return Math.min(1, Math.max(0, f));
+}
+
+/**
+ * Resize decision for a HELD core position: trade only when the drift from the
+ * desired notional exceeds `thresholdPct` of the slot (keeps churn bounded —
+ * same 15% rule as the study) and the delta clears the exchange min notional.
+ *
+ * @returns {number|null} signed USD delta to trade, or null for no action
+ */
+export function planCoreResize({ desiredUsd, currentUsd, perSlotUsd, thresholdPct = 0.15, minNotionalUsd = 10 } = {}) {
+  if (!(perSlotUsd > 0) || !Number.isFinite(desiredUsd) || !Number.isFinite(currentUsd)) return null;
+  const delta = desiredUsd - currentUsd;
+  if (Math.abs(delta) <= perSlotUsd * thresholdPct) return null;
+  if (Math.abs(delta) < minNotionalUsd) return null;
+  return Number(delta.toFixed(2));
+}
+
+/**
  * Diff desired vs actual core positions into open/close actions.
+ *
+ * Supports slow-in hysteresis via separate enter/stay thresholds: open a new
+ * position only when `enterVotes` lookbacks are positive, but keep an existing
+ * one while `stayVotes` still are. The open position itself is the hysteresis
+ * state — no extra persistence needed. Both thresholds default to a simple
+ * majority (the original symmetric-vote behavior).
+ *
+ * Study basis (9yr USDT window incl. 2018+2022 bears): enter 3/3 + stay ≥2
+ * beats the symmetric vote on Sharpe/DSR in every universe tested and cuts
+ * round trips ~3× — see docs/TREND_CORE_STUDY.md.
  *
  * @param {object} args
  * @param {string[]} args.symbols            core universe (base symbols)
- * @param {Map<string, {on: boolean}>|object} args.signals  base symbol → vote result
+ * @param {Map<string, object>|object} args.signals  base symbol → computeTsmVote result
  * @param {Array<{symbol: string, isCore?: boolean}>} args.positions  trader.getStatus().positions
+ * @param {number} [args.enterVotes]         positive votes needed to OPEN (default: majority)
+ * @param {number} [args.stayVotes]          positive votes needed to KEEP (default: majority)
  * @returns {Array<{type: 'open'|'close', symbol: string, key: string}>}
  */
-export function planCoreActions({ symbols, signals, positions }) {
+export function planCoreActions({ symbols, signals, positions, enterVotes = null, stayVotes = null }) {
   const get = (sym) => (signals instanceof Map ? signals.get(sym) : signals?.[sym]);
   const held = new Set((positions ?? []).filter((p) => p.isCore || isCoreSymbol(p.symbol)).map((p) => p.symbol));
   const actions = [];
   for (const symbol of symbols ?? []) {
     const key = coreKey(symbol);
-    const on = Boolean(get(symbol)?.on);
-    if (on && !held.has(key)) actions.push({ type: 'open', symbol, key });
-    else if (!on && held.has(key)) actions.push({ type: 'close', symbol, key });
+    const vote = get(symbol);
+    const total = vote?.total ?? 0;
+    if (total <= 0) continue;
+    const majority = Math.floor(total / 2) + 1;
+    const enterNeed = enterVotes ?? majority;
+    const stayNeed = stayVotes ?? majority;
+    // computeTsmVote counts invalid (insufficient-history) lookbacks as NO
+    // votes, so `positive` is already conservative.
+    const positive = vote?.positive ?? 0;
+    if (!held.has(key) && positive >= enterNeed) actions.push({ type: 'open', symbol, key });
+    else if (held.has(key) && positive < stayNeed) actions.push({ type: 'close', symbol, key });
   }
   return actions;
 }

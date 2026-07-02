@@ -709,20 +709,41 @@ export default {
 
   // ── TSM majors core sleeve (2026-07-02) ──────────────────────────────────────
   // Time-series-momentum "beta with a seatbelt": hold each core symbol long while
-  // a majority of trailing-momentum lookbacks is positive, sit in cash otherwise.
+  // trailing-momentum lookbacks are positive, sit in cash otherwise.
   // Exits ONLY on signal flip — no SL/TP/trailing/aging (positions carry isCore
   // and are skipped by stop management and scalper risk gates). Keyed as
   // '<symbol>#core' so a scalper position on the same symbol can coexist.
-  // Study (docs/TREND_CORE_STUDY.md, honest fills, 6yr): vote 30/45/60d BTC+ETH
-  // = +615% / Sharpe 1.01 / DD −52% vs B&H +554% / 0.87 / −73%; DSR 0.73 vs the
-  // ensemble's ~0.0. Expect plateau-level performance, NOT the mom30d spike.
-  // PAPER-FIRST: live mode is not implemented; enabling in live logs a warning
-  // and does nothing. Default OFF — opt in with TSM_CORE=true.
+  // Study (docs/TREND_CORE_STUDY.md): combo rule = Sharpe 1.27 / DD −36% /
+  // DSR 0.94 on 9yr incl. the 2018+2022 bears, vs B&H 0.78 / −84%.
+  // Runs in PAPER and LIVE (real market orders — deploymentPct of the account).
+  // Default OFF — TSM_CORE=true is the deliberate opt-in in either mode.
   tsmCore: {
     enabled: process.env.TSM_CORE === 'true',
     symbols: ['BTC/USDC', 'ETH/USDC'],
-    lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h; long when ≥2 of 3 positive
+    lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h trailing-momentum votes
+    // Slow-in hysteresis (9yr USDT study incl. 2018+2022 bears): enter only when
+    // ALL lookbacks are positive, hold while a majority stays positive. Beats the
+    // symmetric 2-of-3 vote on Sharpe (0.93→1.04 BTC+ETH) and cuts round trips
+    // ~3× (251→86). Vol targeting + macro overlay (below) complete the combo
+    // rule: Sharpe 1.27, DD −36%, DSR 0.94 on the 4-major 9yr study.
+    enterVotes: 3,                // open a new core position: positives ≥ this
+    stayVotes: 2,                 // keep an open core position: positives ≥ this
     deploymentPct: 0.5,           // sleeve share of equity (risk dial: DD scales ~linearly)
+    // Vol-targeted sizing (combo rule): slot size × min(1, volTarget/realizedVol).
+    // 9yr study: Sharpe 1.12→1.23, DD −58→−44% on the 4-major universe.
+    volTarget: 0.6,               // annualised vol target (crypto-calibrated; ≤1 slot, no leverage)
+    volWindowBars: 60,            // realized-vol window (30 days of 12h bars)
+    minFraction: 0.2,             // floor on the vol fraction
+    resizeThresholdPct: 0.15,     // rebalance a held slot when drift > 15% of the slot
+    // Equity risk-off overlay (M1): half size while NASDAQ < its 100d EMA.
+    // The one context overlay that improved Sharpe AND DD in every universe
+    // tested (1.23→1.27, DD −44→−36%, DSR 0.94). FRED feed, keyless, 12h cache;
+    // fetch failure → neutral. See docs/TREND_CORE_STUDY.md.
+    macroOverlay: {
+      enabled: true,
+      emaDays: 100,
+      riskOffFactor: 0.5,
+    },
   },
 
   // ── Confidence-proportional position sizing ────────────────────────────────

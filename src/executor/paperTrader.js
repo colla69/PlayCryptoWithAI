@@ -337,6 +337,76 @@ export class PaperTrader {
     return this.#closePosition(symbol, roundPrice(currentPrice), 'tsm_core_flip', '🧲 tsm-core');
   }
 
+  /**
+   * Partially resize a HELD core position toward its vol/macro target
+   * (positive delta buys more, negative trims). Trade records carry the
+   * post-resize position state (positionQty / positionEntryPrice) so restarts
+   * restore correctly — a resize SELL does NOT mean the position closed.
+   *
+   * @param {string} symbol core position key ('BTC/USDC#core')
+   * @param {number} currentPrice
+   * @param {number} deltaUsd signed notional to trade
+   * @returns {TradeResult|null}
+   */
+  resizeCorePosition(symbol, currentPrice, deltaUsd) {
+    const position = this.positions.get(symbol);
+    if (!position?.isCore) return null;
+    const price = roundPrice(currentPrice);
+    const delta = Number(deltaUsd) || 0;
+    const timestamp = new Date().toISOString();
+
+    if (delta > 0) {
+      const spend = roundMoney(Math.min(delta, this.balance));
+      if (spend < 10) {
+        logger.info(`[PAPER] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below $10 min)`);
+        return null;
+      }
+      const addQty = roundQty(spend / price);
+      const newQty = roundQty(position.qty + addQty);
+      // Blended entry keeps realised PnL correct on later trims/closes
+      position.entryPrice = roundPrice((position.entryPrice * position.qty + spend) / newQty);
+      position.qty = newQty;
+      position.currentPrice = price;
+      this.balance = roundMoney(this.balance - spend);
+      logger.info(`[PAPER] CORE RESIZE +${spend.toFixed(2)} ${symbol} qty=${newQty.toFixed(8)} entry→${position.entryPrice.toFixed(8)} balance=${this.balance.toFixed(2)}`);
+      const record = {
+        timestamp, symbol, side: 'BUY', price, qty: addQty, pnl: 0, balance: this.balance,
+        note: '🧲 tsm-core', isCore: true, reason: 'tsm_core_resize',
+        positionQty: position.qty, positionEntryPrice: position.entryPrice,
+      };
+      appendTrade(record);
+      return { ...record, openedAt: position.openedAt };
+    }
+
+    if (delta < 0) {
+      const sellQty = roundQty(Math.min(-delta / price, position.qty));
+      const proceeds = roundMoney(sellQty * price);
+      if (proceeds < 10) {
+        logger.info(`[PAPER] ${symbol}: core resize SELL skipped (${proceeds.toFixed(2)} below $10 min)`);
+        return null;
+      }
+      if (sellQty >= position.qty) {
+        // Never let a resize silently liquidate — full exits are the vote's job
+        return this.closeCorePosition(symbol, price);
+      }
+      const pnl = roundMoney((price - position.entryPrice) * sellQty);
+      position.qty = roundQty(position.qty - sellQty);
+      position.currentPrice = price;
+      this.balance = roundMoney(this.balance + proceeds);
+      this.totalPnL = roundMoney(this.totalPnL + pnl);
+      logger.info(`[PAPER] CORE RESIZE -${proceeds.toFixed(2)} ${symbol} qty=${position.qty.toFixed(8)} pnl=${pnl.toFixed(2)} balance=${this.balance.toFixed(2)}`);
+      const record = {
+        timestamp, symbol, side: 'SELL', price, qty: sellQty, pnl, balance: this.balance,
+        note: '🧲 tsm-core', isCore: true, reason: 'tsm_core_resize',
+        positionQty: position.qty, positionEntryPrice: position.entryPrice,
+      };
+      appendTrade(record);
+      return { ...record, openedAt: position.openedAt };
+    }
+
+    return null;
+  }
+
   #closePosition(symbol, price, reason, note) {
     const position = this.positions.get(symbol);
 
@@ -401,11 +471,13 @@ export class PaperTrader {
     const symbol = trade.symbol;
     if (!symbol || this.positions.has(symbol)) return;
 
-    const entryPrice = Number(trade.entryPrice ?? trade.price ?? 0);
+    // Core resize records carry the POST-resize position state — prefer it
+    // over the traded amount so restarts rebuild the true position.
+    const entryPrice = Number(trade.positionEntryPrice ?? trade.entryPrice ?? trade.price ?? 0);
     if (entryPrice <= 0) return;
 
     this.positions.set(symbol, {
-      qty:             Number(trade.qty ?? 0),
+      qty:             Number(trade.positionQty ?? trade.qty ?? 0),
       entryPrice,
       initialStopLoss: Number(trade.initialStopLoss ?? trade.stopLoss ?? 0),
       stopLoss:        Number(trade.stopLoss ?? trade.initialStopLoss ?? 0),

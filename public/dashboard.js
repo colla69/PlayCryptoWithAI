@@ -394,13 +394,25 @@
         const base       = getBaseSymbol(position.symbol);
         const heldFor    = position.openedAt ? formatDuration(Date.now() - new Date(position.openedAt).getTime()) : '—';
 
+        // TSM core positions have no SL/TP by design — exits happen on the
+        // momentum-vote flip, sizing drifts toward a vol/macro target.
+        const isCore = position.isCore === true || String(position.symbol).endsWith('#core');
+
         // Detect break-even: stop loss is within 0.2% of entry price (was moved there by the BE rule)
         const isBreakEven = entry > 0 && stopLoss > 0 && Math.abs(stopLoss - entry) / entry < 0.002;
-        const protectionHtml = isBreakEven
-          ? `<span class="protection-badge protection-breakeven" title="Stop loss has been moved to entry — this position cannot close at a loss">⚡ Break-even</span>`
-          : stopLoss > 0
-            ? `<span class="protection-badge protection-normal" title="Fixed stop loss at ${formatPercent(-stopPct)} below entry">🛑 ${formatPercent(-stopPct)}</span>`
-            : '—';
+        const protectionHtml = isCore
+          ? `<span class="protection-badge protection-normal" title="TSM core sleeve position — no stop loss or take profit; exits when the momentum vote flips, resizes toward its volatility/macro target">🧲 Momentum core</span>`
+          : isBreakEven
+            ? `<span class="protection-badge protection-breakeven" title="Stop loss has been moved to entry — this position cannot close at a loss">⚡ Break-even</span>`
+            : stopLoss > 0
+              ? `<span class="protection-badge protection-normal" title="Fixed stop loss at ${formatPercent(-stopPct)} below entry">🛑 ${formatPercent(-stopPct)}</span>`
+              : '—';
+        const slHtml = isCore
+          ? '<div title="Core positions exit on the momentum-vote flip, not a stop">—</div>'
+          : `<div>${formatPrice(stopLoss, position.symbol)}</div><div class="helper">${formatPercent(-stopPct)}</div>`;
+        const tpHtml = isCore
+          ? '<div title="Core positions ride the trend — no take-profit cap">—</div>'
+          : `<div>${formatPrice(takeProfit, position.symbol)}</div><div class="helper">${formatPercent(takePct)}</div>`;
 
         return `
           <tr data-symbol="${escapeHtml(position.symbol)}" data-entry="${entry}" data-qty="${qty}">
@@ -421,14 +433,8 @@
             <td>${formatPrice(entry, position.symbol)}</td>
             <td class="pos-current-price">${formatPrice(position.currentPrice ?? entry, position.symbol)}</td>
             <td class="pos-unrealized ${classForValue(unrealized)}">${unrealizedDisplay}</td>
-            <td>
-              <div>${formatPrice(stopLoss, position.symbol)}</div>
-              <div class="helper">${formatPercent(-stopPct)}</div>
-            </td>
-            <td>
-              <div>${formatPrice(takeProfit, position.symbol)}</div>
-              <div class="helper">${formatPercent(takePct)}</div>
-            </td>
+            <td>${slHtml}</td>
+            <td>${tpHtml}</td>
             <td>${protectionHtml}</td>
             <td title="${escapeHtml(position.openedAt || '')}">${escapeHtml(heldFor)}</td>
             <td>
@@ -715,12 +721,51 @@
       inner.innerHTML = pills.join('') || '<span class="filter-pill filter-off">No market context yet</span>';
     }
 
+    function renderTsmCore(summary) {
+      const strip = document.getElementById('tsmStrip');
+      const inner = document.getElementById('tsmStripInner');
+      if (!strip || !inner) return;
+      const core = summary?.tsmCore || null;
+      strip.hidden = !core;
+      if (!core) return;
+
+      const updated = document.getElementById('tsmStripUpdated');
+      if (updated && core.updatedAt) updated.textContent = `updated ${new Date(core.updatedAt).toLocaleString()}`;
+
+      const pills = [];
+      const total = core.symbols?.[0]?.total ?? 3;
+      const rule = `enter ${core.enterVotes ?? '·'}/${total} · stay ≥${core.stayVotes ?? '·'} · deploy ${Math.round((core.deploymentPct ?? 0) * 100)}%` +
+        (core.volTarget ? ` · vol target ${Math.round(core.volTarget * 100)}%` : '');
+      pills.push(`<span class="filter-pill filter-strategies" title="Trend-following core sleeve: long while trailing momentum votes are positive, cash otherwise. No stop loss or take profit — exits only when the vote flips; position size follows a volatility target and the macro overlay.">🧲 ${escapeHtml(rule)}</span>`);
+
+      const m = core.macro || {};
+      const stateStr = String(m.state || 'n/a');
+      const macroCls = stateStr.toUpperCase().includes('RISK-OFF') ? 'filter-blocked'
+        : stateStr.includes('risk-on') ? 'filter-on' : 'filter-off';
+      pills.push(`<span class="filter-pill ${macroCls}" title="Equity risk-off overlay: sleeve positions run at half size while the NASDAQ Composite is below its 100-day EMA (crypto has been equity-correlated since 2020).">🏛 NASDAQ ${escapeHtml(stateStr)}</span>`);
+
+      pills.push('<span class="filter-divider"></span>');
+      for (const s of core.symbols || []) {
+        const positive = Number(s.positive ?? 0);
+        const dots = '●'.repeat(positive) + '○'.repeat(Math.max(0, Number(s.total ?? 3) - positive));
+        const stateCls = s.held ? 'filter-on' : 'filter-off';
+        const vol = Number.isFinite(s.realizedVol) ? ` · vol ${(s.realizedVol * 100).toFixed(0)}%` : '';
+        const sizing = s.held
+          ? ` · $${Number(s.currentUsd ?? 0).toLocaleString()} of $${Number(s.targetUsd ?? 0).toLocaleString()}`
+          : ` · would size ×${Number(s.fraction ?? 1).toFixed(2)}`;
+        const warming = s.insufficientHistory ? ' (warming up)' : '';
+        pills.push(`<span class="filter-pill ${stateCls}" title="Momentum votes on the trailing lookbacks — all must be positive to enter, a majority to stay. ${s.held ? 'Holding: current vs target sleeve allocation; drift over 15% triggers a rebalance.' : 'In cash until the votes turn positive.'}">${escapeHtml(getBaseSymbol(s.symbol))} ${dots} ${positive}/${Number(s.total ?? 3)} · ${s.held ? 'LONG' : 'CASH'}${escapeHtml(vol)}${escapeHtml(sizing)}${escapeHtml(warming)}</span>`);
+      }
+      inner.innerHTML = pills.join('');
+    }
+
     function render(summary) {
       state.summary = summary;
       renderHeader(summary);
       renderSummary(summary);
       renderFilters(summary);
       renderMarketContext(summary);
+      renderTsmCore(summary);
       renderPositions(summary);
       renderTrades();
       renderFooter(summary);
