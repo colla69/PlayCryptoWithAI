@@ -44,6 +44,7 @@ let quote = 'USDC';    // candle file quote currency (USDT unlocks 2017+ history
 let universeArg = null;    // custom TSM universe, e.g. --universe BTC,ETH,BNB,XRP,ADA,LTC,LINK,DOGE
 let volTargetAnnual = null; // vol-targeted sizing variant of the vote rule (annualised target, e.g. 0.6)
 let hysteresis = false;    // slow-in (enter 3/3, stay ≥2) and slow-out (enter ≥2, exit at 0) vote variants
+let overlays = [];         // context overlays on the combo rule (see OVERLAY_DEFS): --overlays F1,M1,...
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
@@ -54,6 +55,7 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--universe' && argv[i + 1]) universeArg = argv[++i].split(',').map((s) => s.trim().toUpperCase());
   if (argv[i] === '--vol-target' && argv[i + 1]) volTargetAnnual = Number(argv[++i]);
   if (argv[i] === '--hysteresis') hysteresis = true;
+  if (argv[i] === '--overlays' && argv[i + 1]) overlays = argv[++i].split(',').map((s) => s.trim().toUpperCase());
 }
 
 // Every DSR is deflated by the CUMULATIVE search burden across study sessions:
@@ -63,7 +65,9 @@ const N_TRIALS = 21
   + extraMomDays.length * 2
   + (universeArg ? 3 : 0)
   + (volTargetAnnual ? 3 : 0)
-  + (hysteresis ? 6 : 0);
+  + (hysteresis ? 6 : 0)
+  + (volTargetAnnual && hysteresis ? 3 : 0)
+  + overlays.length * 2;
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
 const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON']);
@@ -185,6 +189,94 @@ if (voteDays) {
   }
 }
 
+// ── Context overlays (funding / macro / on-chain / sentiment) ────────────────
+// Each overlay maps (coin, gi) → an exposure factor in [0, 1] applied to the
+// combo rule's target fraction (0 = block AND exit). Missing data → neutral 1,
+// so partial coverage (e.g. funding starts 2019-09) cannot fabricate history.
+// Data from src/scripts/downloadContextData.mjs → data/context/.
+const CTX_DIR = path.resolve(__dirname, '../../data/context');
+const loadCtx = (name) => {
+  const f = path.join(CTX_DIR, name);
+  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null;
+};
+// Align [{t, ...}] rows to the grid: at each bar, the last row whose t + lagMs
+// ≤ bar close is visible (conservative publication/close lag → no lookahead).
+function alignToGrid(rows, pick, lagMs) {
+  const out = new Array(grid.length).fill(null);
+  if (!rows?.length) return out;
+  let j = 0, last = null;
+  for (let gi = 0; gi < grid.length; gi++) {
+    while (j < rows.length && rows[j].t + lagMs <= grid[gi]) { last = pick(rows[j]); j++; }
+    out[gi] = last;
+  }
+  return out;
+}
+
+const DAY = 86_400_000;
+const OVERLAY_DEFS = {};
+if (overlays.length) {
+  // Per-coin 7d mean funding, annualised (8h prints ×3×365). <10 prints → null.
+  const fundAnn = new Map();
+  for (const coin of ['BTC', 'ETH', 'BNB', 'SOL']) {
+    const rows = loadCtx(`funding_${coin}.json`) ?? [];
+    const out = new Array(grid.length).fill(null);
+    let j = 0; const win = [];
+    for (let gi = 0; gi < grid.length; gi++) {
+      while (j < rows.length && rows[j].t <= grid[gi]) { win.push(rows[j].r); if (win.length > 21) win.shift(); j++; }
+      if (win.length >= 10) out[gi] = (win.reduce((s, r) => s + r, 0) / win.length) * 3 * 365;
+    }
+    fundAnn.set(coin, out);
+  }
+  OVERLAY_DEFS.F1 = {
+    desc: 'block+exit while 7d mean funding > 50%/yr (overheated longs)',
+    factor: (coin, gi) => { const f = fundAnn.get(coin)?.[gi]; return f == null ? 1 : f > 0.50 ? 0 : 1; },
+  };
+  OVERLAY_DEFS.F2 = {
+    desc: 'scale down as 7d funding rises 10→60%/yr (floor 0.25)',
+    factor: (coin, gi) => {
+      const f = fundAnn.get(coin)?.[gi];
+      return f == null ? 1 : Math.min(1, Math.max(0.25, 1 - Math.max(0, f - 0.10) / 0.50));
+    },
+  };
+
+  const ndxRows = loadCtx('fred_NASDAQCOM.json') ?? [];
+  { const alpha = 2 / 101; let e = null;
+    for (const r of ndxRows) { e = e === null ? r.v : r.v * alpha + e * (1 - alpha); r.e = e; } }
+  const ndxAbove = alignToGrid(ndxRows, (r) => (r.v > r.e ? 1 : 0), DAY);
+  OVERLAY_DEFS.M1 = {
+    desc: 'half size while NASDAQ < its 100d EMA (equity risk-off)',
+    factor: (_c, gi) => (ndxAbove[gi] == null ? 1 : ndxAbove[gi] ? 1 : 0.5),
+  };
+
+  const dxyRows = loadCtx('fred_DTWEXBGS.json') ?? [];
+  { let k = 0;
+    for (let i = 0; i < dxyRows.length; i++) {
+      while (k < dxyRows.length && dxyRows[k].t <= dxyRows[i].t - 30 * DAY) k++;
+      const ref = dxyRows[k - 1];
+      dxyRows[i].m = ref && ref.t >= dxyRows[i].t - 40 * DAY ? dxyRows[i].v / ref.v - 1 : null;
+    } }
+  const dxySurge = alignToGrid(dxyRows, (r) => r.m, DAY);
+  OVERLAY_DEFS.M2 = {
+    desc: 'half size while broad dollar index up >2% over 30d',
+    factor: (_c, gi) => (dxySurge[gi] == null ? 1 : dxySurge[gi] > 0.02 ? 0.5 : 1),
+  };
+
+  const mvrvByCoin = new Map();
+  for (const asset of ['BTC', 'ETH']) {
+    mvrvByCoin.set(asset, alignToGrid(loadCtx(`cm_${asset.toLowerCase()}.json`) ?? [], (r) => r.mvrv, DAY));
+  }
+  OVERLAY_DEFS.O1 = {
+    desc: 'half size while MVRV > 3 (on-chain froth; BTC/ETH only)',
+    factor: (coin, gi) => { const m = mvrvByCoin.get(coin)?.[gi]; return m == null ? 1 : m > 3 ? 0.5 : 1; },
+  };
+
+  const fngAligned = alignToGrid(loadCtx('fng.json') ?? [], (r) => r.v, DAY / 2);
+  OVERLAY_DEFS.G1 = {
+    desc: 'half size while Fear & Greed ≥ 80 (extreme greed)',
+    factor: (_c, gi) => { const v = fngAligned[gi]; return v == null ? 1 : v >= 80 ? 0.5 : 1; },
+  };
+}
+
 // ── A. TSM sleeve: one coin, long (optionally vol-scaled) when rule true ────
 // Realized-vol series for vol targeting: annualised std of the last 60 bar
 // returns (30 days). Uses closed data only (window ends at the decision bar).
@@ -207,7 +299,7 @@ function realizedVolAnnual(coin) {
   return v;
 }
 
-function simSleeve(coin, ruleKey, { volTarget = null } = {}) {
+function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null } = {}) {
   const { bars, closes } = coins.get(coin);
   const on = RULES[ruleKey].make(coin);
   const vol = volTarget ? realizedVolAnnual(coin) : null;
@@ -240,6 +332,7 @@ function simSleeve(coin, ruleKey, { volTarget = null } = {}) {
       const rv = vol[gi];
       if (rv && rv > 0) tf = Math.min(1, Math.max(0.2, volTarget / rv));
     }
+    if (sig && tfScale) tf *= tfScale(coin, gi);
     // Full entries/exits always trade; vol-rebalances only when drift > 15%
     // of sleeve equity (keeps churn and fee drag bounded).
     const cur = eq[gi] > 0 ? (qty * (closes[gi] ?? 0)) / eq[gi] : 0;
@@ -428,6 +521,18 @@ if (volTargetAnnual && voteDays) {
   if (hysteresis) { // do the two independent improvers stack?
     for (const [uName, universe] of Object.entries(universes)) {
       addTsmCell(`${voteKey} slow-in volT${volTargetAnnual} ${uName}`, universe, `${voteKey} slow-in`, { volTarget: volTargetAnnual });
+    }
+  }
+  // Context overlays ride on the full combo (slow-in + vol target) — the
+  // shipping-trajectory rule — on the two primary universes only.
+  if (overlays.length && hysteresis) {
+    const comboRule = `${voteKey} slow-in`;
+    for (const ov of overlays) {
+      const def = OVERLAY_DEFS[ov];
+      if (!def) { console.warn(`unknown overlay: ${ov}`); continue; }
+      for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
+        addTsmCell(`combo +${ov} ${uName}`, universe, comboRule, { volTarget: volTargetAnnual, tfScale: def.factor });
+      }
     }
   }
 }

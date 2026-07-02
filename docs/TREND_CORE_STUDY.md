@@ -134,6 +134,47 @@ window, pre-declared widening experiments (`--quote USDT --universe ... --hyster
    BNB/SOL are today's survivors — the ex-ante argument is diversification, not coin-picking,
    so BTC+ETH stays the default and the 4-major universe is a documented config option.
 
+## New information sources (context overlays)
+
+Price momentum kept converging to Sharpe ~1.2, so the next round tested genuinely new
+information. `src/scripts/downloadContextData.mjs` fetches four free, keyless sources into
+`data/context/` (gitignored, reproducible): **perp funding rates** (Binance fapi, 8h prints since
+2019-09 — a positioning signal, usable despite the spot-only account), **macro cross-asset**
+(FRED: NASDAQ Composite since 1971, broad dollar index, 10y yield), **on-chain valuation**
+(CoinMetrics community: MVRV + active addresses since 2016), and the **full Fear & Greed history**
+(alternative.me since 2018). Six pre-declared overlays scale the combo rule's target exposure
+(missing data → neutral 1; DSR deflated for the cumulative 45-trial search):
+
+| Overlay on combo (4-major, 9yr) | Sharpe | Max DD | Verdict |
+|---|---|---|---|
+| combo baseline (slow-in + volT 0.6) | 1.23 | −44.3% | — |
+| **+M1: half size while NASDAQ < 100d EMA** | **1.27** | **−35.7%** | **improves BOTH universes** |
+| +F1: block while 7d funding > 50%/yr | 1.24 | −44.1% | neutral (worse on BTC+ETH) |
+| +O1: half size while MVRV > 3 | 1.22 | −44.2% | neutral |
+| +F2: scale down as funding rises | 1.18 | −42.0% | negative |
+| +M2: half size while dollar +2%/30d | 1.17 | −43.8% | negative |
+| +G1: half size at Fear&Greed ≥ 80 | 1.14 | −43.5% | negative |
+
+**Findings:**
+
+1. **The equity risk-off overlay (M1) is the one that works.** Sharpe up in both universes
+   (1.15→1.21 BTC+ETH, 1.23→1.27 4-major), max DD −44%→−36%, and it improves the worst-entry
+   window (walk-in at the 2021 top: +76–83% vs +54–59%, DD −36% vs −44/−46%). Yearly attribution
+   is mechanism-consistent: the gain comes from equity-crash years (2022: −33%→−22%) at small
+   cost in some bull years, and it is ~neutral pre-2020 when crypto wasn't equity-correlated.
+   Matches the well-documented post-2020 crypto–NASDAQ correlation regime. Full-window DSR 0.94.
+2. **Funding, dollar, MVRV, and greed overlays do not add** — trend-following already holds
+   through (and profits from) exactly the frothy stretches those signals would trim. High funding
+   / greed / MVRV are features of the trends the sleeve lives off.
+3. **Selection caveat:** M1 is the best of six tried (the search is charged in the DSR, and the
+   two-universe + worst-entry + attribution checks all pass), but it is a single cell family —
+   treat as a validated *candidate*, to be wired only with its own live data feed (daily NASDAQ
+   close vs 100d EMA) and confirmed in the paper soak.
+
+**Cumulative ladder (4-major universe, 2017-08 → 2026-07, honest fills):**
+vote 2-of-3 → Sharpe 1.07 / DD −60% ⇒ +slow-in → 1.12 / −58% ⇒ +vol-target → 1.23 / −44%
+⇒ +NASDAQ risk-off → **1.27 / −36%, DSR 0.94** (buy&hold BTC: 0.78 / −84%).
+
 ## Bottom line vs the ensemble bot (same window, honest fills)
 
 Ensemble: +59% / Sharpe 0.95 / DD −10.5% / DSR ~0.02 — proven-null, barely participates.
