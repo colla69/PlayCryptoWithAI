@@ -81,20 +81,21 @@ describe('tsmCore: computeTsmVote', () => {
 
 describe('tsmCore: planCoreActions', () => {
   const SYMBOLS = ['BTC/USDC', 'ETH/USDC'];
+  const v = (positive, total = 3) => ({ positive, total });
 
-  test('signal on + no position → open', () => {
+  test('default thresholds = majority: 2/3 opens, 1/3 does not', () => {
     const actions = planCoreActions({
       symbols: SYMBOLS,
-      signals: new Map([['BTC/USDC', { on: true }], ['ETH/USDC', { on: false }]]),
+      signals: new Map([['BTC/USDC', v(2)], ['ETH/USDC', v(1)]]),
       positions: [],
     });
     assert.deepEqual(actions, [{ type: 'open', symbol: 'BTC/USDC', key: 'BTC/USDC#core' }]);
   });
 
-  test('signal off + core position → close; scalper position on same base is ignored', () => {
+  test('below majority + core position → close; scalper position on same base is ignored', () => {
     const actions = planCoreActions({
       symbols: SYMBOLS,
-      signals: new Map([['BTC/USDC', { on: false }], ['ETH/USDC', { on: false }]]),
+      signals: new Map([['BTC/USDC', v(1)], ['ETH/USDC', v(0)]]),
       positions: [
         { symbol: 'BTC/USDC#core', isCore: true },
         { symbol: 'BTC/USDC' }, // scalper position — must not mask the core close
@@ -103,12 +104,31 @@ describe('tsmCore: planCoreActions', () => {
     assert.deepEqual(actions, [{ type: 'close', symbol: 'BTC/USDC', key: 'BTC/USDC#core' }]);
   });
 
-  test('steady state (held + on, flat + off) → no actions', () => {
+  test('steady state (held + majority, flat + minority) → no actions', () => {
     const actions = planCoreActions({
       symbols: SYMBOLS,
-      signals: new Map([['BTC/USDC', { on: true }], ['ETH/USDC', { on: false }]]),
+      signals: new Map([['BTC/USDC', v(2)], ['ETH/USDC', v(1)]]),
       positions: [{ symbol: 'BTC/USDC#core', isCore: true }],
     });
     assert.equal(actions.length, 0);
+  });
+
+  test('slow-in hysteresis: 2/3 does NOT open when enterVotes=3, 3/3 does', () => {
+    const base = { symbols: SYMBOLS, positions: [], enterVotes: 3, stayVotes: 2 };
+    assert.equal(planCoreActions({ ...base, signals: new Map([['BTC/USDC', v(2)], ['ETH/USDC', v(2)]]) }).length, 0);
+    const actions = planCoreActions({ ...base, signals: new Map([['BTC/USDC', v(3)], ['ETH/USDC', v(2)]]) });
+    assert.deepEqual(actions, [{ type: 'open', symbol: 'BTC/USDC', key: 'BTC/USDC#core' }]);
+  });
+
+  test('slow-in hysteresis: held position survives 2/3 but closes at 1/3', () => {
+    const base = {
+      symbols: SYMBOLS,
+      positions: [{ symbol: 'BTC/USDC#core', isCore: true }],
+      enterVotes: 3,
+      stayVotes: 2,
+    };
+    assert.equal(planCoreActions({ ...base, signals: new Map([['BTC/USDC', v(2)]]) }).length, 0);
+    const actions = planCoreActions({ ...base, signals: new Map([['BTC/USDC', v(1)]]) });
+    assert.deepEqual(actions, [{ type: 'close', symbol: 'BTC/USDC', key: 'BTC/USDC#core' }]);
   });
 });

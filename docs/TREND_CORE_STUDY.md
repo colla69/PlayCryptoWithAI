@@ -99,6 +99,41 @@ Vote 30/45/60d BTC+ETH vs single-asset benchmarks, 2026-05-01 → 2026-07-02:
 small whipsaw cost in sideways markets and, in exchange, steps out of large crashes. Deployment
 sizing (50% sleeve share) remains the dial for absolute DD tolerance.
 
+## Widening the edge (2017+ data, hysteresis, vol targeting)
+
+To escape the USDC data limits, USDT-pair 12h history was downloaded back to **2017-08-17**
+(6,482 bars, gap-free — adds the 2018 bear (−84%) and covers the 2022 USDC hole). On this 9-year
+window, pre-declared widening experiments (`--quote USDT --universe ... --hysteresis --vol-target
+0.6`; every DSR deflated for the cumulative 33-trial search):
+
+| Rule (BTC+ETH+BNB+SOL universe) | Return | CAGR | Sharpe | Max DD | DSR | Round trips |
+|---|---|---|---|---|---|---|
+| EW 4-major B&H (reference: BTC B&H Sh 0.78, DD −84%) | — | — | ~0.8 | ~−85% | — | — |
+| vote 2-of-3 (previous shipping rule) | +4,108% | 52% | 1.07 | −60% | 0.86 | 482 |
+| + slow-in (enter 3/3, stay ≥2) | +4,260% | 53% | 1.12 | −58% | 0.89 | **160** |
+| + vol-target 0.6 (sizing ∝ 0.6/realized vol) | +1,590% | 38% | 1.12 | −49% | 0.88 | 482 |
+| **+ both (combo)** | +1,925% | 40% | **1.23** | **−44%** | **0.94** | 160 |
+
+**Findings (each replicated across all three universes tested — BTC+ETH, 4-major, 8-major):**
+
+1. **Slow-in hysteresis widens the edge for free**: higher Sharpe everywhere, ~3× fewer round
+   trips (86 vs 251 on BTC+ETH), same architecture. **Adopted in the sleeve config**
+   (`enterVotes: 3, stayVotes: 2`). The open position itself is the hysteresis state.
+2. **Vol targeting works as the literature says**: sizing down when 30d realized vol spikes cuts
+   DD by ~10–25pp at equal-or-better Sharpe. **Stacks with slow-in** — the combo is the best
+   cell family this project has produced (Sharpe 1.15–1.23, DSR 0.90–0.94 on 9yr with two full
+   bears). Requires fractional position resizing in the sleeve — documented next step, not yet
+   implemented live.
+3. **Worst-entry robustness improved**: combo walked in at the 2021-11-08 top = **+54→59%**
+   (holding: −29→−37%); walked in at the 2018-01-06 top = CAGR 32–35% (holding: 6–17%).
+4. **Slow-out hysteresis (exit only at 0/3) — refuted** (Sharpe flat, DD worse).
+5. **Majors-only rotation — refuted**: far better than the 37-coin version (Sharpe up to 0.93 vs
+   ≤0.55) but still below the plain 4-major vote at worse DD, with heavy survivorship bias.
+6. **Universe: 4 majors > 2 majors > 8 majors.** Adding BNB+SOL diversifies trend bets (Sharpe
+   1.07 vs 0.93); adding the weaker alts (XRP/ADA/LTC/DOGE) dilutes back down (0.93). Caveat:
+   BNB/SOL are today's survivors — the ex-ante argument is diversification, not coin-picking,
+   so BTC+ETH stays the default and the 4-major universe is a documented config option.
+
 ## Bottom line vs the ensemble bot (same window, honest fills)
 
 Ensemble: +59% / Sharpe 0.95 / DD −10.5% / DSR ~0.02 — proven-null, barely participates.

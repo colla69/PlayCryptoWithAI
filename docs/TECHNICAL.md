@@ -319,6 +319,8 @@ config
 ├── tsmCore{}              Majors trending sleeve (paper-only, default OFF)
 │   ├── symbols[]          Core holdings (default ['BTC/USDC','ETH/USDC'])
 │   ├── lookbackBars[]     Trailing-momentum windows (default [60,90,120] = 30/45/60 days)
+│   ├── enterVotes         Positive votes to OPEN (default 3 — slow-in hysteresis)
+│   ├── stayVotes          Positive votes to KEEP (default 2)
 │   └── deploymentPct      Sleeve share of equity (default 0.5)
 ├── btcDominance{}         BTC.D entry gate (CoinGecko)
 └── fearGreed{}            Fear & Greed entry-threshold modulator

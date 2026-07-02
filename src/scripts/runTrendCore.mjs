@@ -40,16 +40,30 @@ let extraMomDays = []; // neighbor-lookback robustness cells (plateau test); cou
 let voteDays = null;   // majority-vote ensemble of momentum lookbacks (candidate shipping rule)
 let fromDate = null;   // start-date sensitivity: measure metrics from this date onward
 let toDate = null;     //   (curves still simulate over full history — this is a walk-in window)
+let quote = 'USDC';    // candle file quote currency (USDT unlocks 2017+ history incl. 2018 bear)
+let universeArg = null;    // custom TSM universe, e.g. --universe BTC,ETH,BNB,XRP,ADA,LTC,LINK,DOGE
+let volTargetAnnual = null; // vol-targeted sizing variant of the vote rule (annualised target, e.g. 0.6)
+let hysteresis = false;    // slow-in (enter 3/3, stay ≥2) and slow-out (enter ≥2, exit at 0) vote variants
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
   if (argv[i] === '--vote' && argv[i + 1]) voteDays = argv[++i].split(',').map(Number);
   if (argv[i] === '--from' && argv[i + 1]) fromDate = Date.parse(argv[++i]);
   if (argv[i] === '--to' && argv[i + 1]) toDate = Date.parse(argv[++i]);
+  if (argv[i] === '--quote' && argv[i + 1]) quote = argv[++i].toUpperCase();
+  if (argv[i] === '--universe' && argv[i + 1]) universeArg = argv[++i].split(',').map((s) => s.trim().toUpperCase());
+  if (argv[i] === '--vol-target' && argv[i + 1]) volTargetAnnual = Number(argv[++i]);
+  if (argv[i] === '--hysteresis') hysteresis = true;
 }
 
-// every DSR is deflated by the FULL search: 13 pre-registered cells + any robustness/vote cells
-const N_TRIALS = 13 + extraMomDays.length * 2 + (voteDays ? 2 : 0);
+// Every DSR is deflated by the CUMULATIVE search burden across study sessions:
+// 21 cells from the original grid + neighbors + vote, plus each cell family a
+// new flag adds in this run. Never fewer trials than were actually tried.
+const N_TRIALS = 21
+  + extraMomDays.length * 2
+  + (universeArg ? 3 : 0)
+  + (volTargetAnnual ? 3 : 0)
+  + (hysteresis ? 6 : 0);
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
 const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON']);
@@ -62,7 +76,7 @@ const UNIVERSE = config.symbols.map((s) => s.split('/')[0]);
 
 // ── Data loading, aligned to the BTC 12h grid ────────────────────────────────
 function loadCandles(coin) {
-  const file = path.join(CANDLE_DIR, `${coin}_USDC_12h.json`);
+  const file = path.join(CANDLE_DIR, `${coin}_${quote}_12h.json`);
   if (!fs.existsSync(file)) return null;
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   return Array.isArray(raw) ? raw : raw.candles ?? null;
@@ -73,9 +87,12 @@ if (!btcCandles?.length) { console.error('BTC 12h candles missing'); process.exi
 const grid = btcCandles.map((c) => c.timestamp);
 const gridIdx = new Map(grid.map((ts, i) => [ts, i]));
 
+// Rotation universe: config coins on USDC; the custom universe otherwise.
+const ROT_UNIVERSE = universeArg ?? (quote === 'USDC' ? UNIVERSE : []);
+
 // per coin: bars[gi] = actual candle or null; closes[gi] = carry-forward close; firstIdx
 const coins = new Map();
-for (const coin of new Set([...UNIVERSE, 'BTC', 'ETH', 'BNB', 'SOL'])) {
+for (const coin of new Set([...ROT_UNIVERSE, ...(universeArg ?? []), 'BTC', 'ETH', 'BNB', 'SOL'])) {
   const candles = loadCandles(coin);
   if (!candles?.length) { console.warn(`  (no 12h data for ${coin} — excluded)`); continue; }
   const bars = new Array(grid.length).fill(null);
@@ -121,49 +138,119 @@ for (const days of extraMomDays) {
   const bars = days * 2;
   RULES[`mom${days}d`] = { warmup: bars, make: (coin) => { const { closes, firstIdx } = coins.get(coin); return (gi) => firstIdx !== null && gi - bars >= firstIdx && closes[gi] > closes[gi - bars]; } };
 }
+function votesPositive(coin, gi, barsList) {
+  const { closes, firstIdx } = coins.get(coin);
+  if (firstIdx === null) return { pos: 0, valid: 0, total: barsList.length };
+  let pos = 0, valid = 0;
+  for (const b of barsList) {
+    if (gi - b >= firstIdx) { valid++; if (closes[gi] > closes[gi - b]) pos++; }
+  }
+  return { pos, valid, total: barsList.length };
+}
+
+// Path-dependent vote with separate enter/exit thresholds (whipsaw damping).
+function hysteresisSeries(coin, barsList, enterNeed, exitBelow) {
+  const arr = new Array(grid.length).fill(false);
+  let on = false;
+  for (let gi = 0; gi < grid.length; gi++) {
+    const { pos, valid, total } = votesPositive(coin, gi, barsList);
+    if (valid < total) on = false;              // insufficient history → cash
+    else if (!on && pos >= enterNeed) on = true;
+    else if (on && pos < exitBelow) on = false;
+    arr[gi] = on;
+  }
+  return arr;
+}
+
 if (voteDays) {
   const barsList = voteDays.map((d) => d * 2);
   const need = Math.floor(voteDays.length / 2) + 1;
-  RULES[`vote${voteDays.join('/')}d`] = {
+  const tag = voteDays.join('/');
+  RULES[`vote${tag}d`] = {
     warmup: Math.max(...barsList),
-    make: (coin) => {
-      const { closes, firstIdx } = coins.get(coin);
-      return (gi) => firstIdx !== null
-        && barsList.filter((b) => gi - b >= firstIdx && closes[gi] > closes[gi - b]).length >= need;
+    make: (coin) => (gi) => {
+      const { pos, valid, total } = votesPositive(coin, gi, barsList);
+      return valid === total && pos >= need;
     },
   };
+  if (hysteresis) {
+    RULES[`vote${tag}d slow-in`] = {  // enter only on 3/3, stay while ≥2
+      warmup: Math.max(...barsList),
+      make: (coin) => { const a = hysteresisSeries(coin, barsList, barsList.length, need); return (gi) => a[gi]; },
+    };
+    RULES[`vote${tag}d slow-out`] = { // enter on majority, exit only at 0 positive
+      warmup: Math.max(...barsList),
+      make: (coin) => { const a = hysteresisSeries(coin, barsList, need, 1); return (gi) => a[gi]; },
+    };
+  }
 }
 
-// ── A. TSM sleeve: one coin, long when rule true, else cash ─────────────────
-function simSleeve(coin, ruleKey) {
+// ── A. TSM sleeve: one coin, long (optionally vol-scaled) when rule true ────
+// Realized-vol series for vol targeting: annualised std of the last 60 bar
+// returns (30 days). Uses closed data only (window ends at the decision bar).
+const volCache = new Map();
+function realizedVolAnnual(coin) {
+  if (volCache.has(coin)) return volCache.get(coin);
+  const { closes, firstIdx } = coins.get(coin);
+  const W = 60;
+  const v = new Array(grid.length).fill(null);
+  if (firstIdx !== null) {
+    for (let gi = firstIdx + W + 1; gi < grid.length; gi++) {
+      let mean = 0; const rets = [];
+      for (let k = gi - W + 1; k <= gi; k++) { const r = closes[k] / closes[k - 1] - 1; rets.push(r); mean += r; }
+      mean /= W;
+      const sd = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / (W - 1));
+      v[gi] = sd * Math.sqrt(BARS_PER_YEAR);
+    }
+  }
+  volCache.set(coin, v);
+  return v;
+}
+
+function simSleeve(coin, ruleKey, { volTarget = null } = {}) {
   const { bars, closes } = coins.get(coin);
   const on = RULES[ruleKey].make(coin);
+  const vol = volTarget ? realizedVolAnnual(coin) : null;
   let cash = 1, qty = 0, roundTrips = 0, investedBars = 0;
-  let pending = null;
+  let pendingTf = null; // target fraction decided at close, executed next open
   const eq = new Array(grid.length).fill(1);
   const slip = slipFor(coin);
   for (let gi = 0; gi < grid.length; gi++) {
     const bar = bars[gi];
-    if (pending && bar) {
-      if (pending === 'buy' && qty === 0) {
-        const px = bar.open * (1 + slip);
-        qty = (cash * (1 - FEE)) / px; cash = 0;
-      } else if (pending === 'sell' && qty > 0) {
-        const px = bar.open * (1 - slip);
-        cash = qty * px * (1 - FEE); qty = 0; roundTrips++;
+    if (pendingTf !== null && bar) {
+      const open = bar.open;
+      const e = cash + qty * open;
+      const deltaUsd = pendingTf * e - qty * open;
+      if (deltaUsd > 0) {
+        const spend = Math.min(deltaUsd, cash);
+        if (spend > 0) { qty += (spend * (1 - FEE)) / (open * (1 + slip)); cash -= spend; }
+      } else if (deltaUsd < 0) {
+        const sellQty = Math.min(-deltaUsd / open, qty);
+        cash += sellQty * open * (1 - slip) * (1 - FEE);
+        qty -= sellQty;
+        if (pendingTf === 0) { qty = 0; roundTrips++; }
       }
-      pending = null;
+      pendingTf = null;
     }
     eq[gi] = cash + qty * (closes[gi] ?? 0);
     if (qty > 0) investedBars++;
     const sig = on(gi);
-    pending = sig && qty === 0 ? 'buy' : !sig && qty > 0 ? 'sell' : null;
+    let tf = sig ? 1 : 0;
+    if (sig && vol) {
+      const rv = vol[gi];
+      if (rv && rv > 0) tf = Math.min(1, Math.max(0.2, volTarget / rv));
+    }
+    // Full entries/exits always trade; vol-rebalances only when drift > 15%
+    // of sleeve equity (keeps churn and fee drag bounded).
+    const cur = eq[gi] > 0 ? (qty * (closes[gi] ?? 0)) / eq[gi] : 0;
+    const full = (tf === 0 && qty > 0) || (tf > 0 && qty === 0);
+    pendingTf = full || Math.abs(tf - cur) > 0.15 ? tf : null;
   }
   return { eq, roundTrips, investedBars };
 }
 
-function simTsm(universe, ruleKey) {
-  const sleeves = universe.filter((c) => coins.has(c)).map((c) => simSleeve(c, ruleKey));
+function simTsm(universe, ruleKey, opts = {}) {
+  const sleeves = universe.filter((c) => coins.has(c)).map((c) => simSleeve(c, ruleKey, opts));
   const share = START_CAPITAL / universe.length;
   const eq = grid.map((_, gi) => sleeves.reduce((s, sl) => s + sl.eq[gi] * share, 0)
     + (universe.length - sleeves.length) * share);
@@ -227,7 +314,7 @@ function simRotation({ lookbackBars, topK, rebalanceEvery = 20 }) {
       if (!gateOn) pendingTarget = new Set();
       else {
         const scored = [];
-        for (const coin of UNIVERSE) {
+        for (const coin of ROT_UNIVERSE) {
           const d = coins.get(coin);
           if (!d || d.firstIdx === null || gi - lookbackBars < d.firstIdx) continue;
           const r = d.closes[gi] / d.closes[gi - lookbackBars] - 1;
@@ -298,10 +385,12 @@ function metrics(fullEq, { withDsr = false } = {}) {
 }
 
 // ── Run the grid ─────────────────────────────────────────────────────────────
-const results = { meta: { nTrials: N_TRIALS, bars: WIN1 - WIN0 + 1, from: new Date(grid[WIN0]).toISOString().slice(0, 10), to: new Date(grid[WIN1]).toISOString().slice(0, 10) } };
+const results = { meta: { nTrials: N_TRIALS, quote, bars: WIN1 - WIN0 + 1, from: new Date(grid[WIN0]).toISOString().slice(0, 10), to: new Date(grid[WIN1]).toISOString().slice(0, 10) } };
 
 const benchmarks = {};
-for (const [name, universe] of [['BTC buy&hold', ['BTC']], ['ETH buy&hold', ['ETH']], ['EW BTC+ETH B&H', ['BTC', 'ETH']]]) {
+const benchmarkDefs = [['BTC buy&hold', ['BTC']], ['ETH buy&hold', ['ETH']], ['EW BTC+ETH B&H', ['BTC', 'ETH']]];
+if (universeArg) benchmarkDefs.push([`EW ${universeArg.length}-majors B&H`, universeArg]);
+for (const [name, universe] of benchmarkDefs) {
   // B&H = a "rule" that is always on after bar 0
   const sleeves = universe.map((c) => {
     const { bars, closes } = coins.get(c);
@@ -319,33 +408,53 @@ results.benchmarks = benchmarks;
 
 const tsmCells = {};
 const universes = { 'BTC+ETH': ['BTC', 'ETH'], 'BTC+ETH+BNB+SOL': ['BTC', 'ETH', 'BNB', 'SOL'] };
+if (universeArg) universes[`EW${universeArg.length}-majors`] = universeArg;
 const eqCache = {};
+const addTsmCell = (key, universe, ruleKey, opts = {}) => {
+  const { eq, roundTrips, exposure } = simTsm(universe, ruleKey, opts);
+  tsmCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
+  eqCache[key] = eq;
+};
 for (const [uName, universe] of Object.entries(universes)) {
   for (const ruleKey of Object.keys(RULES)) {
-    const { eq, roundTrips, exposure } = simTsm(universe, ruleKey);
-    const key = `${ruleKey} ${uName}`;
-    tsmCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
-    eqCache[key] = eq;
+    addTsmCell(`${ruleKey} ${uName}`, universe, ruleKey);
+  }
+}
+if (volTargetAnnual && voteDays) {
+  const voteKey = `vote${voteDays.join('/')}d`;
+  for (const [uName, universe] of Object.entries(universes)) {
+    addTsmCell(`${voteKey} volT${volTargetAnnual} ${uName}`, universe, voteKey, { volTarget: volTargetAnnual });
+  }
+  if (hysteresis) { // do the two independent improvers stack?
+    for (const [uName, universe] of Object.entries(universes)) {
+      addTsmCell(`${voteKey} slow-in volT${volTargetAnnual} ${uName}`, universe, `${voteKey} slow-in`, { volTarget: volTargetAnnual });
+    }
   }
 }
 results.tsmCore = tsmCells;
 
 const rotCells = {};
-for (const lookbackDays of [30, 90]) {
-  for (const topK of [3, 4]) {
-    const { eq, roundTrips, exposure } = simRotation({ lookbackBars: lookbackDays * 2, topK });
-    const key = `rot ${lookbackDays}d top${topK}`;
-    rotCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
-    eqCache[key] = eq;
+const rotKs = universeArg ? [2, 3] : [3, 4]; // concentrate more on a small majors universe
+if (ROT_UNIVERSE.length) {
+  for (const lookbackDays of [30, 90]) {
+    for (const topK of rotKs) {
+      const { eq, roundTrips, exposure } = simRotation({ lookbackBars: lookbackDays * 2, topK });
+      const key = `rot ${lookbackDays}d top${topK}`;
+      rotCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
+      eqCache[key] = eq;
+    }
   }
 }
 results.rotation = rotCells;
 
 // Blend uses the DECLARED priors (ema200d BTC+ETH / rot 90d top4), not the best cells
+results.blend = {};
 const eqA = eqCache['ema200d BTC+ETH'];
 const eqB = eqCache['rot 90d top4'];
-const eqC = grid.map((_, gi) => 0.5 * eqA[gi] + 0.5 * eqB[gi]);
-results.blend = { 'blend 50/50 (prior cells)': metrics(eqC, { withDsr: true }) };
+if (eqA && eqB) {
+  const eqC = grid.map((_, gi) => 0.5 * eqA[gi] + 0.5 * eqB[gi]);
+  results.blend = { 'blend 50/50 (prior cells)': metrics(eqC, { withDsr: true }) };
+}
 
 // ── Report ───────────────────────────────────────────────────────────────────
 const fmt = (m) => `ret ${String(m.totalReturnPct).padStart(7)}%  cagr ${String(m.cagrPct).padStart(5)}%  Sh ${String(m.sharpe).padStart(5)}  DD ${String(m.maxDDPct).padStart(6)}%` +

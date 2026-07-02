@@ -721,7 +721,14 @@ export default {
   tsmCore: {
     enabled: process.env.TSM_CORE === 'true',
     symbols: ['BTC/USDC', 'ETH/USDC'],
-    lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h; long when ≥2 of 3 positive
+    lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h trailing-momentum votes
+    // Slow-in hysteresis (9yr USDT study incl. 2018+2022 bears): enter only when
+    // ALL lookbacks are positive, hold while a majority stays positive. Beats the
+    // symmetric 2-of-3 vote on Sharpe (0.93→1.04 BTC+ETH) and cuts round trips
+    // ~3× (251→86). Vol-targeted sizing stacks further (Sharpe 1.15) but needs
+    // fractional resizing — documented next step, not implemented.
+    enterVotes: 3,                // open a new core position: positives ≥ this
+    stayVotes: 2,                 // keep an open core position: positives ≥ this
     deploymentPct: 0.5,           // sleeve share of equity (risk dial: DD scales ~linearly)
   },
 

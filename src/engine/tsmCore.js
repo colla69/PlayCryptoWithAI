@@ -61,21 +61,41 @@ export function computeTsmVote(closedCandles, lookbackBars) {
 /**
  * Diff desired vs actual core positions into open/close actions.
  *
+ * Supports slow-in hysteresis via separate enter/stay thresholds: open a new
+ * position only when `enterVotes` lookbacks are positive, but keep an existing
+ * one while `stayVotes` still are. The open position itself is the hysteresis
+ * state — no extra persistence needed. Both thresholds default to a simple
+ * majority (the original symmetric-vote behavior).
+ *
+ * Study basis (9yr USDT window incl. 2018+2022 bears): enter 3/3 + stay ≥2
+ * beats the symmetric vote on Sharpe/DSR in every universe tested and cuts
+ * round trips ~3× — see docs/TREND_CORE_STUDY.md.
+ *
  * @param {object} args
  * @param {string[]} args.symbols            core universe (base symbols)
- * @param {Map<string, {on: boolean}>|object} args.signals  base symbol → vote result
+ * @param {Map<string, object>|object} args.signals  base symbol → computeTsmVote result
  * @param {Array<{symbol: string, isCore?: boolean}>} args.positions  trader.getStatus().positions
+ * @param {number} [args.enterVotes]         positive votes needed to OPEN (default: majority)
+ * @param {number} [args.stayVotes]          positive votes needed to KEEP (default: majority)
  * @returns {Array<{type: 'open'|'close', symbol: string, key: string}>}
  */
-export function planCoreActions({ symbols, signals, positions }) {
+export function planCoreActions({ symbols, signals, positions, enterVotes = null, stayVotes = null }) {
   const get = (sym) => (signals instanceof Map ? signals.get(sym) : signals?.[sym]);
   const held = new Set((positions ?? []).filter((p) => p.isCore || isCoreSymbol(p.symbol)).map((p) => p.symbol));
   const actions = [];
   for (const symbol of symbols ?? []) {
     const key = coreKey(symbol);
-    const on = Boolean(get(symbol)?.on);
-    if (on && !held.has(key)) actions.push({ type: 'open', symbol, key });
-    else if (!on && held.has(key)) actions.push({ type: 'close', symbol, key });
+    const vote = get(symbol);
+    const total = vote?.total ?? 0;
+    if (total <= 0) continue;
+    const majority = Math.floor(total / 2) + 1;
+    const enterNeed = enterVotes ?? majority;
+    const stayNeed = stayVotes ?? majority;
+    // computeTsmVote counts invalid (insufficient-history) lookbacks as NO
+    // votes, so `positive` is already conservative.
+    const positive = vote?.positive ?? 0;
+    if (!held.has(key) && positive >= enterNeed) actions.push({ type: 'open', symbol, key });
+    else if (held.has(key) && positive < stayNeed) actions.push({ type: 'close', symbol, key });
   }
   return actions;
 }

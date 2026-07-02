@@ -189,10 +189,13 @@ that holds LONG only while trailing momentum is positive. Exits ONLY on vote fli
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
 env var; **paper-mode only** — enabling in live mode logs a warning and no-ops.
 
-**The rule:** `computeTsmVote()` aggregates trailing-momentum on three lookback windows (default 
-60/90/120 bars = 30/45/60 days on 12h), majority vote of positive closes — 2-of-3 buys → LONG, 
-otherwise CASH. Position key is `'<symbol>#core'` (e.g. `BTC/USDC#core`) with `isCore: true` flag, 
-coexisting with the scalper's positions on the same asset.
+**The rule:** `computeTsmVote()` counts positive trailing-momentum votes on three lookback windows 
+(default 60/90/120 bars = 30/45/60 days on 12h), with **slow-in hysteresis**: OPEN only when all 3 
+votes are positive (`enterVotes: 3`), HOLD while ≥2 stay positive (`stayVotes: 2`), CLOSE below 
+that. Validated on 9yr USDT data incl. the 2018 + 2022 bears: vs the symmetric 2-of-3 vote it 
+raises Sharpe (0.93→1.04 BTC+ETH) and cuts round trips ~3×. Position key is `'<symbol>#core'` 
+(e.g. `BTC/USDC#core`) with `isCore: true` flag, coexisting with the scalper's positions on the 
+same asset.
 
 **Portfolio treatment:** core positions are excluded from:
 - Stop-loss/take-profit/break-even/aging (only exit trigger is vote flip)

@@ -547,12 +547,18 @@ async function runTsmCoreCycle() {
       signals.set(symbol, vote);
       prices.set(symbol, Number(candles.at(-1).close));
       logger.info(
-        `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (need ${vote.needed}) → ${vote.on ? 'LONG' : 'CASH'}` +
+        `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (enter ≥${coreCfg.enterVotes ?? vote.needed}, stay ≥${coreCfg.stayVotes ?? vote.needed})` +
         `${vote.insufficientHistory ? ' [insufficient history → forced CASH votes]' : ''}`,
       );
     }
 
-    const actions = planCoreActions({ symbols: [...signals.keys()], signals, positions: status.positions });
+    const actions = planCoreActions({
+      symbols: [...signals.keys()],
+      signals,
+      positions: status.positions,
+      enterVotes: coreCfg.enterVotes ?? null,
+      stayVotes: coreCfg.stayVotes ?? null,
+    });
     if (!actions.length) return;
 
     // Equal split of deploymentPct × total equity across core symbols. Opens
