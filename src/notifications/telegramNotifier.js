@@ -27,7 +27,9 @@ async function broadcast(text) {
     try {
       await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
     } catch (err) {
-      logger.debug(`[NOTIFY] Failed to send to ${chatId}: ${err.message}`);
+      // warn, not debug: alerts are a safety channel (stuck core exits) —
+      // delivery failures must be visible at the default log level
+      logger.warn(`[NOTIFY] Failed to send to ${chatId}: ${err.message}`);
     }
   }
 }
