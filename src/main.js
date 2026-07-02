@@ -9,7 +9,7 @@ import SignalAggregator from './engine/signalAggregator.js';
 import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
-import { calcPositionAgingExit, calcWeeklyDDBreaker } from './risk/portfolioRisk.js';
+import { calcPositionAgingExit, calcWeeklyDDBreaker, calcEquityFromStatus } from './risk/portfolioRisk.js';
 import { computeLiveStats, evaluateDrift } from './monitor/driftMonitor.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
@@ -235,7 +235,9 @@ async function runCycle(symbol) {
           symbol, candles, openPositions: currentStatus.positions.filter((p) => !p.isCore),
           correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
           recentTrades: dashboardState.getTrades?.() ?? [],
-          initialBalance: config.risk?.initialBalance ?? 0,
+          // Live equity so the weekly DD breaker scales with the account;
+          // configured initialBalance only until the first good reading
+          referenceEquity: calcEquityFromStatus(currentStatus) || (config.risk?.initialBalance ?? 0),
         });
         blockReason = filterResult.blockReason;
         mtfSizeFactor = filterResult.mtfSizeFactor;
@@ -447,9 +449,15 @@ async function runAllSymbols() {
         fearGreed: Number.isFinite(fgValue) ? fgValue : null,
       });
       const ddCfg = config.risk?.weeklyDDBreaker ?? {};
+      let ddEquity = 0;
+      try {
+        ddEquity = calcEquityFromStatus(await trader.getStatus());
+      } catch {
+        // fall back to configured balance below
+      }
       const ddBreaker = calcWeeklyDDBreaker({
         recentTrades: dashboardState.getTrades(),
-        initialBalance: config.risk?.initialBalance ?? 1000,
+        referenceEquity: ddEquity > 0 ? ddEquity : (config.risk?.initialBalance ?? 1000),
         lossThreshold: ddCfg.lossThreshold ?? 0.10,
         cooldownHours: ddCfg.cooldownHours ?? 72,
       });
@@ -587,8 +595,7 @@ async function runTsmCoreCycle() {
     // Equal split of deploymentPct × total equity across core symbols; each
     // slot then scales by its vol/macro fraction. Opens are additionally
     // capped at available cash inside openCorePosition.
-    const equity = status.balance + (status.positions ?? []).reduce(
-      (sum, p) => sum + p.qty * (p.currentPrice ?? p.entryPrice), 0);
+    const equity = calcEquityFromStatus(status);
     const perSlot = (equity * Number(coreCfg.deploymentPct ?? 0.5)) / Math.max((coreCfg.symbols ?? []).length, 1);
 
     const emit = (result) => {

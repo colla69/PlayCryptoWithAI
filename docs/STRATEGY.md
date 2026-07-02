@@ -154,6 +154,11 @@ Every BUY signal must pass a cascade before execution:
 2. **Max positions** — 4 concurrent slots (`maxConcurrentPositions`); excess BUYs are queued.
 3. **Daily loss limit** — cumulative daily P&L < −5% blocks new trades for the day.
 4. **Weekly DD circuit breaker** (Phase 7) — rolling 7-day P&L ≤ −10% pauses new entries for 72h.
+
+Both %-limits are measured against **live account equity** (free quote + open position value,
+refreshed every cycle), so they scale with deposits, withdrawals, and growth;
+`config.risk.initialBalance` is only the fallback before the first balance reading.
+The backtester uses the same rule against simulated equity (parity by construction).
 5. **Portfolio correlation cap** (Phase 7) — block a BUY if it would open a position with rolling
    60-day correlation > 0.85 to an existing one (a hard cap on the new entry, not a reroute).
 6. **15m MTF alignment** — recency-weighted score over the last 16×15m candles; < 0.30 blocks entry

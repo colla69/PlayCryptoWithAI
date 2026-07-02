@@ -41,6 +41,7 @@ import {
   calcCorrelationCap,
   calcWeeklyDDBreaker,
   calcPositionAgingExit,
+  calcEquityFromStatus,
 } from '../risk/portfolioRisk.js';
 import { getContextAsOf } from '../data/marketContext.js';
 import { calcFearGreedAdjustedThreshold } from '../core/filters.js';
@@ -430,9 +431,20 @@ export class PortfolioBacktester {
       let weeklyDDBlock = null;
       if (this.weeklyDDBreaker && buyQueue.length > 0) {
         const nowTs = buyQueue[0]?.d?.timestamp ?? Date.now();
+        // Reference equity mirrors live: current simulated equity (cash +
+        // open positions at this bar's signal prices), so the % threshold
+        // scales with account growth exactly as the live breaker does.
+        const status = simulator.getStatus();
+        const equity = calcEquityFromStatus({
+          ...status,
+          positions: status.positions.map((p) => ({
+            ...p,
+            currentPrice: stepSignals[p.symbol]?.price ?? p.entryPrice,
+          })),
+        });
         const breaker = calcWeeklyDDBreaker({
           recentTrades: simulator.getTrades(),
-          initialBalance,
+          referenceEquity: equity > 0 ? equity : initialBalance,
           lossThreshold: this.weeklyDDLossThreshold,
           cooldownHours: this.weeklyDDCooldownHours,
           nowMs: nowTs,

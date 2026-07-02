@@ -7,6 +7,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { RiskManager } from '../../src/risk/riskManager.js';
+import { calcEquityFromStatus } from '../../src/risk/portfolioRisk.js';
 import { DEFAULT_RISK } from '../helpers.js';
 
 describe('RiskManager: Confidence Gate', () => {
@@ -143,6 +144,77 @@ describe('RiskManager: HOLD Decision', () => {
 
     const result = rm.canTrade('BTC/USDC', 'HOLD', 0, { positions: [] });
     assert.equal(result.allowed, true);
+  });
+});
+
+describe('RiskManager: Equity-Scaled Daily Loss Limit', () => {
+  // config initialBalance=200 (5% → $10) is only the fallback; a status with
+  // live balance/positions rebases the limit to current account equity.
+
+  test('limit scales up with live equity from status', () => {
+    const rm = new RiskManager(DEFAULT_RISK);
+    const status = { balance: 1000, positions: [] }; // 5% → $50 limit
+
+    rm.recordTrade(-11); // over the $10 fallback limit, under $50
+    const result = rm.canTrade('BTC/USDC', 'BUY', 0.9, status);
+    assert.equal(result.allowed, true);
+
+    rm.recordTrade(-45); // total -56, over $50
+    const blocked = rm.canTrade('BTC/USDC', 'BUY', 0.9, status);
+    assert.equal(blocked.allowed, false);
+    assert.ok(blocked.reason.includes('Daily loss limit'));
+  });
+
+  test('open position value counts toward equity', () => {
+    const rm = new RiskManager(DEFAULT_RISK);
+    // 500 cash + 1 × 500 position = 1000 equity → $50 limit
+    const status = {
+      balance: 500,
+      positions: [{ symbol: 'ETH/USDC', qty: 1, currentPrice: 500, entryPrice: 400 }],
+    };
+
+    rm.recordTrade(-30); // over $10 fallback, under $50
+    const result = rm.canTrade('BTC/USDC', 'BUY', 0.9, status);
+    assert.equal(result.allowed, true);
+  });
+
+  test('a deposit that grows equity lifts an active block', () => {
+    const rm = new RiskManager(DEFAULT_RISK);
+    rm.recordTrade(-11); // blocked at the $10 fallback limit
+
+    const before = rm.canTrade('BTC/USDC', 'BUY', 0.9, { balance: 200, positions: [] });
+    assert.equal(before.allowed, false);
+
+    const after = rm.canTrade('BTC/USDC', 'BUY', 0.9, { balance: 2000, positions: [] });
+    assert.equal(after.allowed, true);
+  });
+
+  test('failed balance fetch (equity 0) keeps the last known base', () => {
+    const rm = new RiskManager(DEFAULT_RISK);
+    rm.canTrade('BTC/USDC', 'BUY', 0.9, { balance: 1000, positions: [] }); // seeds equity
+
+    rm.recordTrade(-11); // under the $50 limit from the seeded equity
+    const result = rm.canTrade('BTC/USDC', 'BUY', 0.9, { balance: 0, positions: [] });
+    assert.equal(result.allowed, true);
+  });
+});
+
+describe('calcEquityFromStatus', () => {
+  test('sums balance and position market value, prefers currentPrice', () => {
+    const equity = calcEquityFromStatus({
+      balance: 100,
+      positions: [
+        { qty: 2, currentPrice: 50, entryPrice: 40 }, // 100
+        { qty: 1, entryPrice: 30 },                   // 30 (no currentPrice)
+      ],
+    });
+    assert.equal(equity, 230);
+  });
+
+  test('returns 0 for unusable snapshots', () => {
+    assert.equal(calcEquityFromStatus({}), 0);
+    assert.equal(calcEquityFromStatus({ balance: 0, positions: [] }), 0);
+    assert.equal(calcEquityFromStatus({ balance: NaN, positions: [] }), 0);
   });
 });
 

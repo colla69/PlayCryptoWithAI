@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { calcEquityFromStatus } from './portfolioRisk.js';
 
 const MIDNIGHT_CHECK_INTERVAL_MS = 60_000;
 
@@ -21,6 +22,11 @@ export class RiskManager {
     this.dailyPnL = 0;
     this.tradesCount = 0;
     this.blocked = false;
+    // Last known live account equity (free quote + open position value),
+    // refreshed from the status passed to canTrade(). The %-based daily-loss
+    // limit scales off this so deposits/withdrawals/growth move the limit;
+    // config.initialBalance is only the fallback before the first reading.
+    this.lastEquity = null;
     this.currentDayKey = getDayKey();
     this.midnightCheckId = setInterval(() => this.#checkDayRollover(), MIDNIGHT_CHECK_INTERVAL_MS);
     this.midnightCheckId.unref?.();
@@ -61,6 +67,12 @@ export class RiskManager {
       return { allowed: true, reason: 'No trade requested' };
     }
 
+    // Track live equity for the daily-loss brake. Only positive readings are
+    // kept — a failed balance fetch (balance 0, no positions) must not
+    // collapse the limit to zero.
+    const equity = calcEquityFromStatus(currentStatus);
+    if (equity > 0) this.lastEquity = equity;
+
     // TSM core sleeve positions have their own capital budget and must not
     // consume the scalper's concurrent-position slots.
     const positions = (Array.isArray(currentStatus.positions) ? currentStatus.positions : [])
@@ -95,9 +107,11 @@ export class RiskManager {
       return result;
     }
 
-    if (this.#dailyLossLimitExceeded()) {
-      this.blocked = true;
-      logger.debug(`[RISK] ${symbol}: canTrade=false dailyLossLimit dailyPnL=${this.dailyPnL.toFixed(2)} maxLoss=${(this.config.initialBalance * this.config.maxDailyLossPct).toFixed(2)}`);
+    // Recomputed (not latched) so a deposit that grows equity above the
+    // breach point lifts the block, symmetric with recordTrade().
+    this.blocked = this.#dailyLossLimitExceeded();
+    if (this.blocked) {
+      logger.debug(`[RISK] ${symbol}: canTrade=false dailyLossLimit dailyPnL=${this.dailyPnL.toFixed(2)} maxLoss=${(this.#referenceEquity() * this.config.maxDailyLossPct).toFixed(2)}`);
       return {
         allowed: false,
         reason: `Daily loss limit reached (${this.dailyPnL.toFixed(2)})`,
@@ -151,8 +165,13 @@ export class RiskManager {
     }
   }
 
+  /** Base for %-of-account limits: live equity when known, else config. */
+  #referenceEquity() {
+    return this.lastEquity > 0 ? this.lastEquity : this.config.initialBalance;
+  }
+
   #dailyLossLimitExceeded() {
-    const maxLoss = this.config.initialBalance * this.config.maxDailyLossPct;
+    const maxLoss = this.#referenceEquity() * this.config.maxDailyLossPct;
     return maxLoss > 0 && this.dailyPnL <= -maxLoss;
   }
 }

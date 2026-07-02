@@ -10,11 +10,30 @@
  *                            7-day rolling P&L crosses `lossThreshold`.
  * - calcPositionAgingExit  — close positions that have been open more than
  *                            `maxAgeBars` candle bars without hitting TP/SL.
+ * - calcEquityFromStatus   — total account equity from a trader status
+ *                            snapshot; the reference base for %-of-account
+ *                            brakes so they scale with deposits and growth.
  *
- * All three operate on plain JS objects, no I/O, no mutation. Callers
+ * All operate on plain JS objects, no I/O, no mutation. Callers
  * (live `core/filters.js` and backtester `PortfolioBacktester`) translate
  * the decisions into actions.
  */
+
+/**
+ * Total account equity from a trader/simulator status snapshot: free quote
+ * balance plus the market value of every open position (scalper and core
+ * alike, at currentPrice when known, else entryPrice). Returns 0 when the
+ * snapshot is unusable (e.g. a failed live balance fetch reports balance 0
+ * and no positions) — callers must fall back to a configured value rather
+ * than let a transient outage collapse their risk limits.
+ */
+export function calcEquityFromStatus(status = {}) {
+  const balance = Number(status.balance ?? 0);
+  const positionsValue = (Array.isArray(status.positions) ? status.positions : []).reduce(
+    (sum, p) => sum + Number(p.qty ?? 0) * Number(p.currentPrice ?? p.entryPrice ?? 0), 0);
+  const equity = balance + positionsValue;
+  return Number.isFinite(equity) && equity > 0 ? equity : 0;
+}
 
 /**
  * @param {object} args
@@ -59,8 +78,10 @@ export function calcCorrelationCap({
  *
  * @param {object} args
  * @param {Array<{timestamp: number|string, pnl: number, side: string}>} args.recentTrades
- * @param {number} args.initialBalance
- * @param {number} args.lossThreshold      — fraction of initialBalance (e.g. 0.10)
+ * @param {number} args.referenceEquity    — account equity the threshold is a
+ *                                           fraction of (live: current equity;
+ *                                           backtest: simulated equity)
+ * @param {number} args.lossThreshold      — fraction of referenceEquity (e.g. 0.10)
  * @param {number} args.cooldownHours      — block window after breach (e.g. 72)
  * @param {number} [args.nowMs=Date.now()]
  * @returns {{ blocked: boolean, weeklyPnL: number, weeklyPnLPct: number,
@@ -68,12 +89,12 @@ export function calcCorrelationCap({
  */
 export function calcWeeklyDDBreaker({
   recentTrades = [],
-  initialBalance,
+  referenceEquity,
   lossThreshold,
   cooldownHours = 72,
   nowMs = Date.now(),
 }) {
-  const initBal = Number(initialBalance);
+  const initBal = Number(referenceEquity);
   const lossFrac = Number(lossThreshold);
   if (!(initBal > 0) || !(lossFrac > 0 && lossFrac < 1)) {
     return { blocked: false, weeklyPnL: 0, weeklyPnLPct: 0 };

@@ -41,7 +41,10 @@ export default {
   // ──────────────────────────────────────────────────────────────────
   strategies: ['RSI', 'BB', 'Stoch', 'SR'],
   risk: {
-    initialBalance: 1000,
+    initialBalance: 1000,   // Paper starting balance + FALLBACK base for %-limits.
+                            // Live %-of-account brakes (maxDailyLossPct, weekly DD
+                            // breaker) scale off LIVE equity once known — this value
+                            // only anchors them before the first balance reading.
     maxPositionPct: 0.15,
     stopLossPct: 0.05,
     takeProfitPct: 0.12,

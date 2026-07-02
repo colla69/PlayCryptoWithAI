@@ -52,15 +52,15 @@ export function checkCorrelationFilter(symbol, openPositions, correlationMatrix,
  * Weekly DD circuit breaker: blocks new entries after the rolling 7-day
  * portfolio P&L breaches the loss threshold.
  * @param {Array<{timestamp: string|number, pnl: number, side: string}>} recentTrades
- * @param {number} initialBalance
+ * @param {number} referenceEquity — live account equity (falls back to configured initial balance upstream)
  * @param {{enabled?: boolean, lossThreshold?: number, cooldownHours?: number}} ddConfig
  * @returns {string|null} Block reason or null
  */
-export function checkWeeklyDDBreaker(recentTrades, initialBalance, ddConfig) {
+export function checkWeeklyDDBreaker(recentTrades, referenceEquity, ddConfig) {
   if (!ddConfig?.enabled) return null;
   const breaker = calcWeeklyDDBreaker({
     recentTrades,
-    initialBalance,
+    referenceEquity,
     lossThreshold: ddConfig.lossThreshold ?? 0.10,
     cooldownHours: ddConfig.cooldownHours ?? 72,
   });
@@ -220,11 +220,11 @@ export function checkMomentumFilter(candles, cfg) {
  * @param {object} params.config - Full app config
  * @returns {Promise<{blockReason: string|null, mtfSizeFactor: number}>}
  */
-export async function runEntryFilters({ symbol, candles, openPositions, correlationMatrix, fetchOHLCV, config, recentTrades = [], initialBalance = 0 }) {
+export async function runEntryFilters({ symbol, candles, openPositions, correlationMatrix, fetchOHLCV, config, recentTrades = [], referenceEquity = 0 }) {
   let mtfSizeFactor = 1.0;
 
   // Weekly DD circuit breaker (Phase 7) — check first, cheap and global
-  const ddBlock = checkWeeklyDDBreaker(recentTrades, initialBalance, config.risk?.weeklyDDBreaker);
+  const ddBlock = checkWeeklyDDBreaker(recentTrades, referenceEquity, config.risk?.weeklyDDBreaker);
   if (ddBlock) {
     logger.info(`${symbol}: BUY suppressed — ${ddBlock}`);
     return { blockReason: ddBlock, mtfSizeFactor };

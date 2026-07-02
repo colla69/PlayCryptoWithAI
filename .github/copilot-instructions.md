@@ -58,7 +58,7 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - **Multi-bar confirmation**: borderline entries (within ~0.10 of minConf) need the previous bar to agree.
 - **Regime gate** (`engine/regimeClassifier.js`): BTC EMA200×ADX 2×2 with 3-bar hysteresis; bear policy closes all + blocks entries on transition into `BEAR_TREND` (`bearPolicy.mode='trend_only'`). Regime routing infra exists but is OFF.
 - **Cross-asset context** (`data/marketContext.js`): BTC.D gate (CoinGecko), ETHBTC sizing, Fear & Greed minConf modulator.
-- **Portfolio risk gates** (`risk/portfolioRisk.js`): correlation cap (0.85), weekly DD breaker (−10%→72h), position-aging exit (14 bars).
+- **Portfolio risk gates** (`risk/portfolioRisk.js`): correlation cap (0.85), weekly DD breaker (−10%→72h), position-aging exit (14 bars). Daily-loss + weekly-DD %-limits scale off LIVE equity (`calcEquityFromStatus`), not static `initialBalance` (fallback only).
 - **Asymmetric exit**: open positions exit at 70% of normal threshold when SELL majority exists.
 - **MTF filter**: 15m recency-weighted alignment score blocks entries when score < 0.5.
 - **TSM core sleeve** (`engine/tsmCore.js`): experimental majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL market orders in live) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
