@@ -20,3 +20,7 @@ data/*
 resume
 Archive/
 Archive.zip
+
+# TSM soak container state (isolated from production data/ and logs/)
+data-soak/
+logs-soak/

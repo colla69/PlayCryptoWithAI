@@ -32,8 +32,10 @@ EXPOSE 3001
 
 # Healthcheck: dashboard API must respond.
 # Use `node` (always present) instead of wget/curl, which are not in node:22-slim.
+# Honours DASHBOARD_PORT so secondary instances (e.g. the TSM soak on :3002)
+# report healthy on their own port.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD node -e "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://localhost:'+(process.env.DASHBOARD_PORT||3001)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "src/main.js"]
 

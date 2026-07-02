@@ -271,6 +271,25 @@ docker compose up -d   # bot + dashboard on :3001
 - No external database — all state in JSON files
 - Git pull to upgrade, docker compose build to rebuild
 
+### 1b. TSM core paper soak (alongside production)
+
+```bash
+docker compose -f docker-compose.soak.yml up -d --build   # soak on :3002
+docker logs -f playcrypto-tsm-soak 2>&1 | grep TSM-CORE   # watch sleeve cycles
+```
+
+Runs a second, fully isolated instance next to the live bot: `PAPER_MODE=true` +
+`TSM_CORE=true`, dashboard `:3002`, webhook `:3012`, own `data-soak/` and
+`logs-soak/` mounts (fresh `dashboard_persist.json` = a clean soak record).
+**The sleeve is paper-gated** — enabling `TSM_CORE` on the LIVE container does
+nothing except log a warning, by design; the soak container is the only way to
+exercise it. The Dockerfile healthcheck honours `DASHBOARD_PORT`, so the soak
+container reports healthy on its own port. Expect `[TSM-CORE]` log lines each
+12h cycle (votes, vol fraction, macro risk-on/off) and `🧲 tsm-core`-tagged
+trades once momentum turns positive. Shared `TELEGRAM_TOKEN` means soak
+notifications reach the same channel — blank the token in `environment:` to
+silence them.
+
 ### 2. AWS Lambda (serverless, ~$0.65/month)
 
 ```
