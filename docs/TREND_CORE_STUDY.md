@@ -53,7 +53,9 @@ Window 2020-06-20 → 2026-06-25 (4,066 × 12h bars — full bull top + 2022 bea
 
 Legitimate challenge: the full window starts June 2020, right before a historic bull run, so
 *absolute* returns flatter any long-exposure strategy. `runTrendCore --from` re-measures the same
-simulated curves from adversarial walk-in dates. Vote 30/45/60d BTC+ETH vs the honest same-universe
+simulated curves from adversarial walk-in dates. (Numbers here differ slightly from the table
+above — the 12h data was re-downloaded through 2026-07-02 after the cache-truncation incident;
+e.g. the full-window vote cell is +596%/Sharpe 0.99 on the new vintage vs +615%/1.01 originally.) Vote 30/45/60d BTC+ETH vs the honest same-universe
 benchmark (equal-weight BTC+ETH buy-and-hold):
 
 | Walk-in date | TSM vote | EW B&H (same coins) | BTC-only B&H |
@@ -78,6 +80,24 @@ have a gap 2022-09-29 → 2023-03-12 (BUSD-era delisting), so the FTX crash and 
 bottom are invisible to the sim. This *flatters buy-and-hold* (true BTC DD was −77.6%, measured
 −72.7%) and is ~neutral for TSM (its momentum votes were OFF through that whole stretch — it
 would have been in cash). Directionally the gap biases against TSM's relative case, not for it.
+
+## Recent regime (last two months)
+
+Vote 30/45/60d BTC+ETH vs single-asset benchmarks, 2026-05-01 → 2026-07-02:
+
+| Construct | Return | Max DD |
+|---|---|---|
+| TSM vote BTC+ETH (core sleeve) | **−4.2%** | **−9.6%** |
+| BTC buy&hold | −22.3% | −29.0% |
+| ETH buy&hold | −29.2% | −36.0% |
+| Equal-weight BTC+ETH B&H | −26.0% | −32.3% |
+
+**Flip trace:** BTC LONG 2026-04-05 @69,019 → CASH 2026-05-28 @73,547 (exited +6.6% above entry, before the fall to ~60,200); ETH LONG 04-05 @2,110 → CASH 05-15 @2,258 (+7%), two small whipsaw flips around 2,130, fully CASH since 05-22 (ETH later 1,618). Both signals are currently CASH — the sleeve sat out the June crash entirely, holding no positions while the benchmarks fell 22–29%.
+
+**2026 YTD counterweight:** the sleeve is ~−9% on the year — Jan–Mar chop produced whipsaw losses
+(e.g. BTC LONG @70,108 → CASH @68,789, −1.9%). That is the deal in one sentence: the overlay pays a
+small whipsaw cost in sideways markets and, in exchange, steps out of large crashes. Deployment
+sizing (50% sleeve share) remains the dial for absolute DD tolerance.
 
 ## Bottom line vs the ensemble bot (same window, honest fills)
 

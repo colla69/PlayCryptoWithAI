@@ -181,6 +181,46 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 
 ---
 
+## TSM Core Sleeve (experimental, paper-only, default OFF)
+
+**Shipped infrastructure for majors trend-following:** a parallel core portfolio (BTC/ETH/BNB/SOL 
+variants possible, default BTC+ETH) sized as a fixed sleeve (default 50% of equity, split equally) 
+that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
+`tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
+env var; **paper-mode only** — enabling in live mode logs a warning and no-ops.
+
+**The rule:** `computeTsmVote()` aggregates trailing-momentum on three lookback windows (default 
+60/90/120 bars = 30/45/60 days on 12h), majority vote of positive closes — 2-of-3 buys → LONG, 
+otherwise CASH. Position key is `'<symbol>#core'` (e.g. `BTC/USDC#core`) with `isCore: true` flag, 
+coexisting with the scalper's positions on the same asset.
+
+**Portfolio treatment:** core positions are excluded from:
+- Stop-loss/take-profit/break-even/aging (only exit trigger is vote flip)
+- Portfolio correlation cap (don't block a new core entry or penalise it)
+- Daily-loss accounting (core sleeve is ring-fenced, doesn't block scalper trades)
+- Risk-loop SL/TP management (PaperTrader early-returns on core positions)
+
+Trades tagged `note: '🧲 tsm-core'`.
+
+**Rationale & performance:** 
+time-series momentum is the defensible edge found in this codebase's data. On the full 6-year 
+window (2020-06-27 → 2026-07-02, 4,066 candles), the vote BTC+ETH sleeve returns +596% / Sharpe 
+0.99 / DD −52% vs +582% / 0.85 / −77% for equal-weight B&H of the same coins — captures upside, 
+cuts the bear tail. DSR 0.72 (robust across 15–90d lookbacks on both universes tested — a plateau, 
+not luck). Matches the crypto literature on TSM. See `docs/TREND_CORE_STUDY.md` for the full study 
+and start-date sensitivity: it beats same-universe B&H on return/Sharpe/DD from every walk-in date 
+tested (including the exact 2021 top), but absolute return still requires the asset class to go up.
+
+**Caveat:** In-sample only — 2026 YTD the sleeve is ~−9% (Q1 chop whipsaws). Real drawdowns are 
+−40/−60% at full deployment; sizing is a Sharpe-neutral risk dial. This is "smart beta" (captures 
+asset-class upside, not alpha); infrastructure is shipped, operator chooses whether/when to 
+activate and how much capital to allocate.
+
+Implementation: `src/engine/tsmCore.js` (pure functions), `src/main.js` orchestration (`runTsmCoreCycle`), 
+PaperTrader additions (`openCorePosition`, `closeCorePosition`).
+
+---
+
 ## Exit Rules
 
 - **Stop-Loss** — per-symbol fixed % (3–8%, default 5%). *(ATR-derived stops exist as infrastructure

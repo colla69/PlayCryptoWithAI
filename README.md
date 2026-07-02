@@ -15,7 +15,8 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 > the bot can be trusted to run on unattended. See [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
 
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
-📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment
+📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
+📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, paper-only)
 
 ---
 
@@ -74,6 +75,7 @@ Live at `http://localhost:3001` — four tabs:
 | `LOG_LEVEL` | `info` | Winston log level |
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
+| `TSM_CORE` | `false` | Enable TSM majors trending sleeve (paper-only; no-ops in live mode) |
 
 Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/filter context.
 

@@ -61,6 +61,7 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - **Portfolio risk gates** (`risk/portfolioRisk.js`): correlation cap (0.85), weekly DD breaker (−10%→72h), position-aging exit (14 bars).
 - **Asymmetric exit**: open positions exit at 70% of normal threshold when SELL majority exists.
 - **MTF filter**: 15m recency-weighted alignment score blocks entries when score < 0.5.
+- **TSM core sleeve** (`engine/tsmCore.js`): experimental majors trending overlay (paper-first, default OFF, `TSM_CORE` env var) — majority-vote trailing momentum, long-only while positive, exit on vote flip.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
 ## Strategy Registration (mandatory)
@@ -141,6 +142,7 @@ PAPER_MODE=true node src/scripts/perSymbolOptimizer.mjs                # dry-run
 | `SMOKE_TEST` | `true` | `false` = skip startup check |
 | `DASHBOARD_PORT` | `3001` | Dashboard HTTP port |
 | `LOG_LEVEL` | `info` | Winston level |
+| `TSM_CORE` | `false` | Enable TSM majors trending sleeve (paper-only) |
 
 ## Key Constraints
 
