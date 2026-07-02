@@ -38,10 +38,14 @@ const argv = process.argv.slice(2);
 let outFile = 'data/trend_core.json';
 let extraMomDays = []; // neighbor-lookback robustness cells (plateau test); count toward DSR trials
 let voteDays = null;   // majority-vote ensemble of momentum lookbacks (candidate shipping rule)
+let fromDate = null;   // start-date sensitivity: measure metrics from this date onward
+let toDate = null;     //   (curves still simulate over full history — this is a walk-in window)
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
   if (argv[i] === '--vote' && argv[i + 1]) voteDays = argv[++i].split(',').map(Number);
+  if (argv[i] === '--from' && argv[i + 1]) fromDate = Date.parse(argv[++i]);
+  if (argv[i] === '--to' && argv[i + 1]) toDate = Date.parse(argv[++i]);
 }
 
 // every DSR is deflated by the FULL search: 13 pre-registered cells + any robustness/vote cells
@@ -238,9 +242,18 @@ function simRotation({ lookbackBars, topK, rebalanceEvery = 20 }) {
 }
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
+// Start-date sensitivity window: strategies simulate over the FULL history
+// (signal state carries in), but metrics are computed on the [--from, --to]
+// slice — i.e. an investor walking in on that date. Renormalisation is
+// implicit: returns/DD are relative to the slice's first value.
+const WIN0 = fromDate ? Math.max(grid.findIndex((ts) => ts >= fromDate), 0) : 0;
+const WIN1 = toDate ? (grid.findIndex((ts) => ts > toDate) === -1 ? grid.length - 1 : grid.findIndex((ts) => ts > toDate) - 1) : grid.length - 1;
+
 const BEAR_START = Date.UTC(2021, 10, 8);
 const BEAR_END = Date.UTC(2022, 11, 31);
-function metrics(eq, { withDsr = false } = {}) {
+function metrics(fullEq, { withDsr = false } = {}) {
+  const eq = fullEq.slice(WIN0, WIN1 + 1);
+  const win = grid.slice(WIN0, WIN1 + 1);
   const returns = [];
   for (let gi = 1; gi < eq.length; gi++) {
     if (eq[gi - 1] > 0) returns.push(eq[gi] / eq[gi - 1] - 1);
@@ -253,17 +266,17 @@ function metrics(eq, { withDsr = false } = {}) {
   const years = eq.length / BARS_PER_YEAR;
   const total = eq[eq.length - 1] / eq[0] - 1;
   const yearly = {};
-  let yStartVal = eq[0], yStartYear = new Date(grid[0]).getUTCFullYear();
+  let yStartVal = eq[0], yStartYear = new Date(win[0]).getUTCFullYear();
   for (let gi = 1; gi < eq.length; gi++) {
-    const y = new Date(grid[gi]).getUTCFullYear();
+    const y = new Date(win[gi]).getUTCFullYear();
     if (y !== yStartYear) {
       yearly[yStartYear] = Number((eq[gi - 1] / yStartVal - 1).toFixed(4));
       yStartVal = eq[gi - 1]; yStartYear = y;
     }
   }
   yearly[yStartYear] = Number((eq[eq.length - 1] / yStartVal - 1).toFixed(4));
-  const bi0 = grid.findIndex((ts) => ts >= BEAR_START);
-  const bi1 = grid.findIndex((ts) => ts >= BEAR_END);
+  const bi0 = win.findIndex((ts) => ts >= BEAR_START);
+  const bi1 = win.findIndex((ts) => ts >= BEAR_END);
   let bear = null;
   if (bi0 > 0 && bi1 > bi0) {
     let bPeak = eq[bi0], bDD = 0;
@@ -285,7 +298,7 @@ function metrics(eq, { withDsr = false } = {}) {
 }
 
 // ── Run the grid ─────────────────────────────────────────────────────────────
-const results = { meta: { nTrials: N_TRIALS, bars: grid.length, from: new Date(grid[0]).toISOString().slice(0, 10), to: new Date(grid.at(-1)).toISOString().slice(0, 10) } };
+const results = { meta: { nTrials: N_TRIALS, bars: WIN1 - WIN0 + 1, from: new Date(grid[WIN0]).toISOString().slice(0, 10), to: new Date(grid[WIN1]).toISOString().slice(0, 10) } };
 
 const benchmarks = {};
 for (const [name, universe] of [['BTC buy&hold', ['BTC']], ['ETH buy&hold', ['ETH']], ['EW BTC+ETH B&H', ['BTC', 'ETH']]]) {

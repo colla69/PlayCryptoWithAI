@@ -49,6 +49,36 @@ Window 2020-06-20 → 2026-06-25 (4,066 × 12h bars — full bull top + 2022 bea
    2026 YTD (whipsaw chop — an overlay adopted today starts in its worst regime); deep candle
    history predates real USDC-pair liquidity for some coins.
 
+## Start-date sensitivity ("didn't you just test in a bull window?")
+
+Legitimate challenge: the full window starts June 2020, right before a historic bull run, so
+*absolute* returns flatter any long-exposure strategy. `runTrendCore --from` re-measures the same
+simulated curves from adversarial walk-in dates. Vote 30/45/60d BTC+ETH vs the honest same-universe
+benchmark (equal-weight BTC+ETH buy-and-hold):
+
+| Walk-in date | TSM vote | EW B&H (same coins) | BTC-only B&H |
+|---|---|---|---|
+| 2020-06 (full, bull-favored) | +596% / Sh 0.99 / DD −52% | +582% / 0.85 / −77% | +558% / 0.87 / −73% |
+| **2021-11-08 (exact cycle top — worst entry)** | **+7.9% / 0.22 / −52%** | −51.1% / 0.03 / −77% | −8.9% / 0.22 / −73% |
+| 2023-03 (bear over — B&H-favored) | +105% / 0.82 / −38% | +50.6% / 0.50 / −61% | +181% / 0.90 / −53% |
+| 2024-01 (recent chop) | +47.8% / 0.63 / −38% | −7.3% / 0.23 / −61% | +41.1% / 0.53 / −53% |
+
+Reading this honestly, both ways:
+
+- **The critique is right about absolute numbers.** Walk in at the top and TSM returns ~0% for
+  4.6 years. The +596% headline needs the 2020–21 bull inside the window. TSM cannot manufacture
+  return when the asset class gives none — it is an overlay on crypto beta, not alpha.
+- **The relative claim survives every window, including B&H-favored ones.** Against equal-weight
+  B&H of the same coins, the TSM vote wins return, Sharpe, AND drawdown in all four windows —
+  the worst-case entry turns −51% into +8%. (BTC-only B&H wins the 2023 window because half the
+  TSM sleeve sat in weak ETH — a universe-selection effect, not a timing failure.)
+
+**Data caveat (affects all studies on this dataset, including the original):** Binance USDC pairs
+have a gap 2022-09-29 → 2023-03-12 (BUSD-era delisting), so the FTX crash and the exact bear
+bottom are invisible to the sim. This *flatters buy-and-hold* (true BTC DD was −77.6%, measured
+−72.7%) and is ~neutral for TSM (its momentum votes were OFF through that whole stretch — it
+would have been in cash). Directionally the gap biases against TSM's relative case, not for it.
+
 ## Bottom line vs the ensemble bot (same window, honest fills)
 
 Ensemble: +59% / Sharpe 0.95 / DD −10.5% / DSR ~0.02 — proven-null, barely participates.
