@@ -51,7 +51,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | Aggregator Voting | `engine/aggregatorVoting.js` | Pure voting math — shared by live, backtester, optimizer (parity-locked) |
 | Regime Classifier | `engine/regimeClassifier.js` | BTC 2×2 regime (EMA200 × ADX) with 3-bar hysteresis |
 | Regime Router | `engine/regimeRouter.js` | Bear policy (cash-exit on BEAR_TREND) + regime→strategy bundles (routing OFF) |
-| TSM Core | `engine/tsmCore.js` | Majors trending-sleeve engine (majority-vote trailing momentum); pure functions |
+| TSM Core | `engine/tsmCore.js` | Majors trending-sleeve engine (slow-in momentum vote, vol targeting, resize planning); pure functions |
+| NASDAQ Trend | `data/nasdaqTrend.js` | FRED daily NASDAQ feed (keyless, 12h cache) + equity risk-off computation for the core sleeve |
 | Strategies | `strategies/*.js` | 20 independent signal generators (+ `registry.js` catalog) |
 | Strategy Builder | `utils/strategyBuilder.js` | Per-symbol strategy/risk selection; applies `confidenceThresholdScale` |
 | Market Context | `data/marketContext.js` | BTC.D (CoinGecko) + ETHBTC (Binance) cache, replayable in backtest |
@@ -321,7 +322,12 @@ config
 │   ├── lookbackBars[]     Trailing-momentum windows (default [60,90,120] = 30/45/60 days)
 │   ├── enterVotes         Positive votes to OPEN (default 3 — slow-in hysteresis)
 │   ├── stayVotes          Positive votes to KEEP (default 2)
-│   └── deploymentPct      Sleeve share of equity (default 0.5)
+│   ├── deploymentPct      Sleeve share of equity (default 0.5)
+│   ├── volTarget          Annualised vol target — slot × min(1, target/realized) (default 0.6)
+│   ├── volWindowBars      Realized-vol window (default 60 = 30 days)
+│   ├── minFraction        Vol-fraction floor (default 0.2)
+│   ├── resizeThresholdPct Drift rebalance trigger, share of slot (default 0.15)
+│   └── macroOverlay{}     Equity risk-off: ×riskOffFactor while NASDAQ < EMA(emaDays)
 ├── btcDominance{}         BTC.D entry gate (CoinGecko)
 └── fearGreed{}            Fear & Greed entry-threshold modulator
 ```

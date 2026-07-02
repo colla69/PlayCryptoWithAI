@@ -219,8 +219,16 @@ tested (including the exact 2021 top), but absolute return still requires the as
 asset-class upside, not alpha); infrastructure is shipped, operator chooses whether/when to 
 activate and how much capital to allocate.
 
-Implementation: `src/engine/tsmCore.js` (pure functions), `src/main.js` orchestration (`runTsmCoreCycle`), 
-PaperTrader additions (`openCorePosition`, `closeCorePosition`).
+**Sizing (combo rule):** each slot is `deploymentPct/n × volFraction × macroFactor` —
+vol targeting (`min(1, volTarget/realized 30d vol)`, floor 0.2, no leverage) times the equity
+risk-off overlay (×0.5 while the NASDAQ Composite is below its 100d EMA; FRED keyless feed with
+12h cache, neutral on fetch failure). Held positions drift-rebalance when they deviate >15% of
+their slot (`resizeCorePosition`, partial fills carry post-state for restart restore). Full combo
+on the 9yr study: Sharpe 1.27, DD −36%, DSR 0.94 — see `docs/TREND_CORE_STUDY.md`.
+
+Implementation: `src/engine/tsmCore.js` (pure functions), `src/data/nasdaqTrend.js` (macro feed), 
+`src/main.js` orchestration (`runTsmCoreCycle`), PaperTrader additions (`openCorePosition`, 
+`closeCorePosition`, `resizeCorePosition`).
 
 ---
 

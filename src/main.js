@@ -25,7 +25,8 @@ import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './da
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { computePositionSize } from './core/positionSizing.js';
-import { computeTsmVote, planCoreActions, baseSymbol } from './engine/tsmCore.js';
+import { computeTsmVote, planCoreActions, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey, baseSymbol } from './engine/tsmCore.js';
+import { loadNasdaqHistory, computeEquityRiskOff } from './data/nasdaqTrend.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -534,8 +535,27 @@ async function runTsmCoreCycle() {
   }
   try {
     const status = await trader.getStatus();
+
+    // ── Macro overlay (M1): half size while NASDAQ < its 100d EMA ───────────
+    // FRED feed is keyless with a 12h disk cache; any failure → neutral (1).
+    let macroFactor = 1;
+    let macroState = 'off';
+    const mo = coreCfg.macroOverlay ?? {};
+    if (mo.enabled !== false) {
+      const nasdaq = await loadNasdaqHistory();
+      const ro = computeEquityRiskOff(nasdaq?.rows, { emaDays: mo.emaDays ?? 100 });
+      if (ro.available) {
+        macroFactor = ro.above ? 1 : Number(mo.riskOffFactor ?? 0.5);
+        macroState = ro.above ? 'risk-on' : `RISK-OFF ×${macroFactor}`;
+      } else {
+        macroState = 'unavailable → neutral';
+        logger.warn('[TSM-CORE] NASDAQ feed unavailable — macro overlay neutral this cycle');
+      }
+    }
+
     const signals = new Map();
     const prices = new Map();
+    const fractions = new Map();
     for (const symbol of coreCfg.symbols ?? []) {
       const candles = dashboardState.getCandles(symbol);
       if (!candles || candles.length < 2) {
@@ -543,14 +563,37 @@ async function runTsmCoreCycle() {
         continue;
       }
       // Closed bars only — the forming candle is sliced off (no lookahead).
-      const vote = computeTsmVote(candles.slice(0, -1), coreCfg.lookbackBars ?? [60, 90, 120]);
+      const closed = candles.slice(0, -1);
+      const vote = computeTsmVote(closed, coreCfg.lookbackBars ?? [60, 90, 120]);
+      const realizedVol = computeRealizedVolAnnual(closed, { windowBars: coreCfg.volWindowBars ?? 60 });
+      const fraction = computeTargetFraction({
+        volTarget: coreCfg.volTarget ?? null,
+        realizedVol,
+        minFraction: coreCfg.minFraction ?? 0.2,
+        macroFactor,
+      });
       signals.set(symbol, vote);
       prices.set(symbol, Number(candles.at(-1).close));
+      fractions.set(symbol, fraction);
       logger.info(
         `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (enter ≥${coreCfg.enterVotes ?? vote.needed}, stay ≥${coreCfg.stayVotes ?? vote.needed})` +
+        ` · vol ${realizedVol ? (realizedVol * 100).toFixed(0) + '%' : 'n/a'} → ×${fraction.toFixed(2)} · macro ${macroState}` +
         `${vote.insufficientHistory ? ' [insufficient history → forced CASH votes]' : ''}`,
       );
     }
+
+    // Equal split of deploymentPct × total equity across core symbols; each
+    // slot then scales by its vol/macro fraction. Opens are additionally
+    // capped at available cash inside openCorePosition.
+    const equity = status.balance + (status.positions ?? []).reduce(
+      (sum, p) => sum + p.qty * (p.currentPrice ?? p.entryPrice), 0);
+    const perSlot = (equity * Number(coreCfg.deploymentPct ?? 0.5)) / Math.max((coreCfg.symbols ?? []).length, 1);
+
+    const emit = (result) => {
+      dashboardState.pushTrade(result);
+      notifyTrade(result);
+      pushEvent('trade', result);
+    };
 
     const actions = planCoreActions({
       symbols: [...signals.keys()],
@@ -559,26 +602,42 @@ async function runTsmCoreCycle() {
       enterVotes: coreCfg.enterVotes ?? null,
       stayVotes: coreCfg.stayVotes ?? null,
     });
-    if (!actions.length) return;
-
-    // Equal split of deploymentPct × total equity across core symbols. Opens
-    // are additionally capped at available cash inside openCorePosition.
-    const equity = status.balance + (status.positions ?? []).reduce(
-      (sum, p) => sum + p.qty * (p.currentPrice ?? p.entryPrice), 0);
-    const perSlot = (equity * Number(coreCfg.deploymentPct ?? 0.5)) / Math.max((coreCfg.symbols ?? []).length, 1);
-
+    let traded = 0;
     for (const action of actions) {
       const price = prices.get(action.symbol);
       if (!Number.isFinite(price) || price <= 0) continue;
       const result = action.type === 'open'
-        ? trader.openCorePosition(action.key, price, perSlot)
+        ? trader.openCorePosition(action.key, price, perSlot * (fractions.get(action.symbol) ?? 1))
         : trader.closeCorePosition(action.key, price);
       if (!result) continue;
-      dashboardState.pushTrade(result);
-      notifyTrade(result);
-      pushEvent('trade', result);
+      emit(result); traded++;
     }
-    dashboardState.updateStatus(await trader.getStatus(), riskManager.getDailyStats());
+
+    // ── Resize pass: drift held positions toward their vol/macro target ─────
+    // Uses the pre-action snapshot, so freshly opened/closed slots are skipped.
+    const acted = new Set(actions.map((a) => a.key));
+    const held = new Map((status.positions ?? []).filter((p) => p.isCore).map((p) => [p.symbol, p]));
+    for (const symbol of signals.keys()) {
+      const key = coreKey(symbol);
+      const pos = held.get(key);
+      if (!pos || acted.has(key)) continue;
+      const price = prices.get(symbol);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      const deltaUsd = planCoreResize({
+        desiredUsd: perSlot * (fractions.get(symbol) ?? 1),
+        currentUsd: pos.qty * price,
+        perSlotUsd: perSlot,
+        thresholdPct: coreCfg.resizeThresholdPct ?? 0.15,
+      });
+      if (deltaUsd === null) continue;
+      const result = trader.resizeCorePosition(key, price, deltaUsd);
+      if (!result) continue;
+      emit(result); traded++;
+    }
+
+    if (traded > 0) {
+      dashboardState.updateStatus(await trader.getStatus(), riskManager.getDailyStats());
+    }
   } catch (err) {
     logger.error(`[TSM-CORE] cycle failed: ${err?.message ?? err}`);
   }
@@ -1020,7 +1079,12 @@ if (paperMode) {
   const openTrades = {};
   for (const t of [...allTrades].reverse()) {
     if (t.side === 'BUY')  openTrades[t.symbol] = t;
-    if (t.side === 'SELL') delete openTrades[t.symbol];
+    if (t.side === 'SELL') {
+      // Core resize trims are PARTIAL sells — the position stays open and the
+      // record carries its post-resize state (positionQty/positionEntryPrice).
+      if (t.reason === 'tsm_core_resize') openTrades[t.symbol] = t;
+      else delete openTrades[t.symbol];
+    }
   }
   for (const t of Object.values(openTrades)) trader.restorePosition(t);
 }

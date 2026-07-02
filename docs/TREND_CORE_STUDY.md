@@ -167,9 +167,10 @@ information. `src/scripts/downloadContextData.mjs` fetches four free, keyless so
    through (and profits from) exactly the frothy stretches those signals would trim. High funding
    / greed / MVRV are features of the trends the sleeve lives off.
 3. **Selection caveat:** M1 is the best of six tried (the search is charged in the DSR, and the
-   two-universe + worst-entry + attribution checks all pass), but it is a single cell family —
-   treat as a validated *candidate*, to be wired only with its own live data feed (daily NASDAQ
-   close vs 100d EMA) and confirmed in the paper soak.
+   two-universe + worst-entry + attribution checks all pass), but it is a single cell family.
+   It is now wired into the paper sleeve (`src/data/nasdaqTrend.js`, FRED keyless feed, neutral
+   on failure) alongside vol-targeted sizing with drift rebalancing — the paper soak validates
+   the full combo operationally before any live-money step.
 
 **Cumulative ladder (4-major universe, 2017-08 → 2026-07, honest fills):**
 vote 2-of-3 → Sharpe 1.07 / DD −60% ⇒ +slow-in → 1.12 / −58% ⇒ +vol-target → 1.23 / −44%

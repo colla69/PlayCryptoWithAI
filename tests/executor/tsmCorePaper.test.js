@@ -93,3 +93,56 @@ describe('PaperTrader: core position lifecycle', () => {
     }
   });
 });
+
+describe('PaperTrader: core position resizing', () => {
+  test('resize BUY blends entry price and debits balance', () => {
+    const trader = new PaperTrader({ ...DEFAULT_RISK, initialBalance: 1000 });
+    trader.openCorePosition(CORE, 50_000, 500); // qty 0.01 @50k
+    const result = trader.resizeCorePosition(CORE, 60_000, 300);
+
+    assert.equal(result.side, 'BUY');
+    assert.equal(result.reason, 'tsm_core_resize');
+    const pos = trader.getStatus().positions.find((p) => p.symbol === CORE);
+    assert.ok(Math.abs(pos.qty - 0.015) < 1e-6);
+    // blended entry: (50000×0.01 + 300) / 0.015 = 53333.33
+    assert.ok(Math.abs(pos.entryPrice - 53333.33) < 1);
+    assert.ok(Math.abs(trader.getStatus().balance - 200) < 1);
+    assert.equal(result.positionQty, pos.qty);
+  });
+
+  test('resize SELL trims, realises PnL, keeps entry price', () => {
+    const trader = new PaperTrader({ ...DEFAULT_RISK, initialBalance: 1000 });
+    trader.openCorePosition(CORE, 50_000, 500); // qty 0.01
+    const result = trader.resizeCorePosition(CORE, 60_000, -250);
+
+    assert.equal(result.side, 'SELL');
+    // sold ~0.00416667 with +10k/coin gain → pnl ≈ +41.67
+    assert.ok(Math.abs(result.pnl - 41.67) < 0.5, `pnl ${result.pnl}`);
+    const pos = trader.getStatus().positions.find((p) => p.symbol === CORE);
+    assert.ok(Math.abs(pos.qty - 0.00583333) < 1e-6);
+    assert.equal(pos.entryPrice, 50_000);
+    assert.equal(result.positionQty, pos.qty);
+  });
+
+  test('dust resizes are skipped; over-trim delegates to a full close', () => {
+    const trader = new PaperTrader({ ...DEFAULT_RISK, initialBalance: 1000 });
+    trader.openCorePosition(CORE, 50_000, 500);
+    assert.equal(trader.resizeCorePosition(CORE, 50_000, -5), null);
+    const closed = trader.resizeCorePosition(CORE, 50_000, -999_999);
+    assert.equal(closed.reason, 'tsm_core_flip');
+    assert.equal(trader.getStatus().positions.length, 0);
+  });
+
+  test('restore prefers post-resize position state from resize records', () => {
+    const trader = new PaperTrader({ ...DEFAULT_RISK, initialBalance: 1000 });
+    trader.restorePosition({
+      symbol: CORE, side: 'SELL', qty: 0.004, price: 60_000,
+      isCore: true, reason: 'tsm_core_resize',
+      positionQty: 0.006, positionEntryPrice: 50_000,
+    });
+    const pos = trader.getStatus().positions.find((p) => p.symbol === CORE);
+    assert.equal(pos.qty, 0.006);
+    assert.equal(pos.entryPrice, 50_000);
+    assert.equal(pos.isCore, true);
+  });
+});
