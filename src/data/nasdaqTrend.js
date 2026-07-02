@@ -38,8 +38,13 @@ export async function loadNasdaqHistory() {
         const [date, value] = line.split(',');
         return { t: Date.parse(`${date}T00:00:00Z`), v: Number(value) };
       })
-      .filter((r) => Number.isFinite(r.t) && Number.isFinite(r.v));
-    if (!rows.length) throw new Error('empty FRED response');
+      // Sanity range: this feed scales real position sizes, so a corrupt or
+      // poisoned response must never survive parsing. NASDAQ has printed
+      // between ~50 and ~30,000 in its entire history.
+      .filter((r) => Number.isFinite(r.t) && Number.isFinite(r.v) && r.v > 1 && r.v < 1_000_000);
+    // A healthy FRED NASDAQCOM series has ~14,000 daily rows. A drastically
+    // shorter response is an outage/tamper signal — keep the existing cache.
+    if (rows.length < 5000) throw new Error(`implausible FRED response (${rows.length} rows)`);
     const data = { fetchedAt: Date.now(), rows };
     fs.writeFileSync(CACHE, JSON.stringify(data));
     return data;

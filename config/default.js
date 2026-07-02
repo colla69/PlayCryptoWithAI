@@ -709,15 +709,14 @@ export default {
 
   // ── TSM majors core sleeve (2026-07-02) ──────────────────────────────────────
   // Time-series-momentum "beta with a seatbelt": hold each core symbol long while
-  // a majority of trailing-momentum lookbacks is positive, sit in cash otherwise.
+  // trailing-momentum lookbacks are positive, sit in cash otherwise.
   // Exits ONLY on signal flip — no SL/TP/trailing/aging (positions carry isCore
   // and are skipped by stop management and scalper risk gates). Keyed as
   // '<symbol>#core' so a scalper position on the same symbol can coexist.
-  // Study (docs/TREND_CORE_STUDY.md, honest fills, 6yr): vote 30/45/60d BTC+ETH
-  // = +615% / Sharpe 1.01 / DD −52% vs B&H +554% / 0.87 / −73%; DSR 0.73 vs the
-  // ensemble's ~0.0. Expect plateau-level performance, NOT the mom30d spike.
-  // PAPER-FIRST: live mode is not implemented; enabling in live logs a warning
-  // and does nothing. Default OFF — opt in with TSM_CORE=true.
+  // Study (docs/TREND_CORE_STUDY.md): combo rule = Sharpe 1.27 / DD −36% /
+  // DSR 0.94 on 9yr incl. the 2018+2022 bears, vs B&H 0.78 / −84%.
+  // Runs in PAPER and LIVE (real market orders — deploymentPct of the account).
+  // Default OFF — TSM_CORE=true is the deliberate opt-in in either mode.
   tsmCore: {
     enabled: process.env.TSM_CORE === 'true',
     symbols: ['BTC/USDC', 'ETH/USDC'],

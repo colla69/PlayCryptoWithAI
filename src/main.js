@@ -16,7 +16,7 @@ import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
-import { initNotifier, notifyTrade, notifyStartup } from './notifications/index.js';
+import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
 import { calcFearGreedAdjustedThreshold } from './core/filters.js';
@@ -516,23 +516,23 @@ async function runAllSymbols() {
   }
 }
 
-// ── TSM majors core sleeve (paper-first) ─────────────────────────────────────
+// ── TSM majors core sleeve ────────────────────────────────────────────────────
 // Once per cycle: recompute the momentum majority vote per core symbol and
 // reconcile positions (open on flip-on, close on flip-off — no other exits).
 // The sleeve is independent of the scalper: core positions skip stop
 // management, entry filters, and bear cash-exit, and their PnL intentionally
-// does NOT feed riskManager's daily-loss accounting.
-let tsmCoreLiveWarned = false;
+// does NOT feed riskManager's daily-loss accounting. Execution follows the
+// session's trader instance: PaperTrader simulates, LiveTrader places REAL
+// market orders — TSM_CORE=true is the deliberate opt-in in either mode.
+// Vote-flip exits that fail on the exchange are alerted immediately and
+// retried by the fast risk loop (live) instead of waiting 12h.
+const tsmCoreFailedCloses = new Set();
 async function runTsmCoreCycle() {
   const coreCfg = config.tsmCore ?? {};
   if (!coreCfg.enabled) return;
-  if (!paperMode) {
-    if (!tsmCoreLiveWarned) {
-      logger.warn('[TSM-CORE] enabled but live execution is not implemented (paper-first) — skipping');
-      tsmCoreLiveWarned = true;
-    }
-    return;
-  }
+  // Fresh cycle re-decides everything — stale retry flags would otherwise
+  // outlive a vote that flipped back on.
+  tsmCoreFailedCloses.clear();
   try {
     const status = await trader.getStatus();
 
@@ -609,9 +609,18 @@ async function runTsmCoreCycle() {
       const price = prices.get(action.symbol);
       if (!Number.isFinite(price) || price <= 0) continue;
       const result = action.type === 'open'
-        ? trader.openCorePosition(action.key, price, perSlot * (fractions.get(action.symbol) ?? 1))
-        : trader.closeCorePosition(action.key, price);
-      if (!result) continue;
+        ? await trader.openCorePosition(action.key, price, perSlot * (fractions.get(action.symbol) ?? 1))
+        : await trader.closeCorePosition(action.key, price);
+      if (!result) {
+        if (action.type === 'close') {
+          // A stuck exit is unbounded exposure with no stop — alert the
+          // operator now and let the fast risk loop retry within minutes.
+          tsmCoreFailedCloses.add(action.key);
+          logger.error(`[TSM-CORE] ${action.key}: vote-flip CLOSE FAILED — retrying via fast risk loop`);
+          void notifyAlert(`TSM core: closing <b>${action.key}</b> failed — position stays open until the retry succeeds (checked every 2 min).`);
+        }
+        continue;
+      }
       emit(result); traded++;
     }
 
@@ -632,7 +641,7 @@ async function runTsmCoreCycle() {
         thresholdPct: coreCfg.resizeThresholdPct ?? 0.15,
       });
       if (deltaUsd === null) continue;
-      const result = trader.resizeCorePosition(key, price, deltaUsd);
+      const result = await trader.resizeCorePosition(key, price, deltaUsd);
       if (!result) continue;
       emit(result); traded++;
     }
@@ -709,7 +718,7 @@ function logStartup() {
   const tsm = config.tsmCore;
   logger.info(
     `TSM core sleeve: ${tsm?.enabled
-      ? `ON (paper-first) symbols=${(tsm.symbols ?? []).join(',')} deploy=${((tsm.deploymentPct ?? 0.5) * 100).toFixed(0)}% lookbacks=${(tsm.lookbackBars ?? []).join('/')} bars`
+      ? `ON (${paperMode ? 'paper' : 'LIVE — real orders'}) symbols=${(tsm.symbols ?? []).join(',')} deploy=${((tsm.deploymentPct ?? 0.5) * 100).toFixed(0)}% lookbacks=${(tsm.lookbackBars ?? []).join('/')} bars`
       : 'OFF'}`,
   );
   logger.info(
@@ -1171,6 +1180,29 @@ if (!paperMode) {
 
       logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s)`);
       for (const pos of openPositions) {
+        // Core sleeve positions have no stops — nothing to manage here except
+        // retrying a vote-flip exit that failed on the exchange.
+        if (pos.isCore) {
+          if (tsmCoreFailedCloses.has(pos.symbol)) {
+            try {
+              const ticker = await fetchTicker(baseSymbol(pos.symbol));
+              const price = Number(ticker?.last ?? ticker?.close ?? 0);
+              if (price > 0) {
+                const retried = await trader.closeCorePosition(pos.symbol, price);
+                if (retried) {
+                  tsmCoreFailedCloses.delete(pos.symbol);
+                  logger.info(`[RISK-LOOP] ${pos.symbol}: core close retry succeeded`);
+                  dashboardState.pushTrade(retried);
+                  notifyTrade(retried);
+                  pushEvent('trade', retried);
+                }
+              }
+            } catch (err) {
+              logger.debug(`[RISK-LOOP] ${pos.symbol}: core close retry failed — ${err.message}`);
+            }
+          }
+          continue;
+        }
         try {
           const ticker = await fetchTicker(pos.symbol);
           const price = Number(ticker?.last ?? ticker?.close ?? 0);

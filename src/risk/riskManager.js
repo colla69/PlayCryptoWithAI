@@ -61,7 +61,10 @@ export class RiskManager {
       return { allowed: true, reason: 'No trade requested' };
     }
 
-    const positions = Array.isArray(currentStatus.positions) ? currentStatus.positions : [];
+    // TSM core sleeve positions have their own capital budget and must not
+    // consume the scalper's concurrent-position slots.
+    const positions = (Array.isArray(currentStatus.positions) ? currentStatus.positions : [])
+      .filter((position) => !position.isCore);
     const hasOpenPosition = positions.some((position) => position.symbol === symbol);
 
     if (hasOpenPosition) {

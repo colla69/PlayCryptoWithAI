@@ -168,9 +168,9 @@ information. `src/scripts/downloadContextData.mjs` fetches four free, keyless so
    / greed / MVRV are features of the trends the sleeve lives off.
 3. **Selection caveat:** M1 is the best of six tried (the search is charged in the DSR, and the
    two-universe + worst-entry + attribution checks all pass), but it is a single cell family.
-   It is now wired into the paper sleeve (`src/data/nasdaqTrend.js`, FRED keyless feed, neutral
-   on failure) alongside vol-targeted sizing with drift rebalancing — the paper soak validates
-   the full combo operationally before any live-money step.
+   It is now wired into the sleeve (`src/data/nasdaqTrend.js`, FRED keyless feed, neutral
+   on failure) alongside vol-targeted sizing with drift rebalancing. The combo now runs on real
+   money — live operation replaced the paper soak as the source of operational truth.
 
 **Cumulative ladder (4-major universe, 2017-08 → 2026-07, honest fills):**
 vote 2-of-3 → Sharpe 1.07 / DD −60% ⇒ +slow-in → 1.12 / −58% ⇒ +vol-target → 1.23 / −44%
@@ -182,4 +182,4 @@ Ensemble: +59% / Sharpe 0.95 / DD −10.5% / DSR ~0.02 — proven-null, barely p
 TSM vote core: +615% / Sharpe 1.01 / DD −52% / DSR 0.73 — literature-backed, captures the
 upside, real drawdowns. No configuration of this codebase gets both the upside capture *and*
 −10% DD; the honest construction is a **sized TSM core sleeve** (deployment fraction chosen for
-DD tolerance) alongside the scalper. Implementation: `config.tsmCore` (paper-first, default OFF).
+DD tolerance) alongside the scalper. Implementation: `config.tsmCore` (default OFF; simulates in paper, real market orders in live).

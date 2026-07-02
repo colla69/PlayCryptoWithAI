@@ -72,6 +72,13 @@ export class LiveTrader {
         return null;
       }
 
+      // TSM core positions exit ONLY on the momentum-vote flip — no SL/TP,
+      // trailing, break-even, or two-stage exits. Track price and bail.
+      if (position.isCore) {
+        position.currentPrice = roundPrice(currentPrice);
+        return null;
+      }
+
       logger.debug(`[LIVE] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
 
       // Trailing stop update
@@ -130,35 +137,33 @@ export class LiveTrader {
     }
   }
 
+  #positionRows() {
+    return Array.from(this.positions.entries()).map(([symbol, position]) => ({
+      symbol,
+      qty: roundQty(position.qty),
+      entryPrice: roundPrice(position.entryPrice),
+      currentPrice: roundPrice(position.currentPrice ?? position.entryPrice),
+      stopLoss: roundPrice(position.stopLoss),
+      takeProfit: roundPrice(position.takeProfit),
+      highWaterMark: roundPrice(position.highWaterMark),
+      openedAt: position.openedAt,
+      isCore: position.isCore === true,
+    }));
+  }
+
   async getStatus() {
     try {
       const quoteBalance = await this.#fetchQuoteBalance();
       return {
         balance: quoteBalance,
-        positions: Array.from(this.positions.entries()).map(([symbol, position]) => ({
-          symbol,
-          qty: roundQty(position.qty),
-          entryPrice: roundPrice(position.entryPrice),
-          stopLoss: roundPrice(position.stopLoss),
-          takeProfit: roundPrice(position.takeProfit),
-          highWaterMark: roundPrice(position.highWaterMark),
-          openedAt: position.openedAt,
-        })),
+        positions: this.#positionRows(),
         totalPnL: roundMoney(this.totalPnL),
       };
     } catch (error) {
       logger.error(`[LIVE] status fetch failed - ${this.#formatError(error)}`);
       return {
         balance: 0,
-        positions: Array.from(this.positions.entries()).map(([symbol, position]) => ({
-          symbol,
-          qty: roundQty(position.qty),
-          entryPrice: roundPrice(position.entryPrice),
-          stopLoss: roundPrice(position.stopLoss),
-          takeProfit: roundPrice(position.takeProfit),
-          highWaterMark: roundPrice(position.highWaterMark),
-          openedAt: position.openedAt,
-        })),
+        positions: this.#positionRows(),
         totalPnL: roundMoney(this.totalPnL),
       };
     }
@@ -171,13 +176,73 @@ export class LiveTrader {
       const balance = await fetchBalance();
       const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
 
+      // ── TSM core positions first ──────────────────────────────────────────
+      // The wallet asset is fungible: free BTC may back BOTH a core and a
+      // scalper position. Core legs restore from persisted state (which
+      // carries qty); whatever they claim is subtracted from the balance the
+      // scalper restore below is allowed to attribute.
+      const coreClaimedByBase = new Map();
+      for (const [key, saved] of Object.entries(savedState)) {
+        try {
+          if (!saved?.isCore || !String(key).endsWith('#core') || this.positions.has(key)) continue;
+          const market = key.split('#')[0];
+          const base = market.split('/')[0];
+          const freeBase = Number(balance.free?.[base] ?? 0);
+          const savedQty = Number(saved.qty ?? 0);
+          const entryPrice = roundPrice(Number(saved.entryPrice ?? 0));
+          if (!(savedQty > 0) || !(entryPrice > 0)) continue;
+
+          // Sanity-check the saved record before it can drive real sell orders:
+          // a corrupt/hand-edited state file must not claim wallet coins the
+          // sleeve never bought. openedAt must exist and lie in the past.
+          const openedAtMs = Date.parse(saved.openedAt ?? '');
+          if (!Number.isFinite(openedAtMs) || openedAtMs > Date.now()) {
+            logger.warn(`[LIVE] ${key}: core entry in position state has invalid openedAt — dropped (not claiming wallet coins)`);
+            continue;
+          }
+
+          // Whatever the sleeve believes it owns is reserved from the scalper
+          // restore below EVEN IF this restore attempt fails — otherwise the
+          // scalper absorbs the core's coins and the sleeve double-buys later.
+          coreClaimedByBase.set(base, (coreClaimedByBase.get(base) ?? 0) + Math.min(savedQty, freeBase));
+
+          // Clamp to what the wallet actually holds (manual sells shrink it)
+          const qty = roundQty(Math.min(savedQty, freeBase));
+          const ticker = await fetchTickerFn(market);
+          const currentPrice = roundPrice(Number(ticker?.last ?? ticker?.close ?? 0));
+          if (qty <= 0 || !(currentPrice > 0) || qty * currentPrice < MIN_RESTORE_NOTIONAL) {
+            logger.warn(`[LIVE] ${key}: core position in saved state but wallet holds too little (${qty} ${base}) — dropped`);
+            continue;
+          }
+
+          this.positions.set(key, {
+            qty,
+            entryPrice,
+            currentPrice,
+            initialStopLoss: 0,
+            stopLoss: 0,
+            takeProfit: 0,
+            highWaterMark: currentPrice,
+            trailingStopPct: undefined,
+            openedAt: saved.openedAt ?? new Date().toISOString(),
+            partialExitDone: false,
+            isCore: true,
+          });
+          restored++;
+          logger.info(`[LIVE] Restored CORE position: ${key} qty=${qty} entry=${entryPrice} notional=$${(qty * currentPrice).toFixed(2)} (no SL/TP — momentum-flip exit)`);
+        } catch (coreErr) {
+          logger.warn(`[LIVE] core restore skipped ${key} - ${coreErr.message}`);
+        }
+      }
+
       for (const symbol of symbols) {
         try {
           // Skip symbols already tracked in memory
           if (this.positions.has(symbol)) continue;
 
           const base = symbol.split('/')[0];
-          const qty = Number(balance.free?.[base] ?? 0);
+          // Core legs already claimed part of this asset — don't double-count
+          const qty = roundQty(Number(balance.free?.[base] ?? 0) - (coreClaimedByBase.get(base) ?? 0));
           if (qty <= 0) continue;
 
           // Fetch current price
@@ -332,6 +397,184 @@ export class LiveTrader {
     }
   }
 
+  /**
+   * Open a TSM core sleeve position with a fixed USD allocation (real market
+   * order). `symbol` is the core key ('BTC/USDC#core'); orders go to the
+   * underlying market. No SL/TP — the only exit is closeCorePosition on a
+   * momentum-vote flip; sizing drifts via resizeCorePosition.
+   */
+  async openCorePosition(symbol, referencePrice, allocationUsd) {
+    try {
+      if (this.positions.has(symbol)) {
+        logger.info(`[LIVE] ${symbol}: core BUY skipped, existing position open`);
+        return null;
+      }
+      const market = symbol.split('#')[0];
+      const price = roundPrice(referencePrice);
+      if (!Number.isFinite(price) || price <= 0) return null;
+
+      const balance = await fetchBalance();
+      const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? 0);
+      const allocation = roundMoney(Math.min(Number(allocationUsd) || 0, freeQuote));
+
+      const rawQty = allocation / price;
+      const qty = await amountToPrecision(market, rawQty).catch(() => roundQty(rawQty));
+      const notional = roundMoney(qty * price);
+
+      let minQty = 0;
+      let minNotional = FALLBACK_MIN_NOTIONAL;
+      try {
+        const limits = await getMarketLimits(market);
+        minQty = limits.minQty ?? 0;
+        minNotional = Math.max(limits.minNotional ?? 0, FALLBACK_MIN_NOTIONAL);
+      } catch {
+        // Use fallback values — don't abort the trade on a limits-fetch failure
+      }
+
+      if (qty <= 0 || qty < minQty || notional < minNotional) {
+        logger.warn(`[LIVE] ${symbol}: core BUY skipped, allocation ${allocation.toFixed(2)} → qty ${qty} below exchange minimums (minQty=${minQty}, minNotional=${minNotional})`);
+        return null;
+      }
+
+      const order = await createOrder(market, 'market', 'buy', qty);
+      const entryPrice = await this.#resolveTradePrice(order, market, price);
+      const reportedQty = Number(order.filled ?? order.amount ?? qty);
+      const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
+      const timestamp = new Date().toISOString();
+
+      const position = {
+        qty: filledQty,
+        entryPrice,
+        currentPrice: entryPrice,
+        initialStopLoss: 0,
+        stopLoss: 0,
+        takeProfit: 0,
+        highWaterMark: entryPrice,
+        orderId: order.id,
+        side: 'buy',
+        trailingStopPct: undefined,
+        openedAt: timestamp,
+        partialExitDone: false,
+        isCore: true,
+      };
+      this.positions.set(symbol, position);
+      this.#savePositionState();
+      const balanceAfter = await this.#fetchQuoteBalance();
+
+      logger.info(`[LIVE] CORE BUY ${symbol} qty=${filledQty.toFixed(8)} price=${entryPrice.toFixed(8)} alloc=${notional.toFixed(2)} balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`);
+      appendTrade({
+        timestamp, symbol, side: 'BUY', price: entryPrice, qty: filledQty, pnl: 0,
+        balance: balanceAfter, note: '🧲 tsm-core', isCore: true,
+      });
+      return {
+        symbol, side: 'BUY', qty: filledQty, entryPrice, price: entryPrice,
+        orderId: order.id, timestamp, balance: balanceAfter, openedAt: timestamp,
+        note: '🧲 tsm-core', isCore: true,
+      };
+    } catch (error) {
+      logger.error(`[LIVE] ${symbol}: core BUY failed - ${this.#formatError(error)}`);
+      return null;
+    }
+  }
+
+  /** Close a TSM core position on a momentum-vote flip (real market sell). */
+  async closeCorePosition(symbol, referencePrice) {
+    return this.#closePosition(symbol, roundPrice(referencePrice), 'tsm_core_flip', '🧲 tsm-core');
+  }
+
+  /**
+   * Partially resize a held core position toward its vol/macro target.
+   * Positive delta buys more (blended entry), negative trims (realises PnL).
+   * Trade records carry post-resize state (positionQty/positionEntryPrice).
+   */
+  async resizeCorePosition(symbol, referencePrice, deltaUsd) {
+    try {
+      const position = this.positions.get(symbol);
+      if (!position?.isCore) return null;
+      const market = symbol.split('#')[0];
+      const price = roundPrice(referencePrice);
+      if (!Number.isFinite(price) || price <= 0) return null;
+      const delta = Number(deltaUsd) || 0;
+      const timestamp = new Date().toISOString();
+
+      if (delta > 0) {
+        const balance = await fetchBalance();
+        const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? 0);
+        const spend = roundMoney(Math.min(delta, freeQuote));
+        const rawQty = spend / price;
+        const qty = await amountToPrecision(market, rawQty).catch(() => roundQty(rawQty));
+        if (qty <= 0 || qty * price < FALLBACK_MIN_NOTIONAL) {
+          logger.info(`[LIVE] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below minimums)`);
+          return null;
+        }
+        const order = await createOrder(market, 'market', 'buy', qty);
+        const fillPrice = await this.#resolveTradePrice(order, market, price);
+        const reported = Number(order.filled ?? order.amount ?? qty);
+        const addQty = roundQty(reported > 0 ? reported : qty);
+        const newQty = roundQty(position.qty + addQty);
+        position.entryPrice = roundPrice((position.entryPrice * position.qty + fillPrice * addQty) / newQty);
+        position.qty = newQty;
+        position.currentPrice = fillPrice;
+        this.#savePositionState();
+        const balanceAfter = await this.#fetchQuoteBalance();
+        logger.info(`[LIVE] CORE RESIZE +$${(addQty * fillPrice).toFixed(2)} ${symbol} qty=${newQty.toFixed(8)} entry→${position.entryPrice.toFixed(8)} orderId=${order.id ?? 'n/a'}`);
+        const record = {
+          timestamp, symbol, side: 'BUY', price: fillPrice, qty: addQty, pnl: 0,
+          balance: balanceAfter, note: '🧲 tsm-core', isCore: true, reason: 'tsm_core_resize',
+          positionQty: position.qty, positionEntryPrice: position.entryPrice,
+        };
+        appendTrade(record);
+        return { ...record, openedAt: position.openedAt };
+      }
+
+      if (delta < 0) {
+        // Trim toward target; never below zero, never more than the wallet holds
+        const base = market.split('/')[0];
+        let sellQty = Math.min(-delta / price, position.qty);
+        try {
+          const bal = await fetchBalance();
+          const freeBase = Number(bal.free?.[base] ?? 0);
+          sellQty = Math.min(sellQty, freeBase);
+        } catch {
+          // fall back to computed qty
+        }
+        sellQty = await amountToPrecision(market, sellQty).catch(() => roundQty(sellQty));
+        if (sellQty <= 0 || sellQty * price < FALLBACK_MIN_NOTIONAL) {
+          logger.info(`[LIVE] ${symbol}: core resize SELL skipped (below minimums)`);
+          return null;
+        }
+        if (sellQty >= position.qty) {
+          // Never let a resize silently liquidate — full exits are the vote's job
+          return this.closeCorePosition(symbol, price);
+        }
+        const order = await createOrder(market, 'market', 'sell', sellQty);
+        const fillPrice = await this.#resolveTradePrice(order, market, price);
+        // Deduct what actually filled, not what we asked for — a partial fill
+        // must not desync the tracked qty from the wallet.
+        const reportedSold = Number(order.filled ?? order.amount ?? sellQty);
+        const actualSold = roundQty(reportedSold > 0 ? Math.min(reportedSold, position.qty) : sellQty);
+        const pnl = roundMoney((fillPrice - position.entryPrice) * actualSold);
+        position.qty = roundQty(position.qty - actualSold);
+        position.currentPrice = fillPrice;
+        this.totalPnL = roundMoney(this.totalPnL + pnl);
+        this.#savePositionState();
+        const balanceAfter = await this.#fetchQuoteBalance();
+        logger.info(`[LIVE] CORE RESIZE -$${(actualSold * fillPrice).toFixed(2)} ${symbol} qty=${position.qty.toFixed(8)} pnl=${pnl.toFixed(2)} orderId=${order.id ?? 'n/a'}`);
+        const record = {
+          timestamp, symbol, side: 'SELL', price: fillPrice, qty: actualSold, pnl,
+          balance: balanceAfter, note: '🧲 tsm-core', isCore: true, reason: 'tsm_core_resize',
+          positionQty: position.qty, positionEntryPrice: position.entryPrice,
+        };
+        appendTrade(record);
+        return { ...record, openedAt: position.openedAt };
+      }
+      return null;
+    } catch (error) {
+      logger.error(`[LIVE] ${symbol}: core resize failed - ${this.#formatError(error)}`);
+      return null;
+    }
+  }
+
   async #openPosition(symbol, referencePrice, riskOverride) {
     try {
       if (this.positions.has(symbol)) {
@@ -339,7 +582,10 @@ export class LiveTrader {
         return null;
       }
 
-      if (this.positions.size >= this.config.maxOpenPositions) {
+      // Core sleeve positions have their own capital budget (deploymentPct)
+      // and must not consume the scalper's concurrent-position slots.
+      const scalperCount = [...this.positions.values()].filter((p) => !p.isCore).length;
+      if (scalperCount >= this.config.maxOpenPositions) {
         logger.warn(`[LIVE] ${symbol}: BUY skipped, max open positions reached`);
         return null;
       }
@@ -526,7 +772,7 @@ export class LiveTrader {
     return { symbol, qty: sellQty, price: exitPrice, pnl, partial: true };
   }
 
-  async #closePosition(symbol, referencePrice, reason) {
+  async #closePosition(symbol, referencePrice, reason, note = null) {
     try {
       const position = this.positions.get(symbol);
 
@@ -537,23 +783,28 @@ export class LiveTrader {
         return null;
       }
 
+      // Core positions are keyed '<market>#core' — exchange calls use the market.
+      const market = symbol.split('#')[0];
+
       const durationMs = Date.now() - (position.openedAt ? new Date(position.openedAt).getTime() : Date.now());
       const durationHrs = (durationMs / 3_600_000).toFixed(1);
       logger.debug(`[LIVE] ${symbol}: closing position reason=${reason} entry=${position.entryPrice.toFixed(8)} refPrice=${referencePrice.toFixed(8)} qty=${position.qty.toFixed(8)} held=${durationHrs}h HWM=${position.highWaterMark.toFixed(8)}`);
 
       // Use the actual free balance and apply Binance's lot-size step truncation.
-      const base = symbol.split('/')[0];
+      // Never sell MORE than this position's qty: the wallet asset is fungible
+      // and may back a coexisting core/scalper position on the same market.
+      const base = market.split('/')[0];
       let sellQty = position.qty;
       try {
         const bal = await fetchBalance();
         const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
         if (freeBase > 0) {
-          const maxSellable = await amountToPrecision(symbol, freeBase);
-          const dust = roundQty(freeBase - maxSellable);
+          const maxSellable = await amountToPrecision(market, Math.min(freeBase, sellQty));
+          const dust = roundQty(Math.min(freeBase, sellQty) - maxSellable);
           if (dust > 0) {
             logger.info(`[LIVE] ${symbol}: dust after step-size truncation: ${dust} ${base} (≈ ${(dust * referencePrice).toFixed(4)} ${this.quoteCurrency})`);
           }
-          if (maxSellable < sellQty || freeBase < sellQty) {
+          if (maxSellable < sellQty) {
             logger.info(`[LIVE] ${symbol}: adjusting sell qty ${sellQty.toFixed(8)} → ${maxSellable.toFixed(8)}`);
             sellQty = maxSellable;
           }
@@ -562,9 +813,9 @@ export class LiveTrader {
         // fetchBalance/amountToPrecision failed — fall back to stored qty
       }
 
-      const order = await createOrder(symbol, 'market', 'sell', sellQty);
+      const order = await createOrder(market, 'market', 'sell', sellQty);
       logger.debug(`[LIVE] ${symbol}: SELL order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
-      const exitPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
+      const exitPrice = await this.#resolveTradePrice(order, market, referencePrice);
       const proceeds = roundMoney(sellQty * exitPrice);
       const costBasis = roundMoney(position.qty * position.entryPrice);
       const pnl = roundMoney(proceeds - costBasis);
@@ -588,6 +839,8 @@ export class LiveTrader {
         qty: sellQty,
         pnl,
         balance: balanceAfter,
+        ...(note ? { note } : {}),
+        ...(position.isCore ? { isCore: true } : {}),
       });
 
       return {
@@ -601,6 +854,8 @@ export class LiveTrader {
         timestamp,
         balance: balanceAfter,
         openedAt: position.openedAt,
+        ...(note ? { note } : {}),
+        ...(position.isCore ? { isCore: true } : {}),
       };
     } catch (error) {
       logger.error(`[LIVE] ${symbol}: SELL failed - ${this.#formatError(error)}`);
@@ -648,6 +903,11 @@ export class LiveTrader {
           entryPrice: pos.entryPrice,
           openedAt: pos.openedAt,
           breakEvenLocked: pos.stopLoss >= pos.entryPrice,
+          // Core sleeve positions restore from this state (qty is required —
+          // the wallet balance alone can't attribute coins between the core
+          // and scalper legs of the same market).
+          qty: pos.qty,
+          isCore: pos.isCore === true,
         };
       }
       const json = JSON.stringify(state, null, 2);

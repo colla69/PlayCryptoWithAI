@@ -181,13 +181,16 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 
 ---
 
-## TSM Core Sleeve (experimental, paper-only, default OFF)
+## TSM Core Sleeve (experimental, default OFF — live-capable)
 
 **Shipped infrastructure for majors trend-following:** a parallel core portfolio (BTC/ETH/BNB/SOL 
 variants possible, default BTC+ETH) sized as a fixed sleeve (default 50% of equity, split equally) 
 that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
-env var; **paper-mode only** — enabling in live mode logs a warning and no-ops.
+env var; runs in **paper and live** — on the live bot it places real market orders sized to 
+`deploymentPct` of the account, so enabling it is a deliberate capital-deployment decision. A 
+vote-flip close that fails on the exchange fires a Telegram alert and is retried by the fast risk 
+loop (~2 min) until it fills.
 
 **The rule:** `computeTsmVote()` counts positive trailing-momentum votes on three lookback windows 
 (default 60/90/120 bars = 30/45/60 days on 12h), with **slow-in hysteresis**: OPEN only when all 3 
@@ -201,7 +204,9 @@ same asset.
 - Stop-loss/take-profit/break-even/aging (only exit trigger is vote flip)
 - Portfolio correlation cap (don't block a new core entry or penalise it)
 - Daily-loss accounting (core sleeve is ring-fenced, doesn't block scalper trades)
-- Risk-loop SL/TP management (PaperTrader early-returns on core positions)
+- Risk-loop SL/TP management (both traders early-return on core positions; the live fast 
+  risk loop touches them only to retry a failed vote-flip close)
+- The scalper's `maxOpenPositions` slots (core positions have their own capital budget)
 
 Trades tagged `note: '🧲 tsm-core'`.
 

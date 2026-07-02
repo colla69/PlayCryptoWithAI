@@ -147,11 +147,12 @@ Architecture, data flow, module responsibilities, and deployment.
     price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
     All closes → notifyTrade() → Telegram alert (if configured)
 
-8. TSM Core Cycle (if `TSM_CORE=true`, paper-only):
+8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real market orders):
    runTsmCoreCycle() reads closed 12h candles from dashboardState (no lookahead)
    For each core symbol: computeTsmVote(trailing momentum) → majority vote
    If vote flips: openCorePosition / closeCorePosition → position tracked with isCore flag
    Core positions excluded from risk-loop SL/TP, correlation cap, daily-loss accounting
+   Failed vote-flip closes → Telegram alert + retry via fast risk loop (live only)
 ```
 
 ### Fast Risk-Check Loop (every 2 min)
@@ -162,6 +163,8 @@ Architecture, data flow, module responsibilities, and deployment.
 2. Evaluate: trailing stop, break-even, stop-loss, take-profit
 3. If triggered → market sell, update dashboard, persist state
 4. Reduces market exposure window from 12h to ~2 min
+5. TSM core positions are skipped (no stops) EXCEPT to retry a vote-flip
+   close that failed on the exchange — retried every cycle until it fills
 ```
 
 ### MTF Candle Cache
@@ -271,24 +274,30 @@ docker compose up -d   # bot + dashboard on :3001
 - No external database — all state in JSON files
 - Git pull to upgrade, docker compose build to rebuild
 
-### 1b. TSM core paper soak (alongside production)
+### 1b. TSM core sleeve on the live bot
 
 ```bash
-docker compose -f docker-compose.soak.yml up -d --build   # soak on :3002
-docker logs -f playcrypto-tsm-soak 2>&1 | grep TSM-CORE   # watch sleeve cycles
+# in the live container's environment (docker-compose.yml or .env):
+TSM_CORE=true
+docker compose up -d --build
+docker logs -f <container> 2>&1 | grep TSM-CORE   # watch sleeve cycles
 ```
 
-Runs a second, fully isolated instance next to the live bot: `PAPER_MODE=true` +
-`TSM_CORE=true`, dashboard `:3002`, webhook `:3012`, own `data-soak/` and
-`logs-soak/` mounts (fresh `dashboard_persist.json` = a clean soak record).
-**The sleeve is paper-gated** — enabling `TSM_CORE` on the LIVE container does
-nothing except log a warning, by design; the soak container is the only way to
-exercise it. The Dockerfile healthcheck honours `DASHBOARD_PORT`, so the soak
-container reports healthy on its own port. Expect `[TSM-CORE]` log lines each
-12h cycle (votes, vol fraction, macro risk-on/off) and `🧲 tsm-core`-tagged
-trades once momentum turns positive. Shared `TELEGRAM_TOKEN` means soak
-notifications reach the same channel — blank the token in `environment:` to
-silence them.
+The sleeve runs inside the main bot process — no separate container. In
+`PAPER_MODE` it simulates; on the LIVE bot it places **real market orders**
+sized to `tsmCore.deploymentPct` of the account (default 50%), so enabling
+`TSM_CORE` on live is a deliberate capital-deployment decision. Expect
+`[TSM-CORE]` log lines each 12h cycle (votes, vol fraction, macro risk-on/off)
+and `🧲 tsm-core`-tagged trades once momentum turns positive. Core positions
+have **no SL/TP** — the only exit is the momentum-vote flip; a close that fails
+on the exchange fires a Telegram alert and is retried by the fast risk loop
+every ~2 min until it fills. Core positions restore across restarts from
+`data/position_state.json` (`qty` + `isCore` are persisted so wallet coins are
+attributed between the core and scalper legs of the same market).
+
+(The former `docker-compose.soak.yml` paper-soak container is retired — real-money
+operation replaced it as the source of operational truth. `data-soak/`/`logs-soak/`
+dirs on hosts that ran it can be deleted.)
 
 ### 2. AWS Lambda (serverless, ~$0.65/month)
 
@@ -336,7 +345,7 @@ config
 ├── regimeClassifier{}     EMA/ADX periods + hysteresis bars
 ├── bearPolicy{}           Cash-exit on BEAR_TREND (mode: trend_only)
 ├── regimeRouting{}        Regime→strategy bundles (disabled)
-├── tsmCore{}              Majors trending sleeve (paper-only, default OFF)
+├── tsmCore{}              Majors trending sleeve (paper & live, default OFF)
 │   ├── symbols[]          Core holdings (default ['BTC/USDC','ETH/USDC'])
 │   ├── lookbackBars[]     Trailing-momentum windows (default [60,90,120] = 30/45/60 days)
 │   ├── enterVotes         Positive votes to OPEN (default 3 — slow-in hysteresis)

@@ -21,6 +21,7 @@ resume
 Archive/
 Archive.zip
 
-# TSM soak container state (isolated from production data/ and logs/)
+# Legacy TSM paper-soak state (container retired — sleeve runs live now);
+# kept ignored so hosts that ran the soak stay clean until the dirs are deleted
 data-soak/
 logs-soak/
