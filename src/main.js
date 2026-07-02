@@ -25,6 +25,7 @@ import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './da
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { computePositionSize } from './core/positionSizing.js';
+import { computeTsmVote, planCoreActions, baseSymbol } from './engine/tsmCore.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -227,8 +228,10 @@ async function runCycle(symbol) {
           }
           return fresh;
         };
+        // Core sleeve positions are excluded so the beta sleeve doesn't trip
+        // the scalper's correlation cap or distort its risk gates.
         const filterResult = await runEntryFilters({
-          symbol, candles, openPositions: currentStatus.positions,
+          symbol, candles, openPositions: currentStatus.positions.filter((p) => !p.isCore),
           correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
           recentTrades: dashboardState.getTrades?.() ?? [],
           initialBalance: config.risk?.initialBalance ?? 0,
@@ -481,7 +484,9 @@ async function runAllSymbols() {
 
     if (bearPolicy.shouldCashExitOpen) {
       const status = await trader.getStatus();
-      const open = status.positions ?? [];
+      // TSM core positions respond to regime via their own momentum flip —
+      // the bear cash-exit only manages scalper positions.
+      const open = (status.positions ?? []).filter((p) => !p.isCore);
       if (open.length > 0) {
         logger.warn(`[PHASE6A] BEAR regime entered — closing ${open.length} open position(s): ${open.map((p) => p.symbol).join(', ')}`);
         for (const pos of open) {
@@ -501,8 +506,75 @@ async function runAllSymbols() {
     }
 
     await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
+
+    // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
+    // candles that runCycle just refreshed in dashboardState.
+    await runTsmCoreCycle();
   } finally {
     cycleInProgress = false;
+  }
+}
+
+// ── TSM majors core sleeve (paper-first) ─────────────────────────────────────
+// Once per cycle: recompute the momentum majority vote per core symbol and
+// reconcile positions (open on flip-on, close on flip-off — no other exits).
+// The sleeve is independent of the scalper: core positions skip stop
+// management, entry filters, and bear cash-exit, and their PnL intentionally
+// does NOT feed riskManager's daily-loss accounting.
+let tsmCoreLiveWarned = false;
+async function runTsmCoreCycle() {
+  const coreCfg = config.tsmCore ?? {};
+  if (!coreCfg.enabled) return;
+  if (!paperMode) {
+    if (!tsmCoreLiveWarned) {
+      logger.warn('[TSM-CORE] enabled but live execution is not implemented (paper-first) — skipping');
+      tsmCoreLiveWarned = true;
+    }
+    return;
+  }
+  try {
+    const status = await trader.getStatus();
+    const signals = new Map();
+    const prices = new Map();
+    for (const symbol of coreCfg.symbols ?? []) {
+      const candles = dashboardState.getCandles(symbol);
+      if (!candles || candles.length < 2) {
+        logger.warn(`[TSM-CORE] ${symbol}: no candles cached — skipping`);
+        continue;
+      }
+      // Closed bars only — the forming candle is sliced off (no lookahead).
+      const vote = computeTsmVote(candles.slice(0, -1), coreCfg.lookbackBars ?? [60, 90, 120]);
+      signals.set(symbol, vote);
+      prices.set(symbol, Number(candles.at(-1).close));
+      logger.info(
+        `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (need ${vote.needed}) → ${vote.on ? 'LONG' : 'CASH'}` +
+        `${vote.insufficientHistory ? ' [insufficient history → forced CASH votes]' : ''}`,
+      );
+    }
+
+    const actions = planCoreActions({ symbols: [...signals.keys()], signals, positions: status.positions });
+    if (!actions.length) return;
+
+    // Equal split of deploymentPct × total equity across core symbols. Opens
+    // are additionally capped at available cash inside openCorePosition.
+    const equity = status.balance + (status.positions ?? []).reduce(
+      (sum, p) => sum + p.qty * (p.currentPrice ?? p.entryPrice), 0);
+    const perSlot = (equity * Number(coreCfg.deploymentPct ?? 0.5)) / Math.max((coreCfg.symbols ?? []).length, 1);
+
+    for (const action of actions) {
+      const price = prices.get(action.symbol);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      const result = action.type === 'open'
+        ? trader.openCorePosition(action.key, price, perSlot)
+        : trader.closeCorePosition(action.key, price);
+      if (!result) continue;
+      dashboardState.pushTrade(result);
+      notifyTrade(result);
+      pushEvent('trade', result);
+    }
+    dashboardState.updateStatus(await trader.getStatus(), riskManager.getDailyStats());
+  } catch (err) {
+    logger.error(`[TSM-CORE] cycle failed: ${err?.message ?? err}`);
   }
 }
 
@@ -540,6 +612,12 @@ function logStartup() {
   );
   logger.info(
     `Risk limits: maxDailyLossPct=${config.risk.maxDailyLossPct} maxOpenPositions=${config.risk.maxOpenPositions} minConfidence=${config.risk.minConfidence}`,
+  );
+  const tsm = config.tsmCore;
+  logger.info(
+    `TSM core sleeve: ${tsm?.enabled
+      ? `ON (paper-first) symbols=${(tsm.symbols ?? []).join(',')} deploy=${((tsm.deploymentPct ?? 0.5) * 100).toFixed(0)}% lookbacks=${(tsm.lookbackBars ?? []).join('/')} bars`
+      : 'OFF'}`,
   );
   logger.info(
     `Signals: webhook=${signalConfig.webhook?.enabled ? `on:${webhookPort}` : 'off'} telegram=${signalConfig.telegram?.enabled ? 'on' : 'off'} algoWeight=${signalConfig.algoWeight} minConfidence=${signalConfig.minConfidence}`,
@@ -966,7 +1044,8 @@ async function refreshOpenPositionPrices() {
     const allSymbols = openSymbols.size ? [...openSymbols] : config.symbols.slice(0, 5);
     const updates = {};
     await Promise.allSettled(allSymbols.map(async (symbol) => {
-      const ticker = await fetchTicker(symbol);
+      // Core keys ('BTC/USDC#core') aren't exchange markets — quote the base.
+      const ticker = await fetchTicker(baseSymbol(symbol));
       const price  = Number(ticker?.last ?? ticker?.close ?? 0);
       if (price > 0) {
         dashboardState.updatePrice(symbol, price);

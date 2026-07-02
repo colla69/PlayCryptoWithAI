@@ -60,6 +60,7 @@ export class PaperTrader {
           takeProfit: roundPrice(position.takeProfit),
           highWaterMark: roundPrice(position.highWaterMark),
           openedAt: position.openedAt,
+          isCore: position.isCore === true,
         };
       }),
       totalPnL: roundMoney(this.totalPnL),
@@ -70,6 +71,13 @@ export class PaperTrader {
     const position = this.positions.get(symbol);
 
     if (!position) {
+      return null;
+    }
+
+    // TSM core positions exit ONLY on signal flip (closeCorePosition) — no
+    // SL/TP, trailing, break-even, or two-stage exits. Track price and bail.
+    if (position.isCore) {
+      position.currentPrice = roundPrice(currentPrice);
       return null;
     }
 
@@ -252,7 +260,84 @@ export class PaperTrader {
     };
   }
 
-  #closePosition(symbol, price, reason) {
+  /**
+   * Open a TSM core sleeve position: fixed USD allocation, no SL/TP — the only
+   * exit is closeCorePosition() on a momentum-vote flip. `symbol` is the core
+   * key ('BTC/USDC#core') so scalper positions on the same market coexist.
+   *
+   * @param {string} symbol core position key
+   * @param {number} currentPrice
+   * @param {number} allocationUsd sleeve allocation for this symbol
+   * @returns {TradeResult|null}
+   */
+  openCorePosition(symbol, currentPrice, allocationUsd) {
+    if (this.positions.has(symbol)) {
+      logger.info(`[PAPER] ${symbol}: core BUY skipped, existing position open`);
+      return null;
+    }
+
+    const price = roundPrice(currentPrice);
+    const allocation = roundMoney(Math.min(Number(allocationUsd) || 0, this.balance));
+    const qty = roundQty(allocation / price);
+    const cost = roundMoney(qty * price);
+
+    if (qty <= 0 || cost > this.balance || cost < 10) {
+      logger.warn(`[PAPER] ${symbol}: core BUY skipped, allocation ${allocation.toFixed(2)} invalid (balance=${this.balance.toFixed(2)})`);
+      return null;
+    }
+
+    const timestamp = new Date().toISOString();
+    const position = {
+      qty,
+      entryPrice: price,
+      initialStopLoss: 0,
+      stopLoss: 0,
+      takeProfit: 0,
+      highWaterMark: price,
+      trailingStopPct: undefined,
+      openedAt: timestamp,
+      partialExitDone: false,
+      isCore: true,
+    };
+
+    this.balance = roundMoney(this.balance - cost);
+    this.positions.set(symbol, position);
+
+    logger.info(`[PAPER] CORE BUY ${symbol} qty=${qty.toFixed(8)} price=${price.toFixed(8)} alloc=${cost.toFixed(2)} balance=${this.balance.toFixed(2)}`);
+
+    appendTrade({
+      timestamp,
+      symbol,
+      side: 'BUY',
+      price,
+      qty,
+      pnl: 0,
+      balance: this.balance,
+      note: '🧲 tsm-core',
+      isCore: true,
+    });
+
+    return {
+      ...position,
+      symbol,
+      side: 'BUY',
+      timestamp,
+      balance: this.balance,
+      note: '🧲 tsm-core',
+    };
+  }
+
+  /**
+   * Close a TSM core position on a momentum-vote flip.
+   * @param {string} symbol core position key ('BTC/USDC#core')
+   * @param {number} currentPrice
+   * @returns {TradeResult|null}
+   */
+  closeCorePosition(symbol, currentPrice) {
+    return this.#closePosition(symbol, roundPrice(currentPrice), 'tsm_core_flip', '🧲 tsm-core');
+  }
+
+  #closePosition(symbol, price, reason, note) {
     const position = this.positions.get(symbol);
 
     if (!position) {
@@ -288,6 +373,7 @@ export class PaperTrader {
       qty: position.qty,
       pnl,
       balance: this.balance,
+      ...(note ? { note } : {}),
     });
 
     return {
@@ -300,6 +386,7 @@ export class PaperTrader {
       reason,
       balance: this.balance,
       openedAt: position.openedAt,
+      ...(note ? { note } : {}),
     };
   }
 
@@ -327,6 +414,9 @@ export class PaperTrader {
       trailingStopPct: Number.isFinite(Number(trade.trailingStopPct)) ? Number(trade.trailingStopPct) : undefined,
       openedAt:        trade.openedAt ?? trade.timestamp ?? new Date().toISOString(),
       currentPrice:    entryPrice,
+      // Core positions must survive restarts with their flag intact, or SL/TP
+      // management would adopt them (stopLoss 0 → instant nonsense exits).
+      isCore:          trade.isCore === true || String(symbol).endsWith('#core'),
     });
 
     logger.info(

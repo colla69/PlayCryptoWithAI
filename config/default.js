@@ -707,6 +707,24 @@ export default {
     lookback: 20,          // bars (20 × 12h = 10 days)
   },
 
+  // ── TSM majors core sleeve (2026-07-02) ──────────────────────────────────────
+  // Time-series-momentum "beta with a seatbelt": hold each core symbol long while
+  // a majority of trailing-momentum lookbacks is positive, sit in cash otherwise.
+  // Exits ONLY on signal flip — no SL/TP/trailing/aging (positions carry isCore
+  // and are skipped by stop management and scalper risk gates). Keyed as
+  // '<symbol>#core' so a scalper position on the same symbol can coexist.
+  // Study (docs/TREND_CORE_STUDY.md, honest fills, 6yr): vote 30/45/60d BTC+ETH
+  // = +615% / Sharpe 1.01 / DD −52% vs B&H +554% / 0.87 / −73%; DSR 0.73 vs the
+  // ensemble's ~0.0. Expect plateau-level performance, NOT the mom30d spike.
+  // PAPER-FIRST: live mode is not implemented; enabling in live logs a warning
+  // and does nothing. Default OFF — opt in with TSM_CORE=true.
+  tsmCore: {
+    enabled: process.env.TSM_CORE === 'true',
+    symbols: ['BTC/USDC', 'ETH/USDC'],
+    lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h; long when ≥2 of 3 positive
+    deploymentPct: 0.5,           // sleeve share of equity (risk dial: DD scales ~linearly)
+  },
+
   // ── Confidence-proportional position sizing ────────────────────────────────
   // Scales position size linearly based on signal confidence:
   //   conf ≥ mid (0.65)  → linear from 1.0× to max (1.5×)
