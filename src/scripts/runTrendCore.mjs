@@ -1,0 +1,359 @@
+/**
+ * runTrendCore.mjs — the "deeper fix" study from docs/HONEST_REVIEW_FINDINGS.md:
+ * majors-beta trend core (time-series momentum) + cross-sectional momentum rotation.
+ *
+ * Sim-only. Does NOT touch live code, config, or the PortfolioBacktester — this tests a
+ * different architecture (regime-gated beta / leader rotation), not the ensemble-TA bot,
+ * so the live filter stack does not apply. Fills are honest: decide on CLOSED bar i,
+ * execute at bar i+1 OPEN, 0.1% fee per leg + tiered slippage (large 0.10% / mid 0.20% /
+ * micro 0.35%). No lookahead anywhere.
+ *
+ * PRE-REGISTERED GRID (all cells reported; DSR charged for ALL 13 trials):
+ *   A. TSM sleeves: rule ∈ {ema100d, ema200d, mom30d, mom90d} × universe ∈ {BTC+ETH, +BNB+SOL}
+ *      (8 cells; canonical prior = ema200d on BTC+ETH — declared before running)
+ *   B. Rotation: lookback ∈ {30d, 90d} × topK ∈ {3, 4}, rebalance 10d, gate = BTC>EMA200d
+ *      (4 cells; canonical prior = 90d, K=4)
+ *   C. Blend: 50% A(ema200d, BTC+ETH) + 50% B(90d, K=4), static split (1 cell)
+ *
+ * Known caveats (stated, not hidden):
+ *   - Cross-sectional universe = today's 37-coin config → survivorship bias in B/C.
+ *   - Benchmarks (B&H) start at data start; strategies idle through their warmup.
+ *   - Deep candle history predates real USDC-pair liquidity for some coins.
+ *
+ * Usage: PAPER_MODE=true node src/scripts/runTrendCore.mjs [--out data/trend_core.json]
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CANDLE_DIR = path.resolve(__dirname, '../../data/candles');
+
+const BARS_PER_YEAR = 730; // 12h bars
+const FEE = 0.001;         // Binance spot, per leg
+const START_CAPITAL = 10_000;
+
+const argv = process.argv.slice(2);
+let outFile = 'data/trend_core.json';
+let extraMomDays = []; // neighbor-lookback robustness cells (plateau test); count toward DSR trials
+let voteDays = null;   // majority-vote ensemble of momentum lookbacks (candidate shipping rule)
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
+  if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
+  if (argv[i] === '--vote' && argv[i + 1]) voteDays = argv[++i].split(',').map(Number);
+}
+
+// every DSR is deflated by the FULL search: 13 pre-registered cells + any robustness/vote cells
+const N_TRIALS = 13 + extraMomDays.length * 2 + (voteDays ? 2 : 0);
+
+// Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
+const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON']);
+const MID = new Set(['AVAX', 'NEAR', 'ICP', 'APT', 'ARB', 'INJ', 'SUI', 'TIA', 'LDO', 'ENS', 'CRV', 'THETA', 'PAXG', 'RENDER', 'WLD', 'PEPE', 'ENA', 'JUP', 'JTO']);
+const slipFor = (coin) => (LARGE.has(coin) ? 0.001 : MID.has(coin) ? 0.002 : 0.0035);
+
+const configModule = await import('../../config/default.js');
+const config = configModule.default ?? configModule.config;
+const UNIVERSE = config.symbols.map((s) => s.split('/')[0]);
+
+// ── Data loading, aligned to the BTC 12h grid ────────────────────────────────
+function loadCandles(coin) {
+  const file = path.join(CANDLE_DIR, `${coin}_USDC_12h.json`);
+  if (!fs.existsSync(file)) return null;
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  return Array.isArray(raw) ? raw : raw.candles ?? null;
+}
+
+const btcCandles = loadCandles('BTC');
+if (!btcCandles?.length) { console.error('BTC 12h candles missing'); process.exit(1); }
+const grid = btcCandles.map((c) => c.timestamp);
+const gridIdx = new Map(grid.map((ts, i) => [ts, i]));
+
+// per coin: bars[gi] = actual candle or null; closes[gi] = carry-forward close; firstIdx
+const coins = new Map();
+for (const coin of new Set([...UNIVERSE, 'BTC', 'ETH', 'BNB', 'SOL'])) {
+  const candles = loadCandles(coin);
+  if (!candles?.length) { console.warn(`  (no 12h data for ${coin} — excluded)`); continue; }
+  const bars = new Array(grid.length).fill(null);
+  let firstIdx = null;
+  for (const c of candles) {
+    const gi = gridIdx.get(c.timestamp);
+    if (gi == null) continue;
+    bars[gi] = c;
+    if (firstIdx === null || gi < firstIdx) firstIdx = gi;
+  }
+  const closes = new Array(grid.length).fill(null);
+  let last = null;
+  for (let gi = 0; gi < grid.length; gi++) {
+    if (bars[gi]) last = bars[gi].close;
+    closes[gi] = last;
+  }
+  coins.set(coin, { bars, closes, firstIdx });
+}
+
+function emaSeries(coin, nBars) {
+  const { closes, firstIdx } = coins.get(coin);
+  const ema = new Array(grid.length).fill(null);
+  if (firstIdx === null || firstIdx + nBars >= grid.length) return ema;
+  let seed = 0;
+  for (let gi = firstIdx; gi < firstIdx + nBars; gi++) seed += closes[gi];
+  let value = seed / nBars;
+  const alpha = 2 / (nBars + 1);
+  for (let gi = firstIdx + nBars; gi < grid.length; gi++) {
+    value = closes[gi] * alpha + value * (1 - alpha);
+    ema[gi] = value;
+  }
+  return ema;
+}
+
+// Rules: day-based lookbacks → 12h bars (×2)
+const RULES = {
+  ema100d: { warmup: 200, make: (coin) => { const e = emaSeries(coin, 200); return (gi) => e[gi] !== null && coins.get(coin).closes[gi] > e[gi]; } },
+  ema200d: { warmup: 400, make: (coin) => { const e = emaSeries(coin, 400); return (gi) => e[gi] !== null && coins.get(coin).closes[gi] > e[gi]; } },
+  mom30d:  { warmup: 60,  make: (coin) => { const { closes, firstIdx } = coins.get(coin); return (gi) => firstIdx !== null && gi - 60 >= firstIdx && closes[gi] > closes[gi - 60]; } },
+  mom90d:  { warmup: 180, make: (coin) => { const { closes, firstIdx } = coins.get(coin); return (gi) => firstIdx !== null && gi - 180 >= firstIdx && closes[gi] > closes[gi - 180]; } },
+};
+for (const days of extraMomDays) {
+  const bars = days * 2;
+  RULES[`mom${days}d`] = { warmup: bars, make: (coin) => { const { closes, firstIdx } = coins.get(coin); return (gi) => firstIdx !== null && gi - bars >= firstIdx && closes[gi] > closes[gi - bars]; } };
+}
+if (voteDays) {
+  const barsList = voteDays.map((d) => d * 2);
+  const need = Math.floor(voteDays.length / 2) + 1;
+  RULES[`vote${voteDays.join('/')}d`] = {
+    warmup: Math.max(...barsList),
+    make: (coin) => {
+      const { closes, firstIdx } = coins.get(coin);
+      return (gi) => firstIdx !== null
+        && barsList.filter((b) => gi - b >= firstIdx && closes[gi] > closes[gi - b]).length >= need;
+    },
+  };
+}
+
+// ── A. TSM sleeve: one coin, long when rule true, else cash ─────────────────
+function simSleeve(coin, ruleKey) {
+  const { bars, closes } = coins.get(coin);
+  const on = RULES[ruleKey].make(coin);
+  let cash = 1, qty = 0, roundTrips = 0, investedBars = 0;
+  let pending = null;
+  const eq = new Array(grid.length).fill(1);
+  const slip = slipFor(coin);
+  for (let gi = 0; gi < grid.length; gi++) {
+    const bar = bars[gi];
+    if (pending && bar) {
+      if (pending === 'buy' && qty === 0) {
+        const px = bar.open * (1 + slip);
+        qty = (cash * (1 - FEE)) / px; cash = 0;
+      } else if (pending === 'sell' && qty > 0) {
+        const px = bar.open * (1 - slip);
+        cash = qty * px * (1 - FEE); qty = 0; roundTrips++;
+      }
+      pending = null;
+    }
+    eq[gi] = cash + qty * (closes[gi] ?? 0);
+    if (qty > 0) investedBars++;
+    const sig = on(gi);
+    pending = sig && qty === 0 ? 'buy' : !sig && qty > 0 ? 'sell' : null;
+  }
+  return { eq, roundTrips, investedBars };
+}
+
+function simTsm(universe, ruleKey) {
+  const sleeves = universe.filter((c) => coins.has(c)).map((c) => simSleeve(c, ruleKey));
+  const share = START_CAPITAL / universe.length;
+  const eq = grid.map((_, gi) => sleeves.reduce((s, sl) => s + sl.eq[gi] * share, 0)
+    + (universe.length - sleeves.length) * share);
+  return {
+    eq,
+    roundTrips: sleeves.reduce((s, sl) => s + sl.roundTrips, 0),
+    exposure: sleeves.reduce((s, sl) => s + sl.investedBars, 0) / (grid.length * universe.length),
+  };
+}
+
+// ── B. Cross-sectional momentum rotation, BTC-regime gated ──────────────────
+const btcEma200d = emaSeries('BTC', 400);
+function simRotation({ lookbackBars, topK, rebalanceEvery = 20 }) {
+  let cash = START_CAPITAL;
+  const pos = new Map();
+  let pendingTarget = null, trades = 0, investedSum = 0, investedN = 0;
+  const eq = new Array(grid.length).fill(START_CAPITAL);
+  for (let gi = 0; gi < grid.length; gi++) {
+    if (pendingTarget) {
+      // pass 1: sell drops + trim keeps; pass 2: buy — so buys are funded
+      for (const [coin, qty] of [...pos]) {
+        const bar = coins.get(coin).bars[gi];
+        if (!bar) continue; // no bar this slot — hold until next rebalance
+        if (!pendingTarget.has(coin)) {
+          cash += qty * bar.open * (1 - slipFor(coin)) * (1 - FEE);
+          pos.delete(coin); trades++;
+        }
+      }
+      let equityOpen = cash;
+      for (const [coin, qty] of pos) equityOpen += qty * (coins.get(coin).bars[gi]?.open ?? coins.get(coin).closes[gi] ?? 0);
+      const per = equityOpen / topK; // fixed 1/K slots — cash sits idle when few qualify
+      for (const [coin, qty] of [...pos]) {
+        const bar = coins.get(coin).bars[gi];
+        if (!bar || !pendingTarget.has(coin)) continue;
+        const excess = qty * bar.open - per;
+        if (excess > per * 0.05) {
+          const sellQty = excess / bar.open;
+          cash += sellQty * bar.open * (1 - slipFor(coin)) * (1 - FEE);
+          pos.set(coin, qty - sellQty); trades++;
+        }
+      }
+      for (const coin of pendingTarget) {
+        const bar = coins.get(coin)?.bars[gi];
+        if (!bar) continue;
+        const cur = (pos.get(coin) ?? 0) * bar.open;
+        const spend = Math.min(per - cur, cash);
+        if (spend > per * 0.05) {
+          const px = bar.open * (1 + slipFor(coin));
+          pos.set(coin, (pos.get(coin) ?? 0) + (spend * (1 - FEE)) / px);
+          cash -= spend; trades++;
+        }
+      }
+      pendingTarget = null;
+    }
+    let equity = cash;
+    for (const [coin, qty] of pos) equity += qty * (coins.get(coin).closes[gi] ?? 0);
+    eq[gi] = equity;
+    investedSum += (equity - cash) / equity; investedN++;
+    if (gi % rebalanceEvery === 0 && btcEma200d[gi] !== null) {
+      const gateOn = coins.get('BTC').closes[gi] > btcEma200d[gi];
+      if (!gateOn) pendingTarget = new Set();
+      else {
+        const scored = [];
+        for (const coin of UNIVERSE) {
+          const d = coins.get(coin);
+          if (!d || d.firstIdx === null || gi - lookbackBars < d.firstIdx) continue;
+          const r = d.closes[gi] / d.closes[gi - lookbackBars] - 1;
+          if (r > 0) scored.push([coin, r]);
+        }
+        scored.sort((a, b) => b[1] - a[1]);
+        pendingTarget = new Set(scored.slice(0, topK).map((x) => x[0]));
+      }
+    }
+  }
+  return { eq, roundTrips: Math.round(trades / 2), exposure: investedSum / investedN };
+}
+
+// ── Metrics ──────────────────────────────────────────────────────────────────
+const BEAR_START = Date.UTC(2021, 10, 8);
+const BEAR_END = Date.UTC(2022, 11, 31);
+function metrics(eq, { withDsr = false } = {}) {
+  const returns = [];
+  for (let gi = 1; gi < eq.length; gi++) {
+    if (eq[gi - 1] > 0) returns.push(eq[gi] / eq[gi - 1] - 1);
+  }
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const std = Math.sqrt(returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1));
+  const sharpe = std > 0 ? (mean / std) * Math.sqrt(BARS_PER_YEAR) : 0;
+  let peak = eq[0], maxDD = 0;
+  for (const v of eq) { if (v > peak) peak = v; maxDD = Math.min(maxDD, v / peak - 1); }
+  const years = eq.length / BARS_PER_YEAR;
+  const total = eq[eq.length - 1] / eq[0] - 1;
+  const yearly = {};
+  let yStartVal = eq[0], yStartYear = new Date(grid[0]).getUTCFullYear();
+  for (let gi = 1; gi < eq.length; gi++) {
+    const y = new Date(grid[gi]).getUTCFullYear();
+    if (y !== yStartYear) {
+      yearly[yStartYear] = Number((eq[gi - 1] / yStartVal - 1).toFixed(4));
+      yStartVal = eq[gi - 1]; yStartYear = y;
+    }
+  }
+  yearly[yStartYear] = Number((eq[eq.length - 1] / yStartVal - 1).toFixed(4));
+  const bi0 = grid.findIndex((ts) => ts >= BEAR_START);
+  const bi1 = grid.findIndex((ts) => ts >= BEAR_END);
+  let bear = null;
+  if (bi0 > 0 && bi1 > bi0) {
+    let bPeak = eq[bi0], bDD = 0;
+    for (let gi = bi0; gi <= bi1; gi++) { if (eq[gi] > bPeak) bPeak = eq[gi]; bDD = Math.min(bDD, eq[gi] / bPeak - 1); }
+    bear = { returnPct: Number(((eq[bi1] / eq[bi0] - 1) * 100).toFixed(1)), maxDDPct: Number((bDD * 100).toFixed(1)) };
+  }
+  const out = {
+    totalReturnPct: Number((total * 100).toFixed(1)),
+    cagrPct: Number(((Math.pow(1 + total, 1 / years) - 1) * 100).toFixed(1)),
+    sharpe: Number(sharpe.toFixed(2)),
+    maxDDPct: Number((maxDD * 100).toFixed(1)),
+    yearly, bear2122: bear,
+  };
+  if (withDsr) {
+    const d = deflatedSharpeRatio({ observedSharpe: sharpe, returns, nTrials: N_TRIALS, periodsPerYear: BARS_PER_YEAR });
+    out.dsr = d.dsr; out.psr = d.psr;
+  }
+  return out;
+}
+
+// ── Run the grid ─────────────────────────────────────────────────────────────
+const results = { meta: { nTrials: N_TRIALS, bars: grid.length, from: new Date(grid[0]).toISOString().slice(0, 10), to: new Date(grid.at(-1)).toISOString().slice(0, 10) } };
+
+const benchmarks = {};
+for (const [name, universe] of [['BTC buy&hold', ['BTC']], ['ETH buy&hold', ['ETH']], ['EW BTC+ETH B&H', ['BTC', 'ETH']]]) {
+  // B&H = a "rule" that is always on after bar 0
+  const sleeves = universe.map((c) => {
+    const { bars, closes } = coins.get(c);
+    let cash = 1, qty = 0;
+    const eq = grid.map((_, gi) => {
+      if (qty === 0 && bars[gi]) { qty = (cash * (1 - FEE)) / (bars[gi].open * (1 + slipFor(c))); cash = 0; }
+      return cash + qty * (closes[gi] ?? 0);
+    });
+    return eq;
+  });
+  const eq = grid.map((_, gi) => sleeves.reduce((s, sl) => s + (sl[gi] * START_CAPITAL) / universe.length, 0));
+  benchmarks[name] = metrics(eq);
+}
+results.benchmarks = benchmarks;
+
+const tsmCells = {};
+const universes = { 'BTC+ETH': ['BTC', 'ETH'], 'BTC+ETH+BNB+SOL': ['BTC', 'ETH', 'BNB', 'SOL'] };
+const eqCache = {};
+for (const [uName, universe] of Object.entries(universes)) {
+  for (const ruleKey of Object.keys(RULES)) {
+    const { eq, roundTrips, exposure } = simTsm(universe, ruleKey);
+    const key = `${ruleKey} ${uName}`;
+    tsmCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
+    eqCache[key] = eq;
+  }
+}
+results.tsmCore = tsmCells;
+
+const rotCells = {};
+for (const lookbackDays of [30, 90]) {
+  for (const topK of [3, 4]) {
+    const { eq, roundTrips, exposure } = simRotation({ lookbackBars: lookbackDays * 2, topK });
+    const key = `rot ${lookbackDays}d top${topK}`;
+    rotCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
+    eqCache[key] = eq;
+  }
+}
+results.rotation = rotCells;
+
+// Blend uses the DECLARED priors (ema200d BTC+ETH / rot 90d top4), not the best cells
+const eqA = eqCache['ema200d BTC+ETH'];
+const eqB = eqCache['rot 90d top4'];
+const eqC = grid.map((_, gi) => 0.5 * eqA[gi] + 0.5 * eqB[gi]);
+results.blend = { 'blend 50/50 (prior cells)': metrics(eqC, { withDsr: true }) };
+
+// ── Report ───────────────────────────────────────────────────────────────────
+const fmt = (m) => `ret ${String(m.totalReturnPct).padStart(7)}%  cagr ${String(m.cagrPct).padStart(5)}%  Sh ${String(m.sharpe).padStart(5)}  DD ${String(m.maxDDPct).padStart(6)}%` +
+  (m.dsr != null ? `  DSR ${m.dsr.toFixed(2)}  PSR ${m.psr.toFixed(2)}` : '') +
+  (m.exposurePct != null ? `  exp ${String(m.exposurePct).padStart(3)}%` : '') +
+  (m.roundTrips != null ? `  rt ${m.roundTrips}` : '') +
+  (m.bear2122 ? `  bear21-22 ${m.bear2122.returnPct}% (DD ${m.bear2122.maxDDPct}%)` : '');
+
+console.log(`\nTrend-core study  ${results.meta.from} → ${results.meta.to}  (${results.meta.bars} bars, DSR deflated for ${N_TRIALS} trials)\n`);
+console.log('── Benchmarks ──');
+for (const [k, m] of Object.entries(benchmarks)) console.log(`  ${k.padEnd(24)} ${fmt(m)}`);
+console.log('\n── A. TSM majors core ──');
+for (const [k, m] of Object.entries(tsmCells)) console.log(`  ${k.padEnd(24)} ${fmt(m)}`);
+console.log('\n── B. Momentum rotation (survivorship-biased universe — treat as upper bound) ──');
+for (const [k, m] of Object.entries(rotCells)) console.log(`  ${k.padEnd(24)} ${fmt(m)}`);
+console.log('\n── C. Blend ──');
+for (const [k, m] of Object.entries(results.blend)) console.log(`  ${k.padEnd(24)} ${fmt(m)}`);
+console.log('\nYearly returns:');
+for (const [key, m] of [...Object.entries(tsmCells), ...Object.entries(rotCells)]) {
+  console.log(`  ${key.padEnd(24)} ${Object.entries(m.yearly).map(([y, r]) => `${y}: ${(r * 100).toFixed(0)}%`).join('  ')}`);
+}
+
+fs.writeFileSync(outFile, JSON.stringify(results, null, 2));
+console.log(`\nSaved → ${outFile}`);
