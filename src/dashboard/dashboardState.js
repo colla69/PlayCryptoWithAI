@@ -307,6 +307,15 @@ class DashboardState {
     this.#touch();
   }
 
+  // TSM core sleeve status (append-only) — votes, sizing fractions, macro
+  // overlay state per core symbol; set once per cycle by runTsmCoreCycle.
+  setTsmCore(state) {
+    this.tsmCore = state
+      ? { ...state, symbols: Array.isArray(state.symbols) ? state.symbols.map((s) => ({ ...s })) : [] }
+      : null;
+    this.#touch();
+  }
+
   clearHistory() {
     this.trades = [];
     this.signalFeed = [];
@@ -405,6 +414,10 @@ class DashboardState {
       regime: this.regime ? { ...this.regime } : null,
       marketContext: this.marketContext ? { ...this.marketContext } : null,
       circuitBreaker: this.circuitBreaker ? { ...this.circuitBreaker } : null,
+      // TSM core sleeve (append-only — null unless the sleeve is enabled)
+      tsmCore: this.tsmCore
+        ? { ...this.tsmCore, symbols: this.tsmCore.symbols.map((s) => ({ ...s })) }
+        : null,
     };
   }
 }

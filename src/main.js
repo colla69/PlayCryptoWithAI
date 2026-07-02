@@ -556,6 +556,7 @@ async function runTsmCoreCycle() {
     const signals = new Map();
     const prices = new Map();
     const fractions = new Map();
+    const vols = new Map();
     for (const symbol of coreCfg.symbols ?? []) {
       const candles = dashboardState.getCandles(symbol);
       if (!candles || candles.length < 2) {
@@ -575,6 +576,7 @@ async function runTsmCoreCycle() {
       signals.set(symbol, vote);
       prices.set(symbol, Number(candles.at(-1).close));
       fractions.set(symbol, fraction);
+      vols.set(symbol, realizedVol);
       logger.info(
         `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (enter ≥${coreCfg.enterVotes ?? vote.needed}, stay ≥${coreCfg.stayVotes ?? vote.needed})` +
         ` · vol ${realizedVol ? (realizedVol * 100).toFixed(0) + '%' : 'n/a'} → ×${fraction.toFixed(2)} · macro ${macroState}` +
@@ -635,8 +637,34 @@ async function runTsmCoreCycle() {
       emit(result); traded++;
     }
 
+    // Surface sleeve state to the dashboard (append-only `tsmCore` key)
+    const finalStatus = traded > 0 ? await trader.getStatus() : status;
+    dashboardState.setTsmCore({
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+      deploymentPct: Number(coreCfg.deploymentPct ?? 0.5),
+      enterVotes: coreCfg.enterVotes ?? null,
+      stayVotes: coreCfg.stayVotes ?? null,
+      volTarget: coreCfg.volTarget ?? null,
+      macro: { state: macroState, factor: macroFactor },
+      symbols: [...signals.entries()].map(([symbol, vote]) => {
+        const pos = (finalStatus.positions ?? []).find((p) => p.symbol === coreKey(symbol));
+        const price = prices.get(symbol);
+        return {
+          symbol,
+          positive: vote.positive,
+          total: vote.total,
+          insufficientHistory: vote.insufficientHistory,
+          held: Boolean(pos),
+          realizedVol: vols.get(symbol) ?? null,
+          fraction: Number((fractions.get(symbol) ?? 1).toFixed(2)),
+          targetUsd: Math.round(perSlot * (fractions.get(symbol) ?? 1)),
+          currentUsd: pos && Number.isFinite(price) ? Math.round(pos.qty * price) : 0,
+        };
+      }),
+    });
     if (traded > 0) {
-      dashboardState.updateStatus(await trader.getStatus(), riskManager.getDailyStats());
+      dashboardState.updateStatus(finalStatus, riskManager.getDailyStats());
     }
   } catch (err) {
     logger.error(`[TSM-CORE] cycle failed: ${err?.message ?? err}`);
