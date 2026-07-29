@@ -1,6 +1,8 @@
-# playAIStocks — Copilot Instructions
+# playAIStocks — project rules
 
-Primary source of truth. Trust this first; search code only when details aren't covered here.
+Primary source of truth, imported by `CLAUDE.md`. Trust this first; search code only when
+details aren't covered here. There is exactly one copy of this file — see the single-copy
+rule in `docs/WORKFLOW.md`.
 
 ## App Summary
 
@@ -8,16 +10,39 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 
 ## Token Efficiency Rules
 
-**These apply to ALL agents and all conversations in this repo:**
+**Always — these cost nothing in accuracy:**
 
-- Be concise. Aim for <100 words in routine responses.
 - Batch file reads — request multiple in one turn, not sequentially.
 - Suppress verbose command output: pipe to `| tail -20`, use `--quiet`, `grep` for relevant lines.
-- Don't re-read files you've already seen in this conversation.
+- When running backtests, grep for the result line — don't dump full output.
 - Don't echo back large code blocks the user already knows about.
 - Skip preamble ("I'll now...", "Let me...") — just do the work.
-- When running backtests, grep for the result line — don't dump full output.
-- For validation: `node --check <file>` + quick startup test. Don't run full backtests for non-strategy changes.
+- For validation: `node --check <file>` + `npm test` + quick startup test. Don't run full backtests
+  for non-strategy changes.
+
+**Routine work only — brevity that must yield when correctness is at stake:**
+
+- Be concise; aim for <100 words in routine responses.
+- Don't re-read files you've already seen in this conversation.
+
+### When these are suspended
+
+Brevity is a default, not a constraint on rigour. **Suspend both rules above** when the task is:
+
+- debugging a live/backtest divergence, or any parity question
+- touching the order path, risk gates, credentials, or sizing
+- auditing logs or reconciling live behaviour against a backtest
+- deciding whether something is a bug or working as intended
+
+In those cases, re-read the file, quote the exact lines, and show the evidence. The 2026-07 audit
+found four parity breaks, and every one of them was invisible until someone read the *specific*
+lines of both implementations side by side.
+
+**The trap this codebase sets:** noticing a gap, describing it accurately, and then working around it
+instead of fixing it. That happened during the audit itself — "the backtester has no min-notional
+check" was written down, then hand-corrected in a throwaway script, while the repo's top rule says
+live ≡ backtest. If you catch yourself writing "I'll account for that in the analysis", stop: the
+fix belongs in the engine.
 
 ## Tech Stack
 
@@ -56,7 +81,7 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
   indicator downstream. This shipped and went unnoticed for months — see Live ≡ Backtest below.
 - Smoke-test trades tagged `note: '🔬 smoke-test'` — never remove.
 - Never commit secrets. Keys from `.env` only.
-- **Docs live in `docs/`.** All project documentation (`STRATEGY.md`, `TECHNICAL.md`, `TESTNET.md`, `WORKFLOW.md`, etc.) lives under `docs/`; `README.md` is the only `.md` at the repo root. New docs go in `docs/` and are linked from `README.md`. Do **not** move toolchain config that happens to be Markdown — `CLAUDE.md` (root + `public/` + `src/dashboard/`) and everything under `.claude/` and `.github/` must stay where the tooling loads them.
+- **Docs live in `docs/`.** All project documentation (`STRATEGY.md`, `TECHNICAL.md`, `TESTNET.md`, `WORKFLOW.md`, etc.) lives under `docs/`; `README.md` is the only `.md` at the repo root. New docs go in `docs/` and are linked from `README.md`. Do **not** move toolchain config that happens to be Markdown — `CLAUDE.md` (root + `public/` + `src/dashboard/`) and everything under `.claude/` must stay where the tooling loads them.
 
 ## Signal Engine (current state — post robustness overhaul)
 
@@ -72,10 +97,10 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - **TSM core sleeve** (`engine/tsmCore.js`): experimental majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL market orders in live) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
-## Live ≡ Backtest (hard invariant — three ways it has actually broken)
+## Live ≡ Backtest (hard invariant — four ways it has actually broken)
 
 The cardinal rule is that live and backtest produce identical decisions from identical inputs.
-Parity has broken three times in ways that were invisible for weeks. Check these on any change
+Parity has broken four times in ways that were invisible for weeks. Check these on any change
 touching signals, thresholds, or candle handling:
 
 | Break | Symptom | Guard |

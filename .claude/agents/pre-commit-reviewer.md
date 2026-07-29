@@ -2,7 +2,7 @@
 name: pre-commit-reviewer
 description: Lightweight pre-commit check for staged changes. Verify correctness, catch regressions, and confirm validation steps were run before committing. Fast and decisive.
 tools: Read, Grep, Glob, Bash
-model: haiku
+model: opus
 ---
 
 # Pre-Commit Reviewer Agent

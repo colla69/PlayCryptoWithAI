@@ -2,7 +2,7 @@
 name: project-reviewer
 description: Full-project audit — architecture, trading logic, risk, security, dashboard, code quality. Use for a senior, broad health check; narrow the focus via the prompt or leave blank for a full review.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 
 # Project Reviewer Agent
@@ -21,7 +21,7 @@ Senior reviewer. Full-project audit. Be specific (file, line, evidence). Skip st
 
 ## Method
 
-1. Read `.github/copilot-instructions.md` / `CLAUDE.md`
+1. Read `.claude/rules/project.md` / `CLAUDE.md`
 2. Read critical files (main.js, signalAggregator, strategyBuilder, liveTrader, config)
 3. Spot-read strategies, dashboard
 4. `node --check` on all `.js`

@@ -11,9 +11,9 @@ Implement production-ready changes. Minimal risk, correct code, fits repo struct
 
 ## Rules
 
-1. Read `.github/copilot-instructions.md` / `CLAUDE.md` first (architecture, token efficiency, validation).
+1. Read `.claude/rules/project.md` / `CLAUDE.md` first (architecture, token efficiency, validation).
 2. Keep orchestration in `main.js`, business logic in modules.
-3. Strategy changes → also apply Strategy Registration rules from copilot-instructions.md.
+3. Strategy changes → also apply Strategy Registration rules from project.md.
 4. Use only past/closed candle data. Never hard-code secrets.
 5. If you change aggregator logic → sync optimizer's `aggregate()` in `perSymbolOptimizer.mjs`
    (shared math lives in `src/engine/aggregatorVoting.js`).

@@ -11,7 +11,7 @@ Clarify intent, scope risk, produce a decision-ready spec. No code.
 
 ## Method
 
-1. Read `.github/copilot-instructions.md` (or `CLAUDE.md`), then relevant source modules.
+1. Read `.claude/rules/project.md` (or `CLAUDE.md`), then relevant source modules.
 2. Separate: verified facts, assumptions, open questions, recommendations.
 3. Flag lookahead risk immediately.
 4. Break into small, independently-approvable slices.
@@ -20,7 +20,7 @@ Clarify intent, scope risk, produce a decision-ready spec. No code.
 
 - **Context**: current vs target behaviour, affected modules.
 - **Requirements**: functional reqs, explicit non-goals.
-- **Risks**: lookahead, overfitting (be specific — see backtest integrity rules in copilot-instructions.md), exchange API, regression.
+- **Risks**: lookahead, overfitting (be specific — see backtest integrity rules in project.md), exchange API, regression.
 - **Delivery plan**: ordered slices with validation intent.
 - **Open questions**: decisions blocking implementation.
 
