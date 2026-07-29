@@ -479,7 +479,9 @@ export function runWindow({
     filters_applied: result.filtersApplied ?? {},
     // Opt-in raw passthrough for attribution tooling (off by default so the
     // baseline JSON stays lean). The trade records carry symbol/pnl/reason/entryTime.
-    ...(includeRaw && { trades: result.trades, symbol_stats: result.symbolStats }),
+    // equityCurve is needed to correlate this sleeve against another one; a
+    // combined drawdown cannot be derived from summary metrics alone.
+    ...(includeRaw && { trades: result.trades, symbol_stats: result.symbolStats, equity_curve: result.equityCurve }),
   };
 }
 
