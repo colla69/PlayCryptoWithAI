@@ -1449,18 +1449,34 @@
         const total = deposits.reduce((s, d) => s + d.amount, 0);
         totalEl.textContent = `$${total.toFixed(2)}`;
 
-        // Compute true ROI: (portfolio total value - total deposited) / total deposited
-        // portfolioValue shows cash only; portfolioSub has the full value including open positions
-        const subText = document.getElementById('portfolioSub')?.textContent || '';
-        const totalMatch = subText.match(/Portfolio total:\s*\$([0-9,.]+)/);
-        const cashText = document.getElementById('portfolioValue')?.textContent || '';
-        const cashBalance = parseFloat(cashText.replace(/[^0-9.-]/g, '')) || 0;
-        const portfolioTotal = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : cashBalance;
-        if (total > 0 && portfolioTotal > 0) {
-          const roi = ((portfolioTotal - total) / total * 100).toFixed(1);
-          roiEl.textContent = `${roi >= 0 ? '+' : ''}${roi}%`;
-          roiEl.style.color = roi >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
-        } else {
+        // Strategy performance = TIME-weighted return, from /api/performance.
+        //
+        // The old figure here was (portfolioTotal - deposited) / deposited — a
+        // MONEY-weighted return. It answers "is my wealth growing", not "does the
+        // strategy work", and it moves purely because of a deposit's size and
+        // timing. Deposit into a flat strategy and it swings; make a large late
+        // deposit into a losing one and it looks mild. Once contributions become
+        // regular the number stops meaning anything.
+        //
+        // TWR chains growth BETWEEN cash flows so contributions cancel out. Both
+        // are shown: TWR judges the bot, P&L judges the account.
+        try {
+          const perf = await fetch(`${API_BASE}/api/performance`).then(r => r.json());
+          if (perf && perf.twrPct != null) {
+            const twr = perf.twrPct;
+            const pnl = perf.simplePnl ?? 0;
+            roiEl.textContent = `${twr >= 0 ? '+' : ''}${twr.toFixed(1)}%`;
+            roiEl.style.color = twr >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
+            roiEl.title = `Time-weighted return — deposits removed, so this measures the strategy.\n`
+              + `P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} on $${(perf.netContributions ?? 0).toFixed(2)} contributed\n`
+              + `${perf.subPeriods} sub-period(s), ${perf.equityPoints} daily valuation(s)`;
+          } else {
+            // One daily valuation point is needed before a return can be chained.
+            roiEl.textContent = '—';
+            roiEl.style.color = 'var(--muted)';
+            roiEl.title = 'Not enough valuation history yet — one snapshot is recorded per day.';
+          }
+        } catch {
           roiEl.textContent = '—';
           roiEl.style.color = 'var(--muted)';
         }

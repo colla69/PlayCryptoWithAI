@@ -3,6 +3,9 @@ import path from 'path';
 import express from 'express';
 import dashboardState from './dashboardState.js';
 import { MAX_SIGNAL_HISTORY } from './persistence.js';
+import { loadEquityHistory } from './equityHistory.js';
+import { computeTimeWeightedReturn } from '../utils/timeWeightedReturn.js';
+import { calcEquityFromStatus } from '../risk/portfolioRisk.js';
 import logger from '../utils/logger.js';
 import { Backtester } from '../backtester/index.js';
 import {
@@ -306,6 +309,41 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
 
   app.get('/api/deposits', (_req, res) => {
     res.json(loadDeposits());
+  });
+
+  // Performance separated from contributions.
+  //
+  // `simple` is money-weighted — it answers "is my wealth growing" and moves
+  // whenever you deposit. `twr` is time-weighted: it chains growth between cash
+  // flows so contributions cancel, which is the only figure that still means
+  // anything once you dollar-cost-average. Both are returned because they answer
+  // different questions and diverge as soon as deposits become regular.
+  app.get('/api/performance', (_req, res) => {
+    const flows = loadDeposits().map((d) => ({
+      timestamp: Date.parse(d.timestamp ?? d.date),
+      amount: Number(d.amount),
+    }));
+    const equityPoints = loadEquityHistory();
+    // Same basis the risk gates use, so the number here matches what the bot
+    // sizes against: free quote + marked-to-market open positions.
+    const status = dashboardState.getSummary?.()?.latestStatus ?? null;
+    const liveEquity = status ? calcEquityFromStatus(status) : 0;
+    const finalEquity = liveEquity > 0 ? liveEquity : (equityPoints.at(-1)?.equity ?? null);
+
+    const perf = computeTimeWeightedReturn({ equityPoints, flows, finalEquity });
+    res.json({
+      twr: perf.twr,
+      twrPct: perf.twr == null ? null : perf.twr * 100,
+      simplePnl: perf.simplePnl,
+      simpleReturnPct: perf.simpleReturn == null ? null : perf.simpleReturn * 100,
+      netContributions: perf.netContributions,
+      finalEquity,
+      subPeriods: perf.subPeriods.length,
+      equityPoints: equityPoints.length,
+      // True until enough valuation history exists to chain a return. The series
+      // is one point per day, so a new account reads null for the first day.
+      insufficientData: perf.insufficientData,
+    });
   });
 
   app.post('/api/deposits', express.json(), (req, res) => {

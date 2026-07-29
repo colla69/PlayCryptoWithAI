@@ -16,6 +16,7 @@ import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
+import { recordEquitySnapshot } from './dashboard/equityHistory.js';
 import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
@@ -539,6 +540,15 @@ async function runAllSymbols() {
     // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
     // candles that runCycle just refreshed in dashboardState.
     await runTsmCoreCycle();
+
+    // Daily valuation point for time-weighted return. Recorded here rather than
+    // in refreshBalance (live-only) or runRiskChecks (early-returns with no open
+    // positions) so a paper soak builds the same series a live account does.
+    try {
+      recordEquitySnapshot(calcEquityFromStatus(await trader.getStatus()));
+    } catch (err) {
+      logger.debug(`Equity snapshot skipped: ${err.message}`);
+    }
   } finally {
     cycleInProgress = false;
   }
@@ -1336,6 +1346,9 @@ async function refreshBalance() {
     );
     const status = await trader.getStatus();
     dashboardState.updateStatus(status, riskManager.getDailyStats());
+    // Daily valuation point for time-weighted return — without it a deposit
+    // can't be separated from performance. No-ops after the first write each day.
+    recordEquitySnapshot(calcEquityFromStatus(status));
     pushEvent('status', { balance: status.balance });
   } catch (err) {
     logger.debug(`Balance poll error: ${err.message}`);

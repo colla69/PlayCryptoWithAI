@@ -70,7 +70,9 @@ Architecture, data flow, module responsibilities, and deployment.
 | Indicators | `utils/indicators.js` | EMA, ATR, ADX, RSI, Bollinger, etc. |
 | Correlation | `utils/correlation.js` | Pearson correlation matrix builder |
 | Logger | `utils/logger.js` | Winston logger + CSV trade appender |
-| Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD, dated log reader (512KB tail) |
+| Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD, performance (TWR), dated log reader (512KB tail) |
+| Equity History | `dashboard/equityHistory.js` | Append-only daily equity snapshots (one row per UTC day) |
+| Time-Weighted Return | `utils/timeWeightedReturn.js` | Chain-linked return that cancels out deposits/withdrawals |
 | Dashboard State | `dashboard/dashboardState.js` | In-memory state for SSE broadcasts; also holds the candle series every strategy analyses — the merge is **payload-wins** so a forming bar is corrected, never frozen |
 | Persistence | `dashboard/persistence.js` | Debounced JSON write for dashboard state + signal history |
 | Notifications | `notifications/telegramNotifier.js` | Send-only Telegram bot (BUY/SELL/startup alerts); no-op if unconfigured |
@@ -115,6 +117,25 @@ Architecture, data flow, module responsibilities, and deployment.
 | `s3Store.js` | S3-backed persistence (Lambda mode) |
 
 ---
+
+## Measuring performance once you deposit regularly
+
+`/api/performance` returns two numbers because they answer different questions and
+diverge as soon as contributions become regular:
+
+- **`twrPct` — time-weighted return.** Chains growth *between* cash flows, so deposits and
+  withdrawals cancel out. This measures the strategy. It is what the dashboard shows.
+- **`simplePnl` / `simpleReturnPct` — money-weighted.** `equity − netContributions`. This
+  measures your wealth, and moves purely because of a deposit's size and timing.
+
+The dashboard previously showed only the money-weighted figure labelled "True ROI", which is
+misleading under dollar-cost-averaging: deposit into a flat strategy and it swings; make a large
+late deposit into a losing one and the loss looks mild. With a single funding deposit and no
+further flows the two are identical — they only separate once you contribute more than once.
+
+TWR needs a portfolio valuation immediately before each cash flow, which nothing recorded
+(trades carry a balance but are rare — ~30/year on this config). `dashboard/equityHistory.js`
+now appends one snapshot per UTC day from the main cycle, so it accrues in paper and live alike.
 
 ## Data Flow
 
@@ -234,6 +255,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | GET | `/api/symbols` | Configured symbol list |
 | GET | `/api/strategies` | Strategy registry |
 | GET | `/api/candles` | Cached candles for a symbol |
+| GET | `/api/performance` | Time-weighted return + simple P&L (see below) |
 | GET | `/api/deposits` | Deposit list |
 | POST | `/api/deposits` | Add deposit entry |
 | DELETE | `/api/deposits/:id` | Remove deposit entry |
@@ -252,6 +274,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | `data/position_state.json` | JSON | Per-position stop-loss, HWM, entry price (survives restarts) |
 | `data/signal_history.json` | JSON | Full signal decision history (max 5000 entries, paginated via API) |
 | `data/deposits.json` | JSON | Deposit tracker entries (gitignored, runtime-only) |
+| `data/equity_history.json` | JSON | One equity snapshot per UTC day; the valuation series TWR needs |
 | `data/filtered_optimization_results.json` | JSON | Per-symbol optimizer results (9 pass, 5 fail from latest run) |
 | `data/candles/*.json` | JSON | Cached OHLCV data (12h, 15m, 4h) |
 | `logs/trades.csv` | CSV | Full trade journal |

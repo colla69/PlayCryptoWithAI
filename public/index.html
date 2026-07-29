@@ -1149,7 +1149,7 @@
         </div>
         <div style="margin-top:12px;display:flex;gap:24px;align-items:baseline;flex-wrap:wrap">
           <div style="font-size:14px;color:var(--muted)">Total deposited: <strong id="depositTotal" style="color:var(--text);font-size:16px">$0.00</strong></div>
-          <div style="font-size:14px;color:var(--muted)">True ROI: <strong id="depositROI" style="font-size:16px">—</strong></div>
+          <div style="font-size:14px;color:var(--muted)" title="Time-weighted return — removes the effect of deposit timing and size, so it measures the strategy rather than your contributions.">Strategy return (TWR): <strong id="depositROI" style="font-size:16px">—</strong></div>
           <button id="refreshBalanceBtn" onclick="refreshBalance()" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer" title="Sync balance from exchange now">🔄 Refresh Balance</button>
         </div>
         <div id="depositList" style="margin-top:12px;max-height:200px;overflow-y:auto"></div>

@@ -57,7 +57,7 @@ Live at `http://localhost:3001` — four tabs:
 |-----|----------|
 | **Dashboard** | Positions, P&L, trade history, manual close buttons |
 | **Signals** | Full signal history with symbol/decision filters, paginated (50–1000) |
-| **Tools** | P&L equity curve, deposit tracker with True ROI, 🔄 Refresh Balance |
+| **Tools** | P&L equity curve, deposit tracker with time-weighted return (TWR), 🔄 Refresh Balance |
 | **Logs** | Full log viewer with filter and search |
 
 ---
@@ -153,6 +153,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | `data/position_state.json` | Stop-loss / HWM / entry per position (survives restarts) |
 | `data/signal_history.json` | Signal decision history (max 5000 entries) |
 | `data/deposits.json` | Deposit tracker (gitignored, runtime-only) |
+| `data/equity_history.json` | Daily equity snapshots — the valuation series TWR chains between |
 | `data/filtered_optimization_results.json` | Per-symbol optimizer results (pass/fail) |
 | `data/candles/` | Cached OHLCV data |
 | `logs/trades.csv` | Trade journal |
