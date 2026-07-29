@@ -12,6 +12,13 @@
  *   · minConfidence     — scaled for the aggregator, read RAW by canTrade
  *   · candle merge      — payload-wins on disk, first-wins in memory
  *   · cycle alignment   — backtest evaluates at candle close, live drifted 6h
+ *   · downloader merge  — first-wins in downloadHistory, so a bar frozen
+ *                         mid-formation corrupted the research data permanently
+ *
+ * Note the pattern in the last two: "merge" appears three times. Any place two
+ * sources of the same record combine, assert which one wins — the exchange
+ * payload, always. See tests/dashboard/candleMerge.test.js and
+ * tests/scripts/downloadHistoryMerge.test.js.
  *
  * So this fixture inverts the burden of proof. Every rule that can reject or
  * resize a live entry is listed below with the concrete symbol that implements

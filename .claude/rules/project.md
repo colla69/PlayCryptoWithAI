@@ -109,6 +109,12 @@ touching signals, thresholds, or candle handling:
 | **In-memory candle merge first-wins** | Forming bar frozen into history, closed version discarded → live scored TIA CCI 49.1 vs backtest 76.7 on *identical on-disk data* | Payload-wins merge; `tests/dashboard/candleMerge.test.js` |
 | **Cycle drifted off candle close** | A host suspend left the loop firing 6h09m late for 48 consecutive cycles — different MTF/regime inputs than the backtester models | `createAlignedScheduler` re-derives from the clock; `tests/core/cycleScheduler.test.js` |
 | **Min notional enforced live only** | The simulator filled orders Binance would reject, so the deployment sweep reported an identical trade count at every position size | Shared `exchangeLimits.js`; `tests/backtester/minNotional.test.js` |
+| **Downloader merge first-wins** | The last cached bar was still forming when written; it froze and the corrected version was discarded on every later run — corrupting the research data itself. BTC's 2026-06-24 04:00 4h bar closed at 62839.11 while the next opened at 62591.50, with ~40% of its true volume | Payload-wins merge + `--repair`; `tests/scripts/downloadHistoryMerge.test.js` |
+
+**Three of the five were merges.** Wherever two sources of the same record combine — in memory, on
+disk, or in a downloader — state which one wins, and it is always the exchange payload. A frozen
+partial bar is silent: it corrupts every indicator computed from it and nothing errors. Repair with
+`npm run download-history -- --timeframe <tf> --repair`, then verify with `rebuildDeepHistory.mjs`.
 
 **The structural guard: `tests/backtester/liveParityInventory.test.js`.** Every rule that can reject
 or resize a live entry is listed there with the symbol implementing it on *both* sides. Adding a
