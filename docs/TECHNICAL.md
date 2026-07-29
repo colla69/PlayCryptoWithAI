@@ -73,6 +73,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD, performance (TWR), dated log reader (512KB tail) |
 | Equity History | `dashboard/equityHistory.js` | Append-only daily equity snapshots (one row per UTC day) |
 | Time-Weighted Return | `utils/timeWeightedReturn.js` | Chain-linked return that cancels out deposits/withdrawals |
+| Cycle Watchdog | `monitor/cycleWatchdog.js` | Deadman alert: Telegram fires when no cycle completes within 1.15× the candle period (the July 2026 18h stall produced zero alerts) |
+| Webhook Auth | `signals/webhookServer.js` | External signals VOTE in the live aggregator — server refuses to start without `WEBHOOK_TOKEN` and 401s requests missing `x-webhook-token` (off by default since 2026-07-29) |
 | Dashboard State | `dashboard/dashboardState.js` | In-memory state for SSE broadcasts; also holds the candle series every strategy analyses — the merge is **payload-wins** so a forming bar is corrected, never frozen |
 | Persistence | `dashboard/persistence.js` | Debounced JSON write for dashboard state + signal history |
 | Notifications | `notifications/telegramNotifier.js` | Send-only Telegram bot (BUY/SELL/startup alerts); no-op if unconfigured |

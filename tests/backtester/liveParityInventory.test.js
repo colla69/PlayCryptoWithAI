@@ -146,6 +146,14 @@ const INTENTIONALLY_LIVE_ONLY = [
     reason: 'amountToPrecision depends on per-market filters fetched from Binance. '
           + 'Material only near the min-notional boundary, which IS modelled.',
   },
+  {
+    rule: 'TSM equity-ladder rung selection + feasibility advisory',
+    reason: 'selectSleeveRung picks BETWEEN individually validated static profiles using the '
+          + 'account\'s persisted high-water-mark equity — each rung\'s trading behaviour was '
+          + 'backtested as a static config (runTrendCore), so there is nothing new to mirror. '
+          + 'sleeveFeasibility is a startup/cycle advisory only; order-time enforcement of the '
+          + 'min-notional floor exists on BOTH sides via the shared exchangeLimits constant.',
+  },
 ];
 
 describe('live ≡ backtest inventory', () => {

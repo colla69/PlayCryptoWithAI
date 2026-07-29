@@ -666,7 +666,14 @@ export default {
     windowDays: 30,
     minTrades: 10,
     zThreshold: 2,
-    driftRefSharpe: null,
+    // Armed 2026-07-29 from the committed baseline (phase `driftarm`, full
+    // 6.1yr window, 2,228d, n=81 closed trades): per-trade Sharpe = mean/std of
+    // per-trade returns, un-annualised — the exact basis computeLiveStats uses.
+    // Neighbouring windows for context: Y1 holdout 0.86 (n=40), Y2 0.36 (n=22),
+    // full 2yr 0.58 (n=66). Alerts fire when the rolling live value diverges
+    // beyond zThreshold standard errors (Lo 2002). Re-measure after any change
+    // to strategies, filters, or thresholds (runBaseline now prints this stat).
+    driftRefSharpe: 0.4658,
   },
   // ── Logistic-regression meta-overlay (Phase 5) ────────────────────────────
   // P(win) entry gate trained offline by src/scripts/trainMetaOverlay.mjs →
@@ -744,19 +751,41 @@ export default {
   // Default OFF — TSM_CORE=true is the deliberate opt-in in either mode.
   tsmCore: {
     enabled: process.env.TSM_CORE === 'true',
-    // Four majors, not two. Re-validated 2026-07-29 on the restored 6.1yr USDC
-    // series (4,128 bars, 2020-06-22 → 2026-07-29) with the shipping rule
-    // (vote 30/45/60 + slow-in + volTarget 0.6). The wider universe dominates on
-    // every axis rather than trading one off:
+    // ── Equity ladder (2026-07-29) — de-risk as the account grows ────────────
+    // Sizing follows the account's HIGH-WATER-MARK equity (all-time max of the
+    // daily snapshots in data/equity_history.json, deposits included), stepping
+    // DOWN in risk as thresholds are crossed and NEVER back up. Selecting on
+    // current equity would size up after losses (martingale); with HWM, a
+    // drawdown leaves the fraction small and the slot can fall under Binance's
+    // $11 floor — parking the sleeve in cash until recovery, which is the
+    // desired failure mode for a small account.
+    //
+    // Every rung is an individually validated static profile (never interpolate
+    // between rungs). Validation on the restored 6.1yr USDC series (4,128 bars,
+    // 2020-06-22 → 2026-07-29, shipping rule vote 30/45/60 + slow-in + volT 0.6):
     //   BTC+ETH          +454% · Sharpe 1.05 · DD −36.0% · DSR 0.64 · bear21-22 −35.8%
     //   BTC+ETH+BNB+SOL  +543% · Sharpe 1.20 · DD −33.0% · DSR 0.75 · bear21-22 −31.1%
-    // Lower exposure too (41% vs 46%); cost is 2× round trips (104 vs 56), already
-    // charged in the honest fills. Reproduces the 9yr USDT study's ordering
-    // (docs/TREND_CORE_STUDY.md) on independent data.
-    // NOTE: vol targeting is what makes the 4-major drawdown shallower — without
-    // it the wider universe is DEEPER (−49.0% vs −38.8%). Don't disable volTarget
-    // and keep this universe.
-    symbols: ['BTC/USDC', 'ETH/USDC', 'BNB/USDC', 'SOL/USDC'],
+    // The 4-major universe strictly dominates BUT its 5%-of-equity slots need
+    // ~$880 equity to clear the $11 exchange floor under adverse multipliers —
+    // hence it is the TOP rung, not the default. Vol targeting is load-bearing
+    // for it (without volTarget the 4-major DD is DEEPER: −49.0% vs −38.8%).
+    //
+    // Rung thresholds sit ~10% above each profile's floor-viability equity
+    // ($293 / $880 at the adverse ×0.25 multiplier stack), so a rung is never
+    // selected before it can actually place an order.
+    //   A: $0+    2 majors @ 0.50 — account DD ~−18% (≤ ~$55 in dollars here);
+    //             the only profile operable at the current ~$189 account.
+    //   B: $320+  2 majors @ 0.30 — account DD ~−11%, fits the ~10% budget.
+    //   C: $970+  4 majors @ 0.20 — account DD ~−7%, best universe (DSR 0.75).
+    equityLadder: [
+      { minHwmEquity: 0,   symbols: ['BTC/USDC', 'ETH/USDC'], deploymentPct: 0.50 },
+      { minHwmEquity: 320, symbols: ['BTC/USDC', 'ETH/USDC'], deploymentPct: 0.30 },
+      { minHwmEquity: 970, symbols: ['BTC/USDC', 'ETH/USDC', 'BNB/USDC', 'SOL/USDC'], deploymentPct: 0.20 },
+    ],
+    // Static fallback profile — used ONLY if equityLadder is absent/malformed
+    // (selectSleeveRung returns null). Matches rung A, i.e. the pre-ladder live
+    // behaviour, so a broken ladder degrades to what was already running.
+    symbols: ['BTC/USDC', 'ETH/USDC'],
     lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h trailing-momentum votes
     // Slow-in hysteresis (9yr USDT study incl. 2018+2022 bears): enter only when
     // ALL lookbacks are positive, hold while a majority stays positive. Beats the
@@ -765,15 +794,9 @@ export default {
     // rule: Sharpe 1.27, DD −36%, DSR 0.94 on the 4-major 9yr study.
     enterVotes: 3,                // open a new core position: positives ≥ this
     stayVotes: 2,                 // keep an open core position: positives ≥ this
-    // Sleeve share of equity — a pure risk dial: drawdown scales ~linearly with it.
-    // Set from drawdown tolerance, NOT from a return target. The sleeve's own DD is
-    // ~−33% on the validated rule, so account contribution ≈ 33% × deploymentPct:
-    //   0.20 → ~−7%   (with the scalper's ~−4%, lands near a 10% account DD)
-    //   0.50 → ~−17%  (previous default — roughly double a 10% tolerance)
-    //   1.00 → ~−33%
-    // Chosen 0.20 for a ~10% account drawdown budget. Raising it buys proportionally
-    // more upside and proportionally more pain; it is not a free improvement.
-    deploymentPct: 0.20,
+    // Static fallback deployment (rung A) — see equityLadder above, which is
+    // what actually drives sizing. A pure risk dial: DD scales ~linearly with it.
+    deploymentPct: 0.50,
     // Vol-targeted sizing (combo rule): slot size × min(1, volTarget/realizedVol).
     // 9yr study: Sharpe 1.12→1.23, DD −58→−44% on the 4-major universe.
     volTarget: 0.6,               // annualised vol target (crypto-calibrated; ≤1 slot, no leverage)

@@ -75,7 +75,8 @@ Live at `http://localhost:3001` — four tabs:
 | `LOG_LEVEL` | `info` | Winston log level |
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
-| `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live) |
+| `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live). Sizing follows the HWM equity ladder — see STRATEGY.md |
+| `WEBHOOK_TOKEN` | — | Required to run the external-signal webhook (off by default). Requests must send it as `x-webhook-token`; without the env var the server refuses to start |
 
 Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/filter context.
 

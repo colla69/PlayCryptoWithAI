@@ -185,3 +185,98 @@ describe('tsmCore: planCoreResize', () => {
     assert.equal(planCoreResize({ desiredUsd: 100, currentUsd: 0, perSlotUsd: 0 }), null);
   });
 });
+
+// ── Equity ladder (2026-07-29) ────────────────────────────────────────────────
+// Sizing steps DOWN as high-water-mark equity crosses thresholds and never back
+// up. The ratchet property lives in the HWM input itself (all-time max, so it
+// cannot decrease); these tests pin the selector, the feasibility advisory, and
+// the specific rungs shipped in config.
+
+import { selectSleeveRung, sleeveFeasibility } from '../../src/engine/tsmCore.js';
+import config from '../../config/default.js';
+
+const LADDER = [
+  { minHwmEquity: 0, symbols: ['BTC/USDC', 'ETH/USDC'], deploymentPct: 0.50 },
+  { minHwmEquity: 320, symbols: ['BTC/USDC', 'ETH/USDC'], deploymentPct: 0.30 },
+  { minHwmEquity: 970, symbols: ['BTC/USDC', 'ETH/USDC', 'BNB/USDC', 'SOL/USDC'], deploymentPct: 0.20 },
+];
+
+describe('tsmCore: selectSleeveRung', () => {
+  test('selects the highest rung whose threshold the HWM has crossed', () => {
+    assert.equal(selectSleeveRung(189, LADDER).deploymentPct, 0.50);
+    assert.equal(selectSleeveRung(319.99, LADDER).deploymentPct, 0.50);
+    assert.equal(selectSleeveRung(320, LADDER).deploymentPct, 0.30);
+    assert.equal(selectSleeveRung(969, LADDER).deploymentPct, 0.30);
+    assert.equal(selectSleeveRung(970, LADDER).symbols.length, 4);
+    assert.equal(selectSleeveRung(50_000, LADDER).deploymentPct, 0.20);
+  });
+
+  test('rising HWM never raises risk (monotone non-increasing deployment)', () => {
+    let prev = Infinity;
+    for (let hwm = 0; hwm <= 2000; hwm += 10) {
+      const d = selectSleeveRung(hwm, LADDER).deploymentPct;
+      assert.ok(d <= prev, `deployment rose from ${prev} to ${d} at HWM $${hwm}`);
+      prev = d;
+    }
+  });
+
+  test('unknown or invalid HWM falls back to the lowest rung', () => {
+    assert.equal(selectSleeveRung(NaN, LADDER).minHwmEquity, 0);
+    assert.equal(selectSleeveRung(undefined, LADDER).minHwmEquity, 0);
+    assert.equal(selectSleeveRung(-50, LADDER).minHwmEquity, 0);
+  });
+
+  test('absent or malformed ladder returns null (caller uses static config)', () => {
+    assert.equal(selectSleeveRung(500, undefined), null);
+    assert.equal(selectSleeveRung(500, []), null);
+    assert.equal(selectSleeveRung(500, [{ minHwmEquity: 'abc', symbols: [], deploymentPct: 0 }]), null);
+  });
+
+  test('ignores malformed rungs but keeps valid ones', () => {
+    const mixed = [LADDER[0], { minHwmEquity: 100 }, LADDER[1]];
+    assert.equal(selectSleeveRung(400, mixed).deploymentPct, 0.30);
+  });
+});
+
+describe('tsmCore: sleeveFeasibility', () => {
+  test('the live account today: rung A feasible at $189, rung C is not', () => {
+    const rungA = sleeveFeasibility({ equity: 189, nSymbols: 2, deploymentPct: 0.50 });
+    assert.equal(rungA.feasible, true, `rung A adverse slot $${rungA.adverseSlotUsd} must clear $11`);
+
+    const rungC = sleeveFeasibility({ equity: 189, nSymbols: 4, deploymentPct: 0.20 });
+    assert.equal(rungC.feasible, false);
+    assert.ok(rungC.viableFromEquity >= 850 && rungC.viableFromEquity <= 900,
+      `4@0.20 should become viable near $880, got $${rungC.viableFromEquity}`);
+  });
+
+  test('each shipped rung is feasible at its own threshold', () => {
+    for (const rung of config.tsmCore.equityLadder) {
+      const eq = Math.max(rung.minHwmEquity, 189); // rung A's threshold is $0
+      const f = sleeveFeasibility({ equity: eq, nSymbols: rung.symbols.length, deploymentPct: rung.deploymentPct });
+      assert.equal(f.feasible, true,
+        `rung ${rung.symbols.length}@${rung.deploymentPct} infeasible at its own threshold $${eq} (slot $${f.adverseSlotUsd})`);
+    }
+  });
+
+  test('viable-from equity is consistent with the feasibility verdict', () => {
+    const f = sleeveFeasibility({ equity: 250, nSymbols: 2, deploymentPct: 0.30 });
+    assert.equal(f.feasible, false);
+    const atThreshold = sleeveFeasibility({ equity: f.viableFromEquity, nSymbols: 2, deploymentPct: 0.30 });
+    assert.equal(atThreshold.feasible, true, 'must be feasible exactly at viableFromEquity');
+  });
+
+  test('degenerate inputs never divide by zero', () => {
+    const f = sleeveFeasibility({ equity: 189, nSymbols: 0, deploymentPct: 0 });
+    assert.equal(f.feasible, false);
+    assert.equal(f.viableFromEquity, Infinity);
+  });
+
+  test('the shipped config ladder matches the validated rung table', () => {
+    // Guards against a silent config edit detaching the ladder from the study.
+    const ladder = config.tsmCore.equityLadder;
+    assert.equal(ladder.length, 3);
+    assert.deepEqual(ladder.map((r) => r.minHwmEquity), [0, 320, 970]);
+    assert.deepEqual(ladder.map((r) => r.deploymentPct), [0.50, 0.30, 0.20]);
+    assert.deepEqual(ladder.map((r) => r.symbols.length), [2, 2, 4]);
+  });
+});

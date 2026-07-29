@@ -252,9 +252,22 @@ round trips (104 vs 56), already charged in the honest fills. Independently repr
 USDT study's ordering. **Vol targeting is load-bearing here:** without it the wider universe
 draws down *deeper* (−49.0% vs −38.8%), so don't disable `volTarget` and keep this universe.
 
-**`deploymentPct` is set from drawdown tolerance, not a return target** (default 0.20). The
-sleeve's own DD is ~−33%, so the account contribution is roughly `33% × deploymentPct`: 0.20 →
-~−7%, which alongside the scalper's ~−4% lands near a 10% account drawdown budget.
+**Sizing follows an equity ladder with a high-water-mark ratchet** (`tsmCore.equityLadder`,
+2026-07-29). The selector input is the account's all-time-high equity (daily snapshots in
+`data/equity_history.json`, deposits included) — never current equity, which would size UP after
+losses (martingale). Risk only ever steps down; after a drawdown the unchanged small fraction of a
+smaller account can fall under Binance's $11 notional floor, parking the sleeve in cash until
+recovery. Rungs are individually validated static profiles (never interpolated):
+
+| Rung | HWM ≥ | Profile | Combined account maxDD (measured, ρ=0.025 vs scalper) |
+|---|---|---|---|
+| A | $0 | 2 majors @ 0.50 | −17.4% |
+| B | $320 | 2 majors @ 0.30 | −10.1% (the ~10% budget rung) |
+| C | $970 | 4 majors @ 0.20 | ~−7% (best universe, DSR 0.75) |
+
+Thresholds sit ~10% above each rung's floor-viability equity so a rung is never selected before it
+can place an order; `sleeveFeasibility()` alerts (once per boot) when the active rung can't clear
+the floor at current equity, including the equity it becomes viable from — the DCA signpost.
 
 **Caveat:** In-sample only — 2026 YTD the sleeve is ~−9% (Q1 chop whipsaws). Real drawdowns are 
 −40/−60% at full deployment; sizing is a Sharpe-neutral risk dial. This is "smart beta" (captures 
