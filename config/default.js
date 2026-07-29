@@ -554,7 +554,13 @@ export default {
   },
   signals: {
     webhook: {
-      enabled: true,
+      // OFF by default (2026-07-29): this endpoint's signals VOTE in the live
+      // aggregator (weight 0.8) and exits fire at a lowered threshold, so an
+      // open port is a vote-injection surface — and it ran unauthenticated on
+      // host-networked port 3000 from the first commit. Re-enabling requires
+      // WEBHOOK_TOKEN in .env; the server refuses to start without it and
+      // rejects requests missing the x-webhook-token header.
+      enabled: false,
       port: 3000,
       weight: 0.8,
     },
