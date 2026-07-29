@@ -99,5 +99,29 @@ export function computePositionSize({ basePct, candles, medianATRPct, btcMacroBu
   pct = applyRegimeSizing(pct, candles, config.regimeSizing);
   pct = applyConfSizing(pct, confidence, config.confSizing);
   if (mtfSizeFactor < 1.0) pct *= mtfSizeFactor;
-  return pct;
+  return applySizeFloor(pct, basePct, config.risk?.minSizeMultiplier);
+}
+
+/**
+ * Floors the compounded brake product at `minMultiplier × basePct`.
+ *
+ * Each brake was tuned in isolation, but they multiply and they are positively
+ * correlated — bear macro, ADX chop and low confidence co-occur, so the product
+ * lands far below what any single brake intended. Over the 2026-07 soak the
+ * median entry-eligible size was 7.1% of a 15% base (0.47×), almost all of it
+ * from the macro ×0.5.
+ *
+ * Default 0 = disabled (ships OFF; it changes risk and needs a baseline run
+ * before it goes live). This is a risk dial, not an edge — `data/deploy_sweep.json`
+ * shows uniform size scaling is Sharpe-neutral at best.
+ *
+ * @param {number} pct    final size after all brakes
+ * @param {number} basePct pre-brake base
+ * @param {number} [minMultiplier] floor as a fraction of basePct, e.g. 0.4
+ * @returns {number}
+ */
+export function applySizeFloor(pct, basePct, minMultiplier) {
+  const floor = Number(minMultiplier);
+  if (!Number.isFinite(floor) || floor <= 0 || !(basePct > 0)) return pct;
+  return Math.max(pct, basePct * Math.min(1, floor));
 }

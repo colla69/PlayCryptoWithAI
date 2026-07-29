@@ -12,7 +12,7 @@ description: >-
 The suite runs on Node's built-in `node:test` (no external runner):
 
 ```bash
-npm test                                         # expect ≥297 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥329 pass, 0 fail (covers tests/ AND src/tests/)
 ```
 
 Tests live in `tests/<area>/<subject>.test.js`, mirroring `src/` (`tests/engine/`,
@@ -37,6 +37,8 @@ Automated tests do **not** replace these — run both:
 | `tests/dashboard/candleMerge.test.js` | A first-wins candle merge freezing partial bars into history |
 | `tests/core/cycleScheduler.test.js` | The cycle drifting off candle close and never re-aligning |
 | `tests/utils/candleFreshness.test.js` | Trading on a frozen series from a delisted/thin pair |
+| `tests/backtester/minNotional.test.js` | The simulator filling orders the exchange would reject |
+| `tests/backtester/liveParityInventory.test.js` | **A live rule shipping without a backtest counterpart** — the shape of all four parity breaks |
 
 When a bug is fixed, add the test that would have caught it **and reference the incident
 in the file docstring** — the fixtures above are the reason these bugs can't return silently.

@@ -83,6 +83,15 @@ touching signals, thresholds, or candle handling:
 | **Threshold read raw instead of scaled** | Aggregator gated at `raw × 0.65`, `riskManager.canTrade()` re-gated at raw → live ran at the "STARVED" calibration and took **0 trades in 27 days** | Every threshold read goes through `scaleMinConfidence()`; `tests/utils/confidenceThresholdParity.test.js` |
 | **In-memory candle merge first-wins** | Forming bar frozen into history, closed version discarded → live scored TIA CCI 49.1 vs backtest 76.7 on *identical on-disk data* | Payload-wins merge; `tests/dashboard/candleMerge.test.js` |
 | **Cycle drifted off candle close** | A host suspend left the loop firing 6h09m late for 48 consecutive cycles — different MTF/regime inputs than the backtester models | `createAlignedScheduler` re-derives from the clock; `tests/core/cycleScheduler.test.js` |
+| **Min notional enforced live only** | The simulator filled orders Binance would reject, so the deployment sweep reported an identical trade count at every position size | Shared `exchangeLimits.js`; `tests/backtester/minNotional.test.js` |
+
+**The structural guard: `tests/backtester/liveParityInventory.test.js`.** Every rule that can reject
+or resize a live entry is listed there with the symbol implementing it on *both* sides. Adding a
+live-side rule without a backtest counterpart fails that fixture immediately, instead of surfacing
+months later in a soak post-mortem. **When it fails, do not delete the row** — implement the missing
+side, or move it to `INTENTIONALLY_LIVE_ONLY` with a written reason. Every one of the four breaks
+above was a rule that existed on one side only; reviewing the diff never caught them, because the
+omission is invisible in a diff.
 
 Two rules that follow: **a second gate is a bug unless it reads the same scaled value**, and
 **anything that feeds the strategies must be reproducible from disk.** When live and a backtest
@@ -112,6 +121,10 @@ These apply whenever backtest/optimizer code is touched:
 
 - **Fill model**: BUY fills at next candle's open (`d.nextOpen`), not signal close
 - **Slippage tiers**: Large 0.10%, Mid 0.20%, Micro 0.35% — never flat
+- **Exchange minimum notional is enforced** (`exchangeLimits.js`, shared with liveTrader). Rejections
+  are reported as `filtersApplied.minNotional` — a run showing rejections is a run whose trade count
+  the live bot would not reproduce. `riskOverrides: { minNotional: 0 }` exists for research only.
+  Immaterial at the $1000 research budget (0 rejections; identical metrics), material below ~$400.
 - **Optimizer MIN_TRADES ≥ 8** on holdout; reject `[0t]`/`[1t]`/`[2t]` upgrades; reject deflated-Sharpe < 0.5
 - **Validation tooling**: `runBaseline.mjs` (multi-window + deflated Sharpe), `runWalkForward.mjs` (forward-only + Monte Carlo). Revert any change that worsens risk-adjusted metrics vs the committed baseline.
 - **Two-window reporting**: always report both Y2 (in-sample) and Y1+Y2 (full OOS)
@@ -157,7 +170,7 @@ Results without full filter coverage are invalid for decision-making.
 
 ```bash
 node --check <file>                              # syntax
-npm test                                         # expect ≥297 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥329 pass, 0 fail (covers tests/ AND src/tests/)
 SMOKE_TEST=false PAPER_MODE=true node src/main.js  # boot test (kill after "Initialising")
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 730   # Y2
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 1460  # full OOS
