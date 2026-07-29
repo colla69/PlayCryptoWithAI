@@ -163,7 +163,9 @@ export class SignalAggregator {
 
     for (let i = 0; i < signals.length; i++) {
       const result = signals[i];
-      logger.debug(`[AGG] ${symbol}: strategy[${i}]=${this.strategies[i]?.name ?? 'unknown'} → ${result.signal} conf=${(result.confidence ?? 0).toFixed(2)} "${result.reason ?? ''}"`);
+      // Strategies expose `name` on the returned signal, not on the instance —
+      // reading it off `this.strategies[i]` logged "unknown" for every line.
+      logger.debug(`[AGG] ${symbol}: strategy[${i}]=${result.name ?? this.strategies[i]?.constructor?.name ?? 'unknown'} → ${result.signal} conf=${(result.confidence ?? 0).toFixed(2)} "${result.reason ?? ''}"`);
     }
 
     const voteResult = aggregateVotes({

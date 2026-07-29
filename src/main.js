@@ -34,8 +34,11 @@ import {
   getRiskForSymbol,
   getSignalConfigForSymbol,
   buildSignalReasons,
+  scaleMinConfidence,
 } from './utils/strategyBuilder.js';
 import { buildCorrelationMatrix } from './utils/correlation.js';
+import { checkCandleFreshness, formatAge } from './utils/candleFreshness.js';
+import { createAlignedScheduler } from './core/cycleScheduler.js';
 
 const signalConfig = config.signals;
 
@@ -154,6 +157,23 @@ async function runCycle(symbol) {
     // This keeps signal values consistent with runInitialSignals().
     dashboardState.updateCandles(symbol, freshCandles);
     const candles = dashboardState.getCandles(symbol);
+
+    // ── Stale-series guard ───────────────────────────────────────────────────
+    // A thin or delisted market still returns klines, they just stop advancing.
+    // The `!freshCandles.length` check above misses that entirely: during the
+    // 2026-07 soak LSK/TON/GMX fed frozen bars to the aggregator for weeks,
+    // each emitting an identical confidence every cycle. They stayed HOLD so
+    // nothing was lost, but a frozen series can just as easily emit a BUY and
+    // the bot would enter an illiquid market at a stale price.
+    const freshness = checkCandleFreshness(
+      candles, config.timeframe, config.maxCandleStalenessPeriods,
+    );
+    if (freshness.stale) {
+      const message = `${symbol}: candle series stale (newest bar ${formatAge(freshness.ageMs)} old) — skipping cycle`;
+      logger.warn(message);
+      dashboardState.pushError(message);
+      return;
+    }
 
     logger.debug(`[CYCLE] ${symbol}: starting cycle, candles=${candles.length} lastClose=${Number(candles.at(-1).close).toFixed(8)} lastTs=${new Date(candles.at(-1).timestamp).toISOString()}`);
 
@@ -571,6 +591,20 @@ async function runTsmCoreCycle() {
         logger.warn(`[TSM-CORE] ${symbol}: no candles cached — skipping`);
         continue;
       }
+      // The sleeve places REAL market orders in live mode, so a frozen series
+      // is far more dangerous here than on the scalper path: a stale vote could
+      // open or close a whole slot at a price that no longer exists. Skipping
+      // leaves any held position untouched — planCoreActions only acts on
+      // symbols present in `signals`.
+      const coreFreshness = checkCandleFreshness(
+        candles, config.timeframe, config.maxCandleStalenessPeriods,
+      );
+      if (coreFreshness.stale) {
+        const message = `[TSM-CORE] ${symbol}: candle series stale (newest bar ${formatAge(coreFreshness.ageMs)} old) — skipping, position left as-is`;
+        logger.warn(message);
+        dashboardState.pushError(message);
+        continue;
+      }
       // Closed bars only — the forming candle is sliced off (no lookahead).
       const closed = candles.slice(0, -1);
       const vote = computeTsmVote(closed, coreCfg.lookbackBars ?? [60, 90, 120]);
@@ -687,22 +721,6 @@ async function runTsmCoreCycle() {
   }
 }
 
-/**
- * Returns the timestamp (ms) of the next candle-close boundary for the given timeframe.
- * Binance aligns all candle closes to UTC epoch multiples of the period, so e.g. 12h
- * candles always close at 00:00 and 12:00 UTC. We add a 3-second buffer so the candle
- * data is guaranteed to have settled by the time we fetch it.
- */
-function nextCandleClose(timeframe) {
-  const match = String(timeframe || '12h').toLowerCase().match(/^(\d+)(m|h|d|w)$/);
-  if (!match) return Date.now() + 60_000;
-  const num  = parseInt(match[1], 10);
-  const unit = match[2];
-  const mults = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
-  const periodMs = num * mults[unit];
-  return Math.ceil(Date.now() / periodMs) * periodMs + 3_000; // +3 s buffer
-}
-
 function logStartup() {
   logger.info('Starting playAIStocks Phase 4 bot');
   logger.info(
@@ -713,14 +731,16 @@ function logStartup() {
     const strats = symCfg?.strategies ?? config.strategies;
     const risk = getRiskForSymbol(sym);
     const tag = symCfg ? ' [custom]' : ' [default]';
-    const conf = symCfg?.minConfidence ?? config.risk.minConfidence;
-    logger.info(`  ${sym}${tag}: strategies=[${strats.join('+')}]  SL=${(risk.stopLossPct*100).toFixed(0)}%  TP=${(risk.takeProfitPct*100).toFixed(0)}%  conf=${conf}`);
+    // Log the RAW config value and the EFFECTIVE gate side by side — the two
+    // diverging silently is what starved the bot through the 2026-07 soak.
+    const rawConf = symCfg?.minConfidence ?? config.risk.minConfidence;
+    logger.info(`  ${sym}${tag}: strategies=[${strats.join('+')}]  SL=${(risk.stopLossPct*100).toFixed(0)}%  TP=${(risk.takeProfitPct*100).toFixed(0)}%  conf=${rawConf}→${risk.minConfidence.toFixed(3)} (scaled)`);
   }
   logger.info(
     `Risk: balance=${config.risk.initialBalance.toFixed(2)} maxPositionPct=${config.risk.maxPositionPct} stopLossPct=${config.risk.stopLossPct} takeProfitPct=${config.risk.takeProfitPct} trailingStopPct=${config.risk.trailingStopPct ?? 'off'}`,
   );
   logger.info(
-    `Risk limits: maxDailyLossPct=${config.risk.maxDailyLossPct} maxOpenPositions=${config.risk.maxOpenPositions} minConfidence=${config.risk.minConfidence}`,
+    `Risk limits: maxDailyLossPct=${config.risk.maxDailyLossPct} maxOpenPositions=${config.risk.maxOpenPositions} minConfidence=${config.risk.minConfidence} (×${config.risk.confidenceThresholdScale ?? 1} scale → entry gate ${scaleMinConfidence(config.risk.minConfidence).toFixed(3)})`,
   );
   const tsm = config.tsmCore;
   logger.info(
@@ -995,6 +1015,11 @@ async function runInitialSignals() {
     try {
       const candles = dashboardState.getCandles(symbol);
       if (candles.length < 30) continue;
+      // Same frozen-series guard as runCycle — otherwise startup seeds the
+      // dashboard with a signal derived from weeks-old bars.
+      if (checkCandleFreshness(candles, config.timeframe, config.maxCandleStalenessPeriods).stale) {
+        continue;
+      }
 
       const aggregator      = symbolAggregators[symbol];
       const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
@@ -1141,9 +1166,7 @@ await runAllSymbols();  // immediate run on startup (SL/TP check + fresh signals
 // Binance closes 12h candles at exactly 00:00 and 12:00 UTC. Running on a raw
 // setInterval from startup means signals are computed mid-candle. Instead we:
 //   1. Wait until the next close boundary (+ 3 s settle buffer)
-//   2. Run there, then repeat every pollIntervalMs (which equals the candle period)
-let cycleIntervalId = null;
-let alignTimeoutId  = null;
+//   2. Run there, then reschedule off the clock again (see cycleScheduler.js)
 let pricePollId     = null;
 
 // Refresh live prices every 3 s for all watched symbols.
@@ -1322,24 +1345,24 @@ if (!paperMode) {
   balancePollId = setInterval(() => void refreshBalance(), BALANCE_POLL_MS);
 }
 
-function scheduleNextCycle() {
-  const nextClose = nextCandleClose(config.timeframe);
-  const delay     = nextClose - Date.now();
-  dashboardState.setNextRunAt(nextClose);
-  logger.info(`Next cycle aligned to candle close in ${Math.round(delay / 60_000)} min (${new Date(nextClose).toUTCString()})`);
+// Self-rescheduling and candle-aligned — see src/core/cycleScheduler.js for why
+// the previous setInterval handoff drifted 6h09m off close for 48 cycles.
+const cycleScheduler = createAlignedScheduler({
+  timeframe: config.timeframe,
+  run: runAllSymbols,
+  isStopped: () => shuttingDown,
+  onSchedule: (at) => {
+    dashboardState.setNextRunAt(at);
+    logger.info(`Next cycle aligned to candle close in ${Math.round((at - Date.now()) / 60_000)} min (${new Date(at).toUTCString()})`);
+  },
+  onError: (err) => {
+    const message = `Cycle run failed — ${err.message}`;
+    logger.error(message);
+    dashboardState.pushError(message);
+  },
+});
 
-  alignTimeoutId = setTimeout(async () => {
-    alignTimeoutId = null;
-    await runAllSymbols();
-    // After the first aligned run, repeat on the candle period
-    cycleIntervalId = setInterval(() => {
-      dashboardState.setNextRunAt(Date.now() + config.pollIntervalMs);
-      void runAllSymbols();
-    }, config.pollIntervalMs);
-  }, delay);
-}
-
-scheduleNextCycle();
+cycleScheduler.start();
 
 process.on('SIGINT', () => {
   if (shuttingDown) {
@@ -1347,8 +1370,7 @@ process.on('SIGINT', () => {
   }
 
   shuttingDown = true;
-  clearTimeout(alignTimeoutId);
-  clearInterval(cycleIntervalId);
+  cycleScheduler.stop();
   clearInterval(pricePollId);
   clearInterval(balancePollId);
   clearInterval(riskCheckId);

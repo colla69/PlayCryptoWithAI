@@ -119,15 +119,41 @@ export function getStrategyTriggerHints(symbol) {
     .filter(Boolean);
 }
 
+/**
+ * Applies `risk.confidenceThresholdScale` to a raw minConfidence.
+ *
+ * Single source of truth for the Phase 1 calibration: every consumer of a
+ * minConfidence threshold — the aggregator's HOLD gate AND the risk manager's
+ * entry gate — must scale it identically, or the stricter one silently wins.
+ * That is exactly what happened before this helper existed: the aggregator ran
+ * scaled (0.36) while `canTrade()` re-gated on the raw value (0.55), so the live
+ * bot behaved as if the scale were 1.0 — the "STARVED" case documented in
+ * config/default.js — and took 0 trades in the 2026-07 soak while the
+ * backtester (which scales once, in PortfolioBacktester) reported the committed
+ * baseline. Keep live ≡ backtest by routing every threshold read through here.
+ *
+ * @param {number} rawMinConf
+ * @returns {number} scaled threshold, clamped to [0, 1]
+ */
+export function scaleMinConfidence(rawMinConf) {
+  if (!Number.isFinite(rawMinConf)) return rawMinConf;
+  const scale = Number.isFinite(config.risk?.confidenceThresholdScale)
+    ? config.risk.confidenceThresholdScale
+    : 1;
+  return Math.max(0, Math.min(1, rawMinConf * scale));
+}
+
 export function getRiskForSymbol(symbol) {
   const symCfg = config.perSymbol?.[symbol];
-  if (!symCfg) return config.risk;
+  // Scaled here (not raw) because this object feeds riskManager.canTrade() —
+  // see scaleMinConfidence() for why an unscaled read breaks live ≡ backtest.
+  const minConfidence = scaleMinConfidence(symCfg?.minConfidence ?? config.risk?.minConfidence);
   return {
     ...config.risk,
-    ...(symCfg.stopLossPct     !== undefined && { stopLossPct:     symCfg.stopLossPct }),
-    ...(symCfg.takeProfitPct   !== undefined && { takeProfitPct:   symCfg.takeProfitPct }),
-    ...(symCfg.trailingStopPct !== undefined && { trailingStopPct: symCfg.trailingStopPct }),
-    ...(symCfg.minConfidence   !== undefined && { minConfidence:   symCfg.minConfidence }),
+    ...(symCfg?.stopLossPct     !== undefined && { stopLossPct:     symCfg.stopLossPct }),
+    ...(symCfg?.takeProfitPct   !== undefined && { takeProfitPct:   symCfg.takeProfitPct }),
+    ...(symCfg?.trailingStopPct !== undefined && { trailingStopPct: symCfg.trailingStopPct }),
+    ...(Number.isFinite(minConfidence) && { minConfidence }),
     // Phase 1: ATR-based stops and two-stage exit are global toggles.
     // The spread of config.risk already carries them; this comment documents
     // intent for future maintainers (don't promote them to per-symbol unless
@@ -148,11 +174,8 @@ export function getSignalConfigForSymbol(symbol, signalConfig) {
   // bot keeps trading at a sensible frequency while we measure the impact of
   // other Phase 1 changes. Phase 4 walk-forward retunes per-symbol values from
   // scratch and the scale should be reset to 1.0 once retune lands.
-  const scale = Number.isFinite(config.risk?.confidenceThresholdScale)
-    ? config.risk.confidenceThresholdScale
-    : 1;
-  const scaled = Math.max(0, Math.min(1, rawMinConf * scale));
-  if (config.perSymbol?.[symbol]?.minConfidence === undefined && scale === 1) {
+  const scaled = scaleMinConfidence(rawMinConf);
+  if (config.perSymbol?.[symbol]?.minConfidence === undefined && scaled === rawMinConf) {
     return signalConfig;
   }
   return { ...signalConfig, minConfidence: scaled };

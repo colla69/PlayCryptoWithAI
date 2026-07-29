@@ -16,7 +16,9 @@ function roundMoney(value) {
   return Number(Number(value ?? 0).toFixed(2));
 }
 
-class DashboardState {
+// Exported for tests — production code uses the `dashboardState` singleton below,
+// which stays the sole writer of persisted state.
+export class DashboardState {
   constructor() {
     this.startTime = new Date();
     this.lastUpdatedAt = new Date();
@@ -201,15 +203,21 @@ class DashboardState {
       // Full replacement (initial load or larger batch)
       this.candleMap.set(symbol, candles.slice(-2_500).map((c) => ({ ...c })));
     } else {
-      // Live cycle: merge new candles, deduplicate, keep latest 2500
-      const merged = [...existing, ...candles];
-      const seen = new Set();
-      const unique = merged.filter((c) => {
-        if (seen.has(c.timestamp)) return false;
-        seen.add(c.timestamp);
-        return true;
-      });
-      unique.sort((a, b) => a.timestamp - b.timestamp);
+      // Live cycle: merge the fresh window into history, keeping the latest 2500.
+      //
+      // The exchange payload MUST win on a timestamp collision. Each cycle fetches
+      // a window that includes the still-forming candle; the previous cycle's
+      // snapshot of that same bar is incomplete. The old merge was first-wins with
+      // `existing` placed first, so that partial bar was frozen into history for
+      // good and its corrected, closed version was discarded 12h later — silently
+      // corrupting every indicator computed from it afterwards. (This is why live
+      // and the backtester disagreed on TIA in the 2026-07 soak: the on-disk cache
+      // is payload-wins and stayed correct, while the in-memory series that
+      // actually feeds the strategies drifted.)
+      const byTimestamp = new Map();
+      for (const candle of existing) byTimestamp.set(candle.timestamp, candle);
+      for (const candle of candles) byTimestamp.set(candle.timestamp, candle);
+      const unique = [...byTimestamp.values()].sort((a, b) => a.timestamp - b.timestamp);
       this.candleMap.set(symbol, unique.slice(-2_500).map((c) => ({ ...c })));
     }
     this.#touch();

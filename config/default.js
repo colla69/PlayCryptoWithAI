@@ -21,6 +21,12 @@ export default {
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
   historicalCandles: 730,       // ~1 year of 12h candles (365d × 2 candles/d)
+  // Skip a symbol's cycle when its newest bar is older than this many periods.
+  // Thin/delisted markets keep returning klines that never advance — LSK, TON
+  // and GMX each fed the aggregator a frozen series for weeks in the 2026-07
+  // soak. 2 periods (24h on 12h candles) clears the normal case (the forming
+  // bar is ~0 periods old; a not-yet-published one is 1) with a wide margin.
+  maxCandleStalenessPeriods: 2,
   rsi: { period: 14, oversold: 30, overbought: 70 },
   ema: { fast: 12, slow: 26 },
   macd: { fast: 12, slow: 26, signal: 9 },

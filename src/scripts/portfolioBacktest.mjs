@@ -39,6 +39,7 @@ import 'dotenv/config';
 import config from '../../config/default.js';
 import { PortfolioBacktester } from '../backtester/index.js';
 import { loadCachedCandles, saveCachedCandles } from '../exchange/candleCache.js';
+import { candleSeriesAgeMs, formatAge } from '../utils/candleFreshness.js';
 import { fetchHistoricalOHLCV } from '../exchange/binanceClient.js';
 import {
   ADXStrategy, BollingerBandsStrategy, CCIStrategy,
@@ -202,10 +203,38 @@ function getRiskConfig(symbol) {
 }
 
 // ── Candle loading ────────────────────────────────────────────────────────────
+// Tracks symbols served from a stale cache so the run can report it once at the
+// end rather than interleaving 37 warnings with the progress output.
+const staleCacheWarnings = [];
+const STALE_CACHE_MS = 3 * 86_400_000;
+
+function noteIfStale(symbol, timeframe, candles) {
+  const ageMs = candleSeriesAgeMs(candles);
+  if (ageMs != null && ageMs > STALE_CACHE_MS) {
+    staleCacheWarnings.push(`${symbol} ${timeframe} (${formatAge(ageMs)})`);
+  }
+  return candles;
+}
+
+/** Prints the stale-cache summary; call once after all loading is done. */
+export function reportStaleCaches() {
+  if (!staleCacheWarnings.length) return 0;
+  const shown = staleCacheWarnings.slice(0, 8).join(', ');
+  const more = staleCacheWarnings.length > 8 ? ` … +${staleCacheWarnings.length - 8} more` : '';
+  console.warn(
+    `\n⚠️  ${staleCacheWarnings.length} candle series loaded from a STALE cache: ${shown}${more}\n` +
+    `   Results are NOT valid for decision-making — refresh with \`npm run download-history\`.`,
+  );
+  return staleCacheWarnings.length;
+}
+
 async function loadCandles(symbol, timeframe, count) {
   let cached = await loadCachedCandles(symbol, timeframe);
-  if (cached.length >= count) return cached.slice(-count);
-  if (cached.length > 0) return cached; // use whatever we have (short history)
+  // `cached.length >= count` is true for every backfilled series regardless of
+  // how old its newest bar is, so without this note a months-old cache is
+  // returned silently and the run reports itself as a full-filter-stack result.
+  if (cached.length >= count) return noteIfStale(symbol, timeframe, cached).slice(-count);
+  if (cached.length > 0) return noteIfStale(symbol, timeframe, cached); // short history
   console.log(`  Fetching ${count} ${timeframe} candles for ${symbol}…`);
   try {
     const fresh = await fetchHistoricalOHLCV(symbol, timeframe, count);
@@ -546,3 +575,5 @@ if (result.trades.length > 0) {
   }
 }
 console.log('');
+// Last thing printed so a stale-data caveat can't scroll past unnoticed.
+reportStaleCaches();
