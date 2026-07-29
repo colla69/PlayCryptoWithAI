@@ -2,7 +2,7 @@
 name: backtest-reviewer
 description: Review backtest changes, optimizer runs, and simulation config for statistical integrity — fill-model realism, slippage tiers, holdout validation discipline, full filter stack, and honest result reporting. Statistical integrity guard, not a general code reviewer.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 ---
 
 # Backtest Reviewer Agent

@@ -2,7 +2,7 @@
 name: risk-reviewer
 description: Review changes touching risk — SL/TP, position sizing, daily limits, correlation/regime filters, circuit breakers. Capital-at-risk issues only, no general code review.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 ---
 
 # Risk Reviewer Agent

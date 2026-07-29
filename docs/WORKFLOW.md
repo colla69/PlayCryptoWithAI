@@ -1,7 +1,13 @@
 # Agentic Development Workflow
 
-This project uses GitHub Copilot's agentic coding system to develop, review, and maintain the trading bot.
-All agents are defined in `.github/agents/` and are invoked from the Copilot chat interface (`@agent-name`).
+This project is developed with **Claude Code**. Agents live in `.claude/agents/`, skills in
+`.claude/skills/`, slash commands in `.claude/commands/`, and the shared rule files in
+`.claude/rules/` (imported by `CLAUDE.md`).
+
+> **Single-copy rule.** Until 2026-07-29 every agent, skill and prompt was mirrored into `.github/`
+> for GitHub Copilot. The mirror drifted — its pre-commit reviewer still demanded `MIN_TRADES ≥ 3`
+> where the optimizer and the instructions both said 8 — so it was removed. Do not reintroduce it.
+> A rule that exists on one side only is this project's most expensive recurring bug.
 
 ---
 
@@ -19,7 +25,7 @@ All agents are defined in `.github/agents/` and are invoked from the Copilot cha
 | `@risk-reviewer` | Reviews risk-management logic only | Any change to SL/TP/sizing/filters |
 | `@security-reviewer` | Reviews API keys, order paths, secrets handling | Any change near `binanceClient.js` or `.env` |
 | `@project-reviewer` | Full holistic audit of the whole codebase | Periodically, or before switching to live trading |
-| `@docs-updater` | Keeps README, copilot-instructions, and config comments in sync | After every merged feature |
+| `@docs-updater` | Keeps README, `.claude/rules/project.md`, and config comments in sync | After every merged feature |
 
 ### Skills
 
@@ -47,7 +53,6 @@ You  →  @developer  "Implement slice 1: …"
          ↓ offers handoff →  @pre-commit-reviewer  (auto-suggested)
                          →  @docs-updater          (auto-suggested)
 You  →  git push
-         ↓ CI: docs-sync.yml warns if README wasn't updated
 ```
 
 ### 2 — New Trading Strategy
@@ -91,7 +96,7 @@ You  →  @pre-commit-reviewer → commit
 ```
 
 All three of those have actually happened, each invisible for weeks. See "Live ≡ Backtest"
-in `.github/copilot-instructions.md`.
+in `.claude/rules/project.md`.
 
 ### 4 — Periodic Health Check
 
@@ -114,14 +119,18 @@ You  →  update .env.live  →  docker compose up -d
 
 ---
 
-## CI Workflows
+## CI
 
-| Workflow | File | Trigger | Purpose |
-|---|---|---|---|
-| Copilot Setup Steps | `copilot-setup-steps.yml` | push to workflow file | Validates Node setup + syntax for Copilot cloud agent |
-| Docs Sync Check | `docs-sync.yml` | push/PR touching `src/`, `config/`, infra | Warns when code changed but README wasn't updated |
+There is **no CI in this repo** — `.github/workflows/` does not exist. (Earlier revisions of this
+document described `copilot-setup-steps.yml` and `docs-sync.yml`; neither was ever present.)
+Validation is local and mandatory before every commit:
 
-Both workflows are **advisory** — they warn but do not block merges.
+```bash
+node --check <changed files>
+npm test                                  # ≥329 pass, parity fixtures green
+SMOKE_TEST=false PAPER_MODE=true node src/main.js        # boot, then kill
+PAPER_MODE=true node src/scripts/runBaseline.mjs         # strategy/risk changes only
+```
 
 ---
 
@@ -158,21 +167,33 @@ Both workflows are **advisory** — they warn but do not block merges.
 
 ## Adding a New Agent
 
-1. Create `.github/agents/<name>.agent.md` with a YAML front-matter block:
+1. Create `.claude/agents/<name>.md` with a YAML front-matter block:
    ```yaml
    ---
    name: my-agent
    description: 'One sentence — when to use this agent.'
    argument-hint: What context to provide when invoking.
-   tools: ["read", "search", "edit", "execute"]
-   agents: ["pre-commit-reviewer"]   # optional handoff targets
-   handoffs:
-     - label: Review
-       agent: pre-commit-reviewer
-       prompt: Review the staged changes.
-       send: false
+   tools: Read, Grep, Glob, Bash        # least privilege — omit Edit/Write for reviewers
+   model: opus                          # see "Model routing" below
    ---
    ```
 2. Write the agent's mission, method, and output contract in the body.
 3. Reference it from any agent that should hand off to it.
 4. Add it to the table in this file.
+
+---
+
+## Model routing
+
+Agents are cost-routed by `model:` in their frontmatter. The rule is **not** "cheapest that fits" —
+it is *cheapest that fits the blast radius*:
+
+| Model | Use for | Agents |
+|---|---|---|
+| `opus` | Anything guarding capital, credentials or statistical validity — where a miss is expensive and silent | `pre-commit-reviewer`, `risk-reviewer`, `security-reviewer`, `backtest-reviewer`, `project-reviewer`, `strategy-designer` |
+| `sonnet` | Implementation and scoping, where mistakes surface fast in tests | `developer`, `analyst`, `tester`, `reviewer` |
+| `haiku` | Mechanical, verifiable edits | `docs-updater` |
+
+`pre-commit-reviewer` was on `haiku` and is the last gate before the order path. The four parity
+breaks found in the 2026-07 audit were all one-sided rules — precisely what a cheap reviewer skims
+past. Upgrading it is the single highest-leverage routing change in this repo.

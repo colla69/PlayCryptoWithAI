@@ -22,10 +22,10 @@ Sync documentation with code changes. Run before commits. Update only what's sta
 **Documentation location:** all project documentation lives in `docs/`. `README.md` is the only
 `.md` that stays at the repo root. When creating a NEW doc, put it under `docs/` and link to it
 from `README.md`. Never move toolchain config that happens to be Markdown — `CLAUDE.md`,
-`public/CLAUDE.md`, `src/dashboard/CLAUDE.md`, and everything under `.claude/` and `.github/`
+`public/CLAUDE.md`, `src/dashboard/CLAUDE.md`, and everything under `.claude/`
 stay where the tooling loads them.
 
-Note: `.github/copilot-instructions.md` is also the source of truth imported by `CLAUDE.md` —
+Note: `.claude/rules/project.md` is also the source of truth imported by `CLAUDE.md` —
 when bot behaviour changes materially, update it too so both toolchains stay current.
 
 ## Workflow

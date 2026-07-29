@@ -1,13 +1,19 @@
 # playAIStocks — Claude Code project rules
 
-The authoritative project rules live in `.github/` (shared with the GitHub Copilot setup).
-They are imported below so a single edit keeps both toolchains in sync.
+The authoritative project rules live in `.claude/rules/` and are imported below.
+There is exactly ONE copy of each rule. The setup previously mirrored every agent,
+skill and prompt into `.github/` for GitHub Copilot; that mirror drifted (the
+pre-commit reviewer there still demanded `MIN_TRADES ≥ 3` where the optimizer,
+the instructions and its counterpart all said 8) and was removed 2026-07-29.
+Do not reintroduce a second copy of anything here — a rule that exists on one
+side only is this project's most expensive recurring bug, in the tooling as much
+as in the trading code.
 
-@.github/copilot-instructions.md
-@.github/instructions/nodejs.instructions.md
+@.claude/rules/project.md
+@.claude/rules/nodejs.md
 
 Dashboard-specific rules load automatically from `src/dashboard/CLAUDE.md` and `public/CLAUDE.md`
-when working in those trees. Commit-message rules: `@.github/git-commit-instructions.md`.
+when working in those trees. Commit-message rules: `@.claude/rules/git-commit.md`.
 
 ## Non-negotiables (restated so they are never missed)
 
@@ -42,7 +48,11 @@ PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p>     # metrics vs ba
 
 ## Token & cost discipline
 
-The "Token Efficiency Rules" in the imported `copilot-instructions.md` apply to every session and
-subagent: be concise, batch file reads, suppress verbose command output (grep for the result line),
-don't re-read seen files, skip preamble. Subagents are cost-routed by `model:` in their frontmatter —
-prefer the cheapest agent that fits the task; reserve heavier models for genuine judgment calls.
+The "Token Efficiency Rules" in the imported `project.md` split in two. The mechanical ones always
+apply (batch reads, suppress verbose output, grep for the result line, no preamble). The two that
+trade accuracy for brevity — the <100-word target and "don't re-read seen files" — **are suspended
+for parity work, order-path changes, and log audits**; see "When these are suspended" there.
+
+Subagents are cost-routed by `model:` in their frontmatter. The rule is cheapest that fits the
+**blast radius**, not cheapest that fits the task: anything guarding capital, credentials, or
+statistical validity runs on `opus` (see the routing table in `docs/WORKFLOW.md`).

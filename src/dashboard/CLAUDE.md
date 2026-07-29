@@ -1,6 +1,6 @@
 # Dashboard rules (src/dashboard/)
 
-@../../.github/instructions/dashboard.instructions.md
+@../../.claude/rules/dashboard.md
 
 Reminder: `dashboardState.js` is the **sole writer** of persisted dashboard state
 (`dashboard_persist.json`). All CSV/JSON/SSE contracts are append-only — add keys, never rename

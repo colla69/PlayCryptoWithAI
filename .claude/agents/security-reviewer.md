@@ -2,7 +2,7 @@
 name: security-reviewer
 description: Security review — API credentials, order execution, env vars, anything touching real money or the Binance API. Finds paths to financial loss, credential exposure, or unintended orders. Nothing else.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 ---
 
 # Security Reviewer Agent

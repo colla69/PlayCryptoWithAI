@@ -2,7 +2,7 @@
 name: strategy-designer
 description: Design or modify trading strategies in the playAIStocks bot. Covers signal logic, strategy files under src/strategies/, signal aggregator weighting, and per-symbol parameter tuning.
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent, TodoWrite
-model: sonnet
+model: opus
 ---
 
 # Strategy Designer Agent
@@ -11,7 +11,7 @@ Design, implement, and tune trading signals for the multi-strategy voting engine
 
 ## Method
 
-1. Read `.github/copilot-instructions.md` / `CLAUDE.md` (current aggregator logic, registration rules, backtest rules).
+1. Read `.claude/rules/project.md` / `CLAUDE.md` (current aggregator logic, registration rules, backtest rules).
 2. Study existing strategies in `src/strategies/` for convention.
 3. Strategy contract: `{ signal: 'BUY'|'SELL'|'HOLD', confidence: 0–1, reason: string }`
 4. Exclude forming candle — use `candles.slice(0, -1)` or `candles[candles.length - 2]`.
@@ -27,7 +27,7 @@ optimizer's `aggregate()` in `src/scripts/perSymbolOptimizer.mjs` **must be sync
 ## Quality Gates
 
 - No lookahead. Confidence bounded 0–1. Always returns a result.
-- Backtest integrity rules in `copilot-instructions.md` apply.
+- Backtest integrity rules in `project.md` apply.
 - Report both Y2 and Y1+Y2 results. WR gap >15pp = blocker.
 - **ALL backtests MUST use full live filter stack** (15m + 4h + regime + macro + confSizing).
   Never present portfolio numbers from unfiltered runs — they are misleading.
