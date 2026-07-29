@@ -1,30 +1,9 @@
 [
   {
-    "id": 1780257847146,
-    "date": "2026-05-23",
-    "timestamp": "2026-05-31T20:04:07.146Z",
-    "amount": 0.52,
-    "note": "initial"
-  },
-  {
-    "id": 1780257875467,
-    "date": "2026-05-23",
-    "timestamp": "2026-05-31T20:04:35.467Z",
-    "amount": 33.35,
-    "note": "deposit"
-  },
-  {
-    "id": 1780293080173,
-    "date": "2026-06-01",
-    "timestamp": "2026-06-01T05:51:20.173Z",
-    "amount": 4.39,
-    "note": "from GO"
-  },
-  {
-    "id": 1780490817404,
-    "date": "2026-06-03",
-    "timestamp": "2026-06-03T12:46:57.404Z",
-    "amount": 154.42,
-    "note": "Hive HBD Savings"
+    "id": 1782994033747,
+    "date": "2026-07-02",
+    "timestamp": "2026-07-02T12:07:13.747Z",
+    "amount": 189.43,
+    "note": "init bot after fable overhaul"
   }
 ]
