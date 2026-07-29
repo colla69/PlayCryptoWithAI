@@ -31,7 +31,7 @@ Skills are domain-specific knowledge packs that agents load on demand. They enco
 | `risk-management` | `@developer`, `@risk-reviewer` | Stop-loss, take-profit, sizing, daily limits |
 | `security` | `@developer`, `@security-reviewer` | API key handling, order execution safety |
 | `clean-code` | `@developer`, `@reviewer` | Module cohesion, helper extraction, readability |
-| `testing` | `@developer` | Unit test patterns, manual validation steps |
+| `testing` | `@developer`, `@tester` | `node:test` suite layout, the invariant fixtures, manual validation steps |
 
 ---
 
@@ -72,6 +72,26 @@ You  →  @risk-reviewer  (confirm)
          ↓ checks SL/TP interaction, sizing chain, no silent override
 You  →  @pre-commit-reviewer → commit
 ```
+
+### 3b — Live / Backtest Disagreement
+
+```
+Symptom: live logged a different confidence, block reason, or decision than a
+         backtest of the same bar, on the same on-disk candles.
+
+You  →  @developer  "Live scored TIA 0.18, the backtester entered. Find the divergence."
+         ↓ 1. confirm the DATA is identical (diff data/candles vs what live used)
+         ↓ 2. if identical, suspect the IN-MEMORY path, not the data:
+         ↓      · dashboardState.updateCandles merge (payload must win)
+         ↓      · a threshold read raw instead of scaleMinConfidence()
+         ↓      · cycle firing off candle close (different MTF/regime inputs)
+         ↓ 3. reproduce both code paths side by side on the same slice
+         ↓ 4. lock the result in as a parity fixture, not a one-off assertion
+You  →  @pre-commit-reviewer → commit
+```
+
+All three of those have actually happened, each invisible for weeks. See "Live ≡ Backtest"
+in `.github/copilot-instructions.md`.
 
 ### 4 — Periodic Health Check
 

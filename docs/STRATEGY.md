@@ -85,6 +85,15 @@ retune **measured** this scale rather than assuming it: 1.0 starves the bot (≈
 drawdown, and 0.65 gives the best risk-adjusted result (confirmed forward-only on the walk-forward
 harness). It is the validated calibration, not a temporary hack.
 
+> **The scale must reach every gate.** Live evaluates a threshold twice — the aggregator forces HOLD
+> below it, then `riskManager.canTrade()` re-gates — so both reads go through
+> `scaleMinConfidence()` (`src/utils/strategyBuilder.js`). They used to disagree: `getRiskForSymbol()`
+> returned the **raw** value, the stricter gate silently won, and live ran at an effective scale of
+> 1.0 — the starved case above. The 2026-07-02 → 07-29 live soak took **zero trades in 27 days**
+> (15 BUY signals, all blocked; three of them purely by this gate after clearing every other filter)
+> while the backtester reported the committed baseline. `tests/utils/confidenceThresholdParity.test.js`
+> now pins the two gates together.
+
 ### Multi-Bar Entry Confirmation
 
 Borderline-confidence directional signals (within ~0.10 of `minConfidence`) are suppressed to HOLD
@@ -150,6 +159,12 @@ data alone if an external source is unavailable.
 
 Every BUY signal must pass a cascade before execution:
 
+0. **Fresh-data guard** — the symbol is skipped entirely (no signal, no trade) when its newest 12h
+   bar is older than `maxCandleStalenessPeriods` (default 2 periods = 24h). Thin or delisted markets
+   keep returning klines that never advance, and the old "did the fetch come back empty?" check
+   missed that: LSK, TON and GMX each fed the aggregator a frozen series for weeks during the
+   2026-07 soak, every cycle re-deriving an identical confidence. The guard covers the signal cycle,
+   the startup seed, and the TSM core sleeve (`src/utils/candleFreshness.js`).
 1. **Bear-regime block** (Phase 6a) — no new entries while regime is `BEAR_TREND`.
 2. **Max positions** — 4 concurrent slots (`maxConcurrentPositions`); excess BUYs are queued.
 3. **Daily loss limit** — cumulative daily P&L < −5% blocks new trades for the day.

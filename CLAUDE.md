@@ -14,6 +14,13 @@ when working in those trees. Commit-message rules: `@.github/git-commit-instruct
 - **Aggregator parity:** `src/engine/signalAggregator.js` ≡ `PortfolioBacktester` ≡
   `perSymbolOptimizer.aggregate()`. Change all three together; the shared math lives in
   `src/engine/aggregatorVoting.js`. `tests/engine/aggregatorParity.test.js` must stay green.
+- **Parity is more than the voting math.** It has broken three times *outside* the aggregator —
+  a threshold read raw instead of scaled, a first-wins candle merge freezing partial bars, and a
+  cycle drifting off candle close. See "Live ≡ Backtest" in the imported `copilot-instructions.md`.
+  Rules of thumb: every minConfidence read goes through `scaleMinConfidence()`; every candle merge
+  is payload-wins; when live disagrees with a backtest, suspect the in-memory path first.
+- **Never trade on a frozen series.** `checkCandleFreshness()` guards the signal cycle, the startup
+  seed, and the TSM sleeve. Delisted/thin pairs return non-empty but non-advancing klines.
 - **Dashboard contracts are append-only.** Never rename or remove a CSV column, JSON key, or SSE
   event — only add. `src/dashboard/dashboardState.js` is the sole writer of persisted state.
 - **No lookahead.** Strategy/signal logic uses closed candles only (`candles.slice(0, -1)`).
@@ -25,7 +32,7 @@ when working in those trees. Commit-message rules: `@.github/git-commit-instruct
 
 ```bash
 node --check <changed files>
-node --test 'tests/**/*.test.js'                 # expect ≥162 pass, parity fixture green
+npm test                                         # expect ≥297 pass, parity fixtures green
 SMOKE_TEST=false PAPER_MODE=true DASHBOARD_PORT=<free> WEBHOOK_PORT=<free> node src/main.js  # boot, then kill
 PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p>     # metrics vs baseline (strategy/risk changes)
 ```

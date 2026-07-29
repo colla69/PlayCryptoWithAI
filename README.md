@@ -120,6 +120,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 
 | Layer | Protection | Action |
 |-------|-----------|--------|
+| Data | Candle series > 24h stale | Symbol skipped for the cycle |
 | Entry | Max 4 positions | BUY blocked |
 | Entry | 4h momentum < 0.45 | BUY blocked |
 | Entry | 15m alignment < 0.30 | BUY blocked |
@@ -135,7 +136,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 
 | Loop | Interval | Purpose |
 |------|----------|---------|
-| Signal cycle | 12h (candle close) | Strategy evaluation + BUY/SELL signals |
+| Signal cycle | 12h (candle close) | Strategy evaluation + BUY/SELL signals — rescheduled off the wall clock after every run, so a slow or stalled cycle can't drift the loop off candle close |
 | Risk-check | 2 min | SL/TP/trailing/BE for open positions |
 | Price poll | 5 sec | Dashboard live prices |
 | MTF 15m cache | 15 min | Refresh 15m candle cache for filters |
