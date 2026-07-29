@@ -1,0 +1,2 @@
+{"level":"error","message":"[LIVE] status fetch failed - binance GET https://api.binance.com/api/v3/account?timestamp=1783530710058&recvWindow=10000&signature=b6ad74b2a23d30c5f3e41b8740602c75718fb3d5bc6320e1c42f0a623ae22f95 fetch failed","timestamp":"2026-07-08T17:11:50.065Z"}
+{"level":"error","message":"[LIVE] status fetch failed - binance GET https://api.binance.com/api/v3/account?timestamp=1783540910233&recvWindow=10000&signature=e68f4bdc0b7e7c03f19266748230c0e194891df1d22a38a343ad7b8a63d2b946 fetch failed","timestamp":"2026-07-08T20:01:50.242Z"}

@@ -18,8 +18,6 @@ data/*
 
 # Resumed Copilot transcript (reference only, not source)
 resume
-Archive/
-Archive.zip
 
 # Legacy TSM paper-soak state (container retired — sleeve runs live now);
 # kept ignored so hosts that ran the soak stay clean until the dirs are deleted
