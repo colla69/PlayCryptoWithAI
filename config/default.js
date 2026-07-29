@@ -738,7 +738,19 @@ export default {
   // Default OFF — TSM_CORE=true is the deliberate opt-in in either mode.
   tsmCore: {
     enabled: process.env.TSM_CORE === 'true',
-    symbols: ['BTC/USDC', 'ETH/USDC'],
+    // Four majors, not two. Re-validated 2026-07-29 on the restored 6.1yr USDC
+    // series (4,128 bars, 2020-06-22 → 2026-07-29) with the shipping rule
+    // (vote 30/45/60 + slow-in + volTarget 0.6). The wider universe dominates on
+    // every axis rather than trading one off:
+    //   BTC+ETH          +454% · Sharpe 1.05 · DD −36.0% · DSR 0.64 · bear21-22 −35.8%
+    //   BTC+ETH+BNB+SOL  +543% · Sharpe 1.20 · DD −33.0% · DSR 0.75 · bear21-22 −31.1%
+    // Lower exposure too (41% vs 46%); cost is 2× round trips (104 vs 56), already
+    // charged in the honest fills. Reproduces the 9yr USDT study's ordering
+    // (docs/TREND_CORE_STUDY.md) on independent data.
+    // NOTE: vol targeting is what makes the 4-major drawdown shallower — without
+    // it the wider universe is DEEPER (−49.0% vs −38.8%). Don't disable volTarget
+    // and keep this universe.
+    symbols: ['BTC/USDC', 'ETH/USDC', 'BNB/USDC', 'SOL/USDC'],
     lookbackBars: [60, 90, 120],  // 30/45/60 days on 12h trailing-momentum votes
     // Slow-in hysteresis (9yr USDT study incl. 2018+2022 bears): enter only when
     // ALL lookbacks are positive, hold while a majority stays positive. Beats the
@@ -747,7 +759,15 @@ export default {
     // rule: Sharpe 1.27, DD −36%, DSR 0.94 on the 4-major 9yr study.
     enterVotes: 3,                // open a new core position: positives ≥ this
     stayVotes: 2,                 // keep an open core position: positives ≥ this
-    deploymentPct: 0.5,           // sleeve share of equity (risk dial: DD scales ~linearly)
+    // Sleeve share of equity — a pure risk dial: drawdown scales ~linearly with it.
+    // Set from drawdown tolerance, NOT from a return target. The sleeve's own DD is
+    // ~−33% on the validated rule, so account contribution ≈ 33% × deploymentPct:
+    //   0.20 → ~−7%   (with the scalper's ~−4%, lands near a 10% account DD)
+    //   0.50 → ~−17%  (previous default — roughly double a 10% tolerance)
+    //   1.00 → ~−33%
+    // Chosen 0.20 for a ~10% account drawdown budget. Raising it buys proportionally
+    // more upside and proportionally more pain; it is not a free improvement.
+    deploymentPct: 0.20,
     // Vol-targeted sizing (combo rule): slot size × min(1, volTarget/realizedVol).
     // 9yr study: Sharpe 1.12→1.23, DD −58→−44% on the 4-major universe.
     volTarget: 0.6,               // annualised vol target (crypto-calibrated; ≤1 slot, no leverage)
