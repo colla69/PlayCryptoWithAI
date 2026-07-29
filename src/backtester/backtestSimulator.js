@@ -3,6 +3,7 @@ const roundPrice = (value) => Number(value.toFixed(8));
 const roundQty = (value) => Number(value.toFixed(8));
 
 import { calcPartialExit, calcATRStopPrices } from '../executor/traderUtils.js';
+import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 
 export class BacktestSimulator {
   constructor(riskConfig = {}) {
@@ -17,6 +18,12 @@ export class BacktestSimulator {
     this.currentTimestamp = Date.now();
     this.feePct = Number(riskConfig.feePct ?? 0.001);
     this.slippagePct = Number(riskConfig.slippagePct ?? 0.001);
+    // Exchange floor, overridable for research (set 0 to model a frictionless
+    // exchange — but never for a run that informs a live decision).
+    this.minNotional = Number.isFinite(Number(riskConfig.minNotional))
+      ? Number(riskConfig.minNotional)
+      : FALLBACK_MIN_NOTIONAL;
+    this.minNotionalRejections = 0;
   }
 
   setTimestamp(timestamp) {
@@ -235,6 +242,16 @@ export class BacktestSimulator {
     const fillPrice = roundPrice(price * (1 + this.feePct + slip));
     const qty = roundQty(allocation / fillPrice);
     const cost = roundMoney(qty * fillPrice);
+
+    // Exchange minimum notional — the same floor liveTrader enforces. Without it
+    // the simulator fills orders Binance would reject outright, which silently
+    // overstates trade count and diversification on small accounts (the effect is
+    // nil at the $1000 research budget and severe near $200). Rejections are
+    // counted, not swallowed, so a run can report how many it lost.
+    if (cost < this.minNotional) {
+      this.minNotionalRejections += 1;
+      return null;
+    }
 
     if (qty <= 0 || cost > this.balance) {
       return null;

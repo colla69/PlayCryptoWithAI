@@ -370,6 +370,7 @@ export function runWindow({
   ridePartial = null,
   trailArmPct = 0,
   basePctOverride = 0,
+  riskOverrides = {},
 }) {
   const sliced = sliceWindow(symbolCandles, window.startTs, window.endTs);
   const symbols = Object.keys(sliced);
@@ -418,6 +419,10 @@ export function runWindow({
       ...(riding && trailArmPct > 0 && { trailArmPct }),
       // Optional per-position base size override (deployment sweep / live-sizing parity).
       ...(basePctOverride > 0 && { basePctOverride }),
+      // Research escape hatch, e.g. `{ minNotional: 0 }` to model a frictionless
+      // exchange. Applied LAST so it can override the live-parity defaults —
+      // never use it for a run that informs a live decision.
+      ...riskOverrides,
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,

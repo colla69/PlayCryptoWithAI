@@ -2,11 +2,14 @@ import '../types.js'; // JSDoc type definitions
 import fs from 'fs';
 import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
+import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
 
 // Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
-const FALLBACK_MIN_NOTIONAL = 11;
+// Re-exported from the shared module so the backtester enforces the identical
+// floor — see src/exchange/exchangeLimits.js.
+const FALLBACK_MIN_NOTIONAL = SHARED_MIN_NOTIONAL;
 // Minimum notional to recognise an existing balance as an open position on restore
 // Lower than the order minimum because fees reduce the holding slightly below entry cost
 const MIN_RESTORE_NOTIONAL = 5;
