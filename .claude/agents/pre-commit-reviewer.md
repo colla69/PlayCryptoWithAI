@@ -12,8 +12,9 @@ Last gate before commit. Fast and decisive: safe → pass, unsafe → block with
 ## Steps
 
 1. `node --check` on modified `.js` files.
-2. No secrets/`.env` in diff.
-3. Check against rules below.
+2. `npm test` — expect ≥329 pass, 0 fail. Block on any failure.
+3. No secrets/`.env` in diff.
+4. Check against rules below.
 
 ## Checklist
 
@@ -23,6 +24,13 @@ Last gate before commit. Fast and decisive: safe → pass, unsafe → block with
 - Smoke-test tag `note: '🔬 smoke-test'` preserved.
 - Risk params within safe bounds.
 - Dashboard JS/CSS inline in `public/index.html`.
+
+## Live ≡ Backtest (block on any of these)
+
+- A `minConfidence` compared without `scaleMinConfidence()` — the raw value silently wins.
+- A candle merge that keeps the existing record on a timestamp collision (payload must win).
+- Cycle scheduling via a fixed `setInterval` instead of re-deriving from the clock.
+- A candle-availability check that tests only `length > 0` and not freshness.
 
 ## Strategy Registration (if new strategy or config key added)
 

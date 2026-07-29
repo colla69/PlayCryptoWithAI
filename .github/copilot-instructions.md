@@ -35,8 +35,11 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 | `src/engine/signalAggregator.js` | Confidence-weighted voting engine (consumes `aggregatorVoting.js`) |
 | `src/engine/aggregatorVoting.js` | Pure voting math — **parity-locked** across live/backtester/optimizer |
 | `src/engine/regimeClassifier.js` | BTC regime (EMA200×ADX, hysteresis); `regimeRouter.js` = bear policy + bundles |
-| `src/utils/strategyBuilder.js` | Maps config keys → strategy instances (**crash if missing**) |
+| `src/utils/strategyBuilder.js` | Maps config keys → strategy instances (**crash if missing**); `scaleMinConfidence()` — the single source of truth for the entry threshold |
 | `src/executor/liveTrader.js` | Live orders, position restore, exchange limits |
+| `src/dashboard/dashboardState.js` | Holds the candle series every strategy analyses — **merge is payload-wins** |
+| `src/core/cycleScheduler.js` | Candle-close alignment; re-derives each fire time from the clock |
+| `src/utils/candleFreshness.js` | Frozen-series detection (live guard + backtest stale-data warning) |
 | `config/default.js` | All config, per-symbol overrides |
 
 ## Architecture Rules
@@ -46,6 +49,11 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - `binanceClient.js` = sole exchange caller.
 - Strategies are stateless — no mutation between calls.
 - All trading decisions use past/closed candles only. **No lookahead.**
+- **Candle merges are payload-wins.** The exchange payload overwrites any overlapping
+  timestamp, in memory (`dashboardState.updateCandles`) and on disk (`saveCachedCandles`).
+  Every cycle fetches a window containing the still-forming bar; a first-wins merge freezes
+  that partial bar into history and discards its closed version, silently corrupting every
+  indicator downstream. This shipped and went unnoticed for months — see Live ≡ Backtest below.
 - Smoke-test trades tagged `note: '🔬 smoke-test'` — never remove.
 - Never commit secrets. Keys from `.env` only.
 - **Docs live in `docs/`.** All project documentation (`STRATEGY.md`, `TECHNICAL.md`, `TESTNET.md`, `WORKFLOW.md`, etc.) lives under `docs/`; `README.md` is the only `.md` at the repo root. New docs go in `docs/` and are linked from `README.md`. Do **not** move toolchain config that happens to be Markdown — `CLAUDE.md` (root + `public/` + `src/dashboard/`) and everything under `.claude/` and `.github/` must stay where the tooling loads them.
@@ -64,6 +72,39 @@ Automated crypto trading bot on Binance spot (USDC pairs, EU-compliant). 37-coin
 - **TSM core sleeve** (`engine/tsmCore.js`): experimental majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL market orders in live) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
+## Live ≡ Backtest (hard invariant — three ways it has actually broken)
+
+The cardinal rule is that live and backtest produce identical decisions from identical inputs.
+Parity has broken three times in ways that were invisible for weeks. Check these on any change
+touching signals, thresholds, or candle handling:
+
+| Break | Symptom | Guard |
+|---|---|---|
+| **Threshold read raw instead of scaled** | Aggregator gated at `raw × 0.65`, `riskManager.canTrade()` re-gated at raw → live ran at the "STARVED" calibration and took **0 trades in 27 days** | Every threshold read goes through `scaleMinConfidence()`; `tests/utils/confidenceThresholdParity.test.js` |
+| **In-memory candle merge first-wins** | Forming bar frozen into history, closed version discarded → live scored TIA CCI 49.1 vs backtest 76.7 on *identical on-disk data* | Payload-wins merge; `tests/dashboard/candleMerge.test.js` |
+| **Cycle drifted off candle close** | A host suspend left the loop firing 6h09m late for 48 consecutive cycles — different MTF/regime inputs than the backtester models | `createAlignedScheduler` re-derives from the clock; `tests/core/cycleScheduler.test.js` |
+| **Min notional enforced live only** | The simulator filled orders Binance would reject, so the deployment sweep reported an identical trade count at every position size | Shared `exchangeLimits.js`; `tests/backtester/minNotional.test.js` |
+
+**The structural guard: `tests/backtester/liveParityInventory.test.js`.** Every rule that can reject
+or resize a live entry is listed there with the symbol implementing it on *both* sides. Adding a
+live-side rule without a backtest counterpart fails that fixture immediately, instead of surfacing
+months later in a soak post-mortem. **When it fails, do not delete the row** — implement the missing
+side, or move it to `INTENTIONALLY_LIVE_ONLY` with a written reason. Every one of the four breaks
+above was a rule that existed on one side only; reviewing the diff never caught them, because the
+omission is invisible in a diff.
+
+Two rules that follow: **a second gate is a bug unless it reads the same scaled value**, and
+**anything that feeds the strategies must be reproducible from disk.** When live and a backtest
+disagree, suspect the in-memory path before suspecting the data.
+
+## Stale / frozen market data
+
+Thin or delisted pairs keep returning klines that never advance — Binance had no 12h candles for
+LSK past 2026-06-12, TON past 06-30, GMX past 07-10 (LSK's last bar has volume 0.0). An empty-fetch
+check does **not** catch this. `checkCandleFreshness()` skips a symbol whose newest bar is older
+than `config.maxCandleStalenessPeriods` (default 2 periods = 24h); it guards the signal cycle, the
+startup seed, and the TSM sleeve. Never bypass it to "get more symbols trading".
+
 ## Strategy Registration (mandatory)
 
 Every strategy name in `config/default.js` MUST exist in `src/utils/strategyBuilder.js`:
@@ -80,6 +121,10 @@ These apply whenever backtest/optimizer code is touched:
 
 - **Fill model**: BUY fills at next candle's open (`d.nextOpen`), not signal close
 - **Slippage tiers**: Large 0.10%, Mid 0.20%, Micro 0.35% — never flat
+- **Exchange minimum notional is enforced** (`exchangeLimits.js`, shared with liveTrader). Rejections
+  are reported as `filtersApplied.minNotional` — a run showing rejections is a run whose trade count
+  the live bot would not reproduce. `riskOverrides: { minNotional: 0 }` exists for research only.
+  Immaterial at the $1000 research budget (0 rejections; identical metrics), material below ~$400.
 - **Optimizer MIN_TRADES ≥ 8** on holdout; reject `[0t]`/`[1t]`/`[2t]` upgrades; reject deflated-Sharpe < 0.5
 - **Validation tooling**: `runBaseline.mjs` (multi-window + deflated Sharpe), `runWalkForward.mjs` (forward-only + Monte Carlo). Revert any change that worsens risk-adjusted metrics vs the committed baseline.
 - **Two-window reporting**: always report both Y2 (in-sample) and Y1+Y2 (full OOS)
@@ -125,6 +170,7 @@ Results without full filter coverage are invalid for decision-making.
 
 ```bash
 node --check <file>                              # syntax
+npm test                                         # expect ≥329 pass, 0 fail (covers tests/ AND src/tests/)
 SMOKE_TEST=false PAPER_MODE=true node src/main.js  # boot test (kill after "Initialising")
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 730   # Y2
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 1460  # full OOS
@@ -143,6 +189,15 @@ PAPER_MODE=true node src/scripts/perSymbolOptimizer.mjs                # dry-run
 | `DASHBOARD_PORT` | `3001` | Dashboard HTTP port |
 | `LOG_LEVEL` | `info` | Winston level |
 | `TSM_CORE` | `false` | Enable TSM majors trending sleeve (REAL orders in live mode) |
+
+## Key numbers that keep biting
+
+- **Min notional $11** (`FALLBACK_MIN_NOTIONAL`). `allocation = freeQuote × finalPositionPct`, and
+  the multiplier chain (macro bear ×0.5, ADX chop ×0.5, confidence taper) routinely lands a small
+  account under it. From 2,109 logged live sizing decisions: ~$600 clears the floor on ~99% of
+  signals, $400 on ~89%, $189 on only ~42%. Backtests do **not** model this floor.
+- **Docker on a laptop suspends.** The 2026-07 soak lost 6h11m to a host sleep; queued Binance
+  requests fired on wake carrying signature timestamps from six hours earlier.
 
 ## Key Constraints
 

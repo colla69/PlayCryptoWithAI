@@ -13,6 +13,7 @@ import { readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import config from '../../config/default.js';
 import { loadCachedCandles } from '../exchange/candleCache.js';
+import { candleSeriesAgeMs, formatAge } from '../utils/candleFreshness.js';
 import { PortfolioBacktester } from './index.js';
 import { loadFearGreedHistory } from '../data/fearGreed.js';
 import {
@@ -152,6 +153,38 @@ export async function loadAllSymbols(symbols, timeframe = '12h') {
   return out;
 }
 
+// Calendar age (not period count) at which an MTF research cache is called
+// stale: 15m and 4h files age at very different rates, but a backtest only
+// cares that the data reaches near the window it claims to cover.
+const MTF_STALE_MS = 3 * 86_400_000;
+
+/**
+ * Warns when a loaded MTF cache has gone stale.
+ *
+ * The live bot only persists 12h candles; 15m/4h files are written by
+ * `npm run download-history` and then sit unchanged. `loadCachedCandles` has no
+ * freshness notion, so a backtest run weeks later silently filters against
+ * month-old MTF data while reporting itself as a full-filter-stack result —
+ * which CLAUDE.md treats as invalid for decision-making. Loud, not fatal: short
+ * research windows on old data are legitimate, we just refuse to hide it.
+ */
+function warnIfMtfStale(loaded, suffix) {
+  const stale = [];
+  for (const [sym, candles] of Object.entries(loaded)) {
+    const ageMs = candleSeriesAgeMs(candles);
+    if (ageMs != null && ageMs > MTF_STALE_MS) stale.push(`${sym} (${formatAge(ageMs)})`);
+  }
+  if (stale.length) {
+    const shown = stale.slice(0, 5).join(', ');
+    const more = stale.length > 5 ? ` … +${stale.length - 5} more` : '';
+    console.warn(
+      `  ⚠️  STALE ${suffix} MTF data for ${stale.length}/${Object.keys(loaded).length} symbols: ${shown}${more}\n` +
+      `      Filter results are NOT valid for decision-making — run \`npm run download-history -- --timeframe ${suffix}\` first.`,
+    );
+  }
+  return stale.length;
+}
+
 export function loadMtfCandles(symbols, suffix) {
   const out = {};
   for (const sym of symbols) {
@@ -163,6 +196,7 @@ export function loadMtfCandles(symbols, suffix) {
       } catch { /* skip malformed */ }
     }
   }
+  warnIfMtfStale(out, suffix);
   return out;
 }
 
@@ -336,6 +370,7 @@ export function runWindow({
   ridePartial = null,
   trailArmPct = 0,
   basePctOverride = 0,
+  riskOverrides = {},
 }) {
   const sliced = sliceWindow(symbolCandles, window.startTs, window.endTs);
   const symbols = Object.keys(sliced);
@@ -384,6 +419,10 @@ export function runWindow({
       ...(riding && trailArmPct > 0 && { trailArmPct }),
       // Optional per-position base size override (deployment sweep / live-sizing parity).
       ...(basePctOverride > 0 && { basePctOverride }),
+      // Research escape hatch, e.g. `{ minNotional: 0 }` to model a frictionless
+      // exchange. Applied LAST so it can override the live-parity defaults —
+      // never use it for a run that informs a live decision.
+      ...riskOverrides,
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,

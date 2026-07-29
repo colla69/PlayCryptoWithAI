@@ -30,6 +30,7 @@
  */
 
 import SignalAggregator from '../engine/signalAggregator.js';
+import { applySizeFloor } from '../core/positionSizing.js';
 import { BacktestSimulator } from './backtestSimulator.js';
 import { calculateMetrics } from './metrics.js';
 import { calculateADX, isBullTrend } from '../utils/indicators.js';
@@ -221,6 +222,8 @@ export class PortfolioBacktester {
     const basePct = Number(this.config.risk?.basePctOverride) > 0
       ? Number(this.config.risk.basePctOverride)
       : 1 / this.maxOpenPositions;
+    // Brake-product floor — parity with live's computePositionSize(). Default 0 = off.
+    this.minSizeMultiplier = Number(this.config.risk?.minSizeMultiplier) || 0;
 
     const simulator = new BacktestSimulator({
       ...this.config.risk,
@@ -280,6 +283,9 @@ export class PortfolioBacktester {
       btcDominance: 0,
       bearPolicy: 0,
       bearCashExit: 0,
+      // BUYs the exchange would have rejected as below min notional. Reported so
+      // a small-budget run can't quietly look better than it would trade.
+      minNotional: 0,
     };
 
     // Phase 6a: track the regime label as of the previous step so we can
@@ -601,8 +607,10 @@ export class PortfolioBacktester {
             continue;
           }
         }
+        // Floor the compounded brake product — parity with the live sizing chain
+        // (src/core/positionSizing.js). Default 0 = disabled.
         const entryOpts = {
-          positionPct,
+          positionPct: applySizeFloor(positionPct, basePct, this.minSizeMultiplier),
           // Fill new BUY orders at the next candle's open (not the signal close)
           // to eliminate execution lookahead.
           fillPrice: d.nextOpen,
@@ -671,6 +679,9 @@ export class PortfolioBacktester {
         wins: symTrades.filter((t) => Number(t.pnl) > 0).length,
       };
     }
+
+    // Pulled off the simulator, which is where the exchange floor is applied.
+    filtersApplied.minNotional = simulator.minNotionalRejections;
 
     return {
       trades,

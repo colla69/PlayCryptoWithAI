@@ -21,6 +21,12 @@ export default {
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
   historicalCandles: 730,       // ~1 year of 12h candles (365d × 2 candles/d)
+  // Skip a symbol's cycle when its newest bar is older than this many periods.
+  // Thin/delisted markets keep returning klines that never advance — LSK, TON
+  // and GMX each fed the aggregator a frozen series for weeks in the 2026-07
+  // soak. 2 periods (24h on 12h candles) clears the normal case (the forming
+  // bar is ~0 periods old; a not-yet-published one is 1) with a wide margin.
+  maxCandleStalenessPeriods: 2,
   rsi: { period: 14, oversold: 30, overbought: 70 },
   ema: { fast: 12, slow: 26 },
   macd: { fast: 12, slow: 26, signal: 9 },
@@ -50,6 +56,16 @@ export default {
     takeProfitPct: 0.12,
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
     breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
+    // Floor on the compounded sizing brakes, as a fraction of maxPositionPct.
+    // The brakes (ATR × macro × ADX regime × confidence) multiply and are
+    // positively correlated — bear macro, chop and low confidence co-occur — so
+    // the product lands far below what any single brake intended. Over the
+    // 2026-07 soak the median entry-eligible size was 7.1% against a 15% base
+    // (0.47×), almost entirely from the macro ×0.5.
+    // 0 = OFF (shipped default). This is a RISK DIAL, not an edge: deploy_sweep
+    // shows uniform size scaling is Sharpe-neutral at best. Requires a baseline
+    // run before enabling. Applied identically in live and backtest.
+    minSizeMultiplier: 0,
     maxDailyLossPct: 0.05,
     maxOpenPositions: 4,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
                               //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%

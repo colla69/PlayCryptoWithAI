@@ -64,12 +64,14 @@ Architecture, data flow, module responsibilities, and deployment.
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
 | OCO Orders | `exchange/ocoOrders.js` | Server-side SL/TP for Lambda deployment |
 | Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache; merge-preserving saves keep deep research history intact |
+| Candle Freshness | `utils/candleFreshness.js` | Timeframe parsing + frozen-series detection (live guard, backtest stale-data warning) |
+| Cycle Scheduler | `core/cycleScheduler.js` | Candle-close alignment; re-derives each fire time from the clock so the loop can't drift |
 | MTF Alignment | `utils/mtfAlignment.js` | 15m and 4h filter scoring |
 | Indicators | `utils/indicators.js` | EMA, ATR, ADX, RSI, Bollinger, etc. |
 | Correlation | `utils/correlation.js` | Pearson correlation matrix builder |
 | Logger | `utils/logger.js` | Winston logger + CSV trade appender |
 | Dashboard | `dashboard/dashboardServer.js` | Express API, SSE, deposits CRUD, dated log reader (512KB tail) |
-| Dashboard State | `dashboard/dashboardState.js` | In-memory state for SSE broadcasts |
+| Dashboard State | `dashboard/dashboardState.js` | In-memory state for SSE broadcasts; also holds the candle series every strategy analyses — the merge is **payload-wins** so a forming bar is corrected, never frozen |
 | Persistence | `dashboard/persistence.js` | Debounced JSON write for dashboard state + signal history |
 | Notifications | `notifications/telegramNotifier.js` | Send-only Telegram bot (BUY/SELL/startup alerts); no-op if unconfigured |
 
@@ -119,8 +121,13 @@ Architecture, data flow, module responsibilities, and deployment.
 ### Trading Cycle (every 12h candle close)
 
 ```
+0. Cycle fires at candle close + 3s, then re-derives the NEXT fire time from the
+   wall clock (core/cycleScheduler.js). No fixed setInterval — a slow or stalled
+   cycle costs that cycle, never the alignment.
+
 1. MTF candles served from in-memory cache (refreshed every 15m / 4h)
    12h candles fetched fresh from Binance and merged into history cache
+   → series older than maxCandleStalenessPeriods (24h) ⇒ symbol skipped
 
 2. For each symbol:
    strategies[symbol].computeSignal(candles)
@@ -381,6 +388,7 @@ config
 | OCO for Lambda | Exchange handles exits 24/7 without running process |
 | TSM core positions (#core keys) | Coexist with scalper on same asset; `isCore: true` flag excludes them from risk-loop, correlation cap, daily-loss accounting (ring-fenced sleeve) |
 | Candle cache merge-preserving | `saveCachedCandles` keeps disk bars strictly older than payload's first timestamp; empty payload no-ops (preserves deep research history) |
+| In-memory candle merge payload-wins | `dashboardState.updateCandles` lets the fresh exchange payload overwrite any overlapping timestamp. The old first-wins merge froze the forming candle captured mid-cycle and discarded its closed version, silently corrupting every indicator downstream and breaking live ≡ backtest (2026-07 soak: TIA scored CCI 49.1 live vs 76.7 in the backtester on identical on-disk data) |
 
 ---
 
