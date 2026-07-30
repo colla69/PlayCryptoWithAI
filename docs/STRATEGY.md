@@ -203,8 +203,8 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 
 ## TSM Core Sleeve (experimental, default OFF — live-capable)
 
-**Shipped infrastructure for majors trend-following:** a parallel core portfolio (BTC/ETH/BNB/SOL 
-variants possible, default BTC+ETH) sized as a fixed sleeve (default 50% of equity, split equally) 
+**Shipped infrastructure for majors trend-following:** a parallel core portfolio (default
+BTC+ETH+BNB+SOL) sized as a fixed sleeve (default 50% of equity, split equally) 
 that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
 env var; runs in **paper and live** — on the live bot it places real market orders sized to 
@@ -238,6 +238,36 @@ cuts the bear tail. DSR 0.72 (robust across 15–90d lookbacks on both universes
 not luck). Matches the crypto literature on TSM. See `docs/TREND_CORE_STUDY.md` for the full study 
 and start-date sensitivity: it beats same-universe B&H on return/Sharpe/DD from every walk-in date 
 tested (including the exact 2021 top), but absolute return still requires the asset class to go up.
+
+**Universe re-validated 2026-07-29** on the restored 6.1yr USDC series (4,128 bars,
+2020-06-22 → 2026-07-29), shipping rule (vote 30/45/60 + slow-in + volTarget 0.6):
+
+| Universe | Return | Sharpe | Max DD | DSR | '21–22 bear DD | Exposure |
+|---|---|---|---|---|---|---|
+| BTC+ETH (previous default) | +454% | 1.05 | −36.0% | 0.64 | −35.8% | 46% |
+| **BTC+ETH+BNB+SOL (current)** | **+543%** | **1.20** | **−33.0%** | **0.75** | **−31.1%** | 41% |
+
+Strictly dominant — better return, Sharpe, drawdown and DSR at lower exposure; the cost is 2×
+round trips (104 vs 56), already charged in the honest fills. Independently reproduces the 9yr
+USDT study's ordering. **Vol targeting is load-bearing here:** without it the wider universe
+draws down *deeper* (−49.0% vs −38.8%), so don't disable `volTarget` and keep this universe.
+
+**Sizing follows an equity ladder with a high-water-mark ratchet** (`tsmCore.equityLadder`,
+2026-07-29). The selector input is the account's all-time-high equity (daily snapshots in
+`data/equity_history.json`, deposits included) — never current equity, which would size UP after
+losses (martingale). Risk only ever steps down; after a drawdown the unchanged small fraction of a
+smaller account can fall under Binance's $11 notional floor, parking the sleeve in cash until
+recovery. Rungs are individually validated static profiles (never interpolated):
+
+| Rung | HWM ≥ | Profile | Combined account maxDD (measured, ρ=0.025 vs scalper) |
+|---|---|---|---|
+| A | $0 | 2 majors @ 0.50 | −17.4% |
+| B | $320 | 2 majors @ 0.30 | −10.1% (the ~10% budget rung) |
+| C | $970 | 4 majors @ 0.20 | ~−7% (best universe, DSR 0.75) |
+
+Thresholds sit ~10% above each rung's floor-viability equity so a rung is never selected before it
+can place an order; `sleeveFeasibility()` alerts (once per boot) when the active rung can't clear
+the floor at current equity, including the equity it becomes viable from — the DCA signpost.
 
 **Caveat:** In-sample only — 2026 YTD the sleeve is ~−9% (Q1 chop whipsaws). Real drawdowns are 
 −40/−60% at full deployment; sizing is a Sharpe-neutral risk dial. This is "smart beta" (captures 

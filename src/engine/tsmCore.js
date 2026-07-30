@@ -15,6 +15,8 @@
  * Everything here is pure (no I/O, no state) — orchestration lives in main.js.
  */
 
+import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
+
 export const CORE_SUFFIX = '#core';
 
 /** '<symbol>' → '<symbol>#core' */
@@ -151,4 +153,87 @@ export function planCoreActions({ symbols, signals, positions, enterVotes = null
     else if (held.has(key) && positive < stayNeed) actions.push({ type: 'close', symbol, key });
   }
   return actions;
+}
+
+/**
+ * Equity-ladder rung selection — de-risk as the account grows, never re-risk.
+ *
+ * The selector input MUST be high-water-mark equity (all-time max of recorded
+ * equity, deposits included), not current equity. Selecting on current equity
+ * would step risk UP after losses — martingale sizing, the classic way small
+ * accounts die. With HWM the fraction only ever ratchets down; after a drawdown
+ * the (smaller) fraction of (smaller) equity can fall under the exchange
+ * minimum, which parks the sleeve in cash until recovery — risk-off exactly
+ * when it should be.
+ *
+ * Rungs must be individually validated static profiles (see config.tsmCore
+ * .equityLadder); this function only chooses between them. Returns null when
+ * the ladder is absent or malformed so the caller can fall back to the static
+ * config — an invalid ladder must never invent a profile.
+ *
+ * @param {number} hwmEquity
+ * @param {Array<{minHwmEquity:number, symbols:string[], deploymentPct:number}>} ladder
+ * @returns {{minHwmEquity:number, symbols:string[], deploymentPct:number}|null}
+ */
+export function selectSleeveRung(hwmEquity, ladder) {
+  if (!Array.isArray(ladder) || !ladder.length) return null;
+  const valid = ladder.filter((r) => Number.isFinite(Number(r?.minHwmEquity))
+    && Array.isArray(r?.symbols) && r.symbols.length > 0
+    && Number(r?.deploymentPct) > 0);
+  if (!valid.length) return null;
+  const hwm = Number.isFinite(Number(hwmEquity)) ? Number(hwmEquity) : 0;
+  const eligible = valid
+    .filter((r) => Number(r.minHwmEquity) <= hwm)
+    .sort((a, b) => Number(a.minHwmEquity) - Number(b.minHwmEquity));
+  // Below the lowest threshold, the lowest rung still applies — a ladder always
+  // selects something once it is structurally valid.
+  return eligible.at(-1) ?? valid.sort((a, b) => Number(a.minHwmEquity) - Number(b.minHwmEquity))[0];
+}
+
+/**
+ * Can this sleeve profile actually place an order at this equity?
+ *
+ * A slot's notional is equity × (deploymentPct / nSymbols) × volFraction ×
+ * macroFactor, and the exchange rejects anything under its minimum notional.
+ * Feasibility is judged under an ADVERSE (not absolute-worst) multiplier stack:
+ * vol at ~2× target (fraction 0.5) with the macro risk-off ×0.5 active — the
+ * conditions typical of a first trend entry after a bear, which is exactly the
+ * entry the sleeve exists to catch. The true floor (minFraction × riskOff =
+ * 0.1) is deliberately not used: it would mark configs infeasible that trade
+ * fine outside vol extremes, and extreme-vol skips are already logged per-open.
+ *
+ * This is a startup/cycle ADVISORY, not a trade gate — order-time enforcement
+ * stays in the trader (and in the backtest simulator, which models the same
+ * floor). See tests/backtester/liveParityInventory.test.js.
+ *
+ * @param {object} args
+ * @param {number} args.equity            current account equity
+ * @param {number} args.nSymbols          rung universe size
+ * @param {number} args.deploymentPct     rung deployment fraction
+ * @param {number} [args.adverseVolFraction=0.5]
+ * @param {number} [args.riskOffFactor=0.5]
+ * @param {number} [args.minNotional]     exchange floor (FALLBACK_MIN_NOTIONAL)
+ * @returns {{feasible:boolean, adverseSlotUsd:number, viableFromEquity:number}}
+ */
+export function sleeveFeasibility({
+  equity,
+  nSymbols,
+  deploymentPct,
+  adverseVolFraction = 0.5,
+  riskOffFactor = 0.5,
+  minNotional = FALLBACK_MIN_NOTIONAL,
+} = {}) {
+  const n = Math.max(Number(nSymbols) || 0, 1);
+  const perSlotFrac = (Number(deploymentPct) || 0) / n;
+  const adverse = adverseVolFraction * riskOffFactor;
+  const eq = Number(equity) || 0;
+  const adverseSlotUsd = eq * perSlotFrac * adverse;
+  const viableFromEquity = perSlotFrac > 0 && adverse > 0
+    ? minNotional / (perSlotFrac * adverse)
+    : Infinity;
+  return {
+    feasible: adverseSlotUsd >= minNotional,
+    adverseSlotUsd: Number(adverseSlotUsd.toFixed(2)),
+    viableFromEquity: Number.isFinite(viableFromEquity) ? Math.ceil(viableFromEquity) : Infinity,
+  };
 }

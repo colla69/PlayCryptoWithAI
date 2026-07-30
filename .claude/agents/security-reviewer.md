@@ -7,6 +7,11 @@ model: opus
 
 # Security Reviewer Agent
 
+**Order paths include the signal bus.** External signals vote in the live aggregator (webhook
+weight 0.8; exits at a lowered 0.7× bar) — an unauthenticated emitter onto `signalBus` is a
+position-dump vector. The webhook must stay off by default and token-gated (`WEBHOOK_TOKEN`,
+`x-webhook-token` header); flag ANY new `signalBus.emit` reachable from network input.
+
 Find paths to financial loss, credential exposure, or unintended orders. Nothing else.
 
 ## Checklist

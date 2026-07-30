@@ -17,6 +17,12 @@ description: >-
 
 ## Non-Negotiable Rules
 
+- **The signal bus is an order path.** External signals (webhook/telegram/twitter) become votes in
+  the live aggregator; open positions exit at a lowered 0.7× threshold, so injected SELLs can force
+  a position dump. Any endpoint that can emit onto `signalBus` requires authentication — the
+  webhook demands `WEBHOOK_TOKEN` (constant-time compare) and refuses to start without it. Treat
+  new signal sources with the same severity as `binanceClient.js` changes.
+
 1. **Secrets in environment variables only** — `process.env.BINANCE_API_KEY` / `process.env.BINANCE_API_SECRET`. Never hard-code in source or config files.
 2. **`.env` must never be committed** — verify `.gitignore` contains `.env`.
 3. **No secrets in logs** — never pass `apiKey`, `secret`, or `password` to any logger call.

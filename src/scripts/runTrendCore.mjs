@@ -582,5 +582,18 @@ for (const [key, m] of [...Object.entries(tsmCells), ...Object.entries(rotCells)
   console.log(`  ${key.padEnd(24)} ${Object.entries(m.yearly).map(([y, r]) => `${y}: ${(r * 100).toFixed(0)}%`).join('  ')}`);
 }
 
+// Optional curve export. Summary metrics cannot answer "do two sleeves draw down
+// together?" — that needs the series. Keeps the default output lean.
+if (argv.includes('--dump-curves')) {
+  const curveFile = argv[argv.indexOf('--dump-curves') + 1];
+  const wanted = argv.includes('--curve-keys')
+    ? argv[argv.indexOf('--curve-keys') + 1].split('|')
+    : Object.keys(eqCache);
+  const dump = { grid, curves: {} };
+  for (const k of wanted) if (eqCache[k]) dump.curves[k] = eqCache[k];
+  fs.writeFileSync(curveFile, JSON.stringify(dump));
+  console.log(`Curves → ${curveFile} (${Object.keys(dump.curves).length} of ${Object.keys(eqCache).length})`);
+}
+
 fs.writeFileSync(outFile, JSON.stringify(results, null, 2));
 console.log(`\nSaved → ${outFile}`);

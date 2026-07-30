@@ -42,6 +42,9 @@ Rules for all dashboard-related files: `public/index.html` and `src/dashboard/`.
   - `POST /api/smoke-test` — trigger smoke test (calls `runSmokeTest` from `main.js`)
   - `GET  /api/smoke-test` — smoke-test status
   - `GET  /api/logs?lines=200&filter=` — last N lines of `logs/app.log`
+  - `GET/POST/DELETE /api/deposits` — deposit tracker CRUD (`data/deposits.json`)
+  - `GET  /api/performance` — time-weighted return + simple P&L (TWR = strategy, P&L = wealth;
+    valuation series from `data/equity_history.json`, one snapshot per UTC day)
 
 ## DOM Update Conventions
 

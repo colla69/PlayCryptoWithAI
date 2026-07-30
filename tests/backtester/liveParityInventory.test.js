@@ -12,6 +12,13 @@
  *   · minConfidence     — scaled for the aggregator, read RAW by canTrade
  *   · candle merge      — payload-wins on disk, first-wins in memory
  *   · cycle alignment   — backtest evaluates at candle close, live drifted 6h
+ *   · downloader merge  — first-wins in downloadHistory, so a bar frozen
+ *                         mid-formation corrupted the research data permanently
+ *
+ * Note the pattern in the last two: "merge" appears three times. Any place two
+ * sources of the same record combine, assert which one wins — the exchange
+ * payload, always. See tests/dashboard/candleMerge.test.js and
+ * tests/scripts/downloadHistoryMerge.test.js.
  *
  * So this fixture inverts the burden of proof. Every rule that can reject or
  * resize a live entry is listed below with the concrete symbol that implements
@@ -138,6 +145,14 @@ const INTENTIONALLY_LIVE_ONLY = [
     rule: 'Exchange lot-size / precision rounding',
     reason: 'amountToPrecision depends on per-market filters fetched from Binance. '
           + 'Material only near the min-notional boundary, which IS modelled.',
+  },
+  {
+    rule: 'TSM equity-ladder rung selection + feasibility advisory',
+    reason: 'selectSleeveRung picks BETWEEN individually validated static profiles using the '
+          + 'account\'s persisted high-water-mark equity — each rung\'s trading behaviour was '
+          + 'backtested as a static config (runTrendCore), so there is nothing new to mirror. '
+          + 'sleeveFeasibility is a startup/cycle advisory only; order-time enforcement of the '
+          + 'min-notional floor exists on BOTH sides via the shared exchangeLimits constant.',
   },
 ];
 

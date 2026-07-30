@@ -57,7 +57,7 @@ Live at `http://localhost:3001` — four tabs:
 |-----|----------|
 | **Dashboard** | Positions, P&L, trade history, manual close buttons |
 | **Signals** | Full signal history with symbol/decision filters, paginated (50–1000) |
-| **Tools** | P&L equity curve, deposit tracker with True ROI, 🔄 Refresh Balance |
+| **Tools** | P&L equity curve, deposit tracker with time-weighted return (TWR), 🔄 Refresh Balance |
 | **Logs** | Full log viewer with filter and search |
 
 ---
@@ -75,7 +75,8 @@ Live at `http://localhost:3001` — four tabs:
 | `LOG_LEVEL` | `info` | Winston log level |
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
-| `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live) |
+| `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live). Sizing follows the HWM equity ladder — see STRATEGY.md |
+| `WEBHOOK_TOKEN` | — | Required to run the external-signal webhook (off by default). Requests must send it as `x-webhook-token`; without the env var the server refuses to start |
 
 Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/filter context.
 
@@ -131,6 +132,9 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | In-trade | Take-profit (12%) | Market sell |
 | In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
 | In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
+| Ops | Cycle watchdog (30 min) | Telegram alert when the loop stops deciding |
+| Ops | Drift monitor (armed, per-trade Sharpe ref 0.4658) | Telegram alert when live diverges from backtest beyond 2 SE |
+| Sizing | HWM equity ladder | Sleeve risk steps down as all-time-high equity grows — never back up |
 
 ### Timing Architecture
 
@@ -142,6 +146,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | MTF 15m cache | 15 min | Refresh 15m candle cache for filters |
 | MTF 4h cache | 4h | Refresh 4h candle cache for filters |
 | Balance sync | 5 min | Sync exchange balance + position restore |
+| Cycle watchdog | 30 min | Telegram deadman alert if no cycle completes within 1.15× the candle period |
 
 ---
 
@@ -153,6 +158,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | `data/position_state.json` | Stop-loss / HWM / entry per position (survives restarts) |
 | `data/signal_history.json` | Signal decision history (max 5000 entries) |
 | `data/deposits.json` | Deposit tracker (gitignored, runtime-only) |
+| `data/equity_history.json` | Daily equity snapshots — the valuation series TWR chains between |
 | `data/filtered_optimization_results.json` | Per-symbol optimizer results (pass/fail) |
 | `data/candles/` | Cached OHLCV data |
 | `logs/trades.csv` | Trade journal |

@@ -11,11 +11,13 @@ import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
 import { calcPositionAgingExit, calcWeeklyDDBreaker, calcEquityFromStatus } from './risk/portfolioRisk.js';
 import { computeLiveStats, evaluateDrift } from './monitor/driftMonitor.js';
+import { checkCycleGap, updateWatchdogLatch } from './monitor/cycleWatchdog.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
+import { recordEquitySnapshot, loadEquityHistory } from './dashboard/equityHistory.js';
 import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
@@ -25,7 +27,7 @@ import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './da
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { computePositionSize } from './core/positionSizing.js';
-import { computeTsmVote, planCoreActions, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey, baseSymbol } from './engine/tsmCore.js';
+import { computeTsmVote, planCoreActions, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey, baseSymbol, selectSleeveRung, sleeveFeasibility } from './engine/tsmCore.js';
 import { loadNasdaqHistory, computeEquityRiskOff } from './data/nasdaqTrend.js';
 import {
   buildStrategiesForSymbol,
@@ -108,6 +110,12 @@ const telegramChannelIds = (process.env.TELEGRAM_CHANNEL_IDS?.split(',') ?? sign
   .filter(Boolean);
 
 let cycleInProgress = false;
+// Watchdog heartbeat: ms timestamp of the last COMPLETED cycle (null until the
+// first one). Declared here because runAllSymbols writes it and executes before
+// the watchdog block at the bottom of this file is reached.
+let lastCycleAt = null;
+const watchdogLatch = { alerted: false };
+const driftAlertLatch = { alerted: false };
 let shuttingDown = false;
 let webhookApp = null;
 let telegramBot = null;
@@ -505,8 +513,16 @@ async function runAllSymbols() {
         minTrades: monCfg.minTrades ?? 10,
       });
       if (drift.alert) {
-        logger.warn(`[DRIFT] ${drift.reason} — live ${(live.winRate*100).toFixed(0)}% WR, mean ${(live.meanReturn*100).toFixed(2)}%/trade`);
+        const msg = `[DRIFT] ${drift.reason} — live ${(live.winRate*100).toFixed(0)}% WR, mean ${(live.meanReturn*100).toFixed(2)}%/trade`;
+        logger.warn(msg);
+        // Telegram once per incident — a log line alone went unread for 24 days
+        // in the July soak. Re-arms when drift clears.
+        if (!driftAlertLatch.alerted) {
+          driftAlertLatch.alerted = true;
+          void notifyAlert(`📉 ${msg}`);
+        }
       } else {
+        driftAlertLatch.alerted = false;
         logger.debug(`[DRIFT] ${drift.reason} (n=${live.n}, WR ${(live.winRate*100).toFixed(0)}%)`);
       }
     }
@@ -539,6 +555,18 @@ async function runAllSymbols() {
     // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
     // candles that runCycle just refreshed in dashboardState.
     await runTsmCoreCycle();
+
+    // Daily valuation point for time-weighted return. Recorded here rather than
+    // in refreshBalance (live-only) or runRiskChecks (early-returns with no open
+    // positions) so a paper soak builds the same series a live account does.
+    try {
+      recordEquitySnapshot(calcEquityFromStatus(await trader.getStatus()));
+    } catch (err) {
+      logger.debug(`Equity snapshot skipped: ${err.message}`);
+    }
+
+    // Watchdog heartbeat — only a COMPLETED cycle counts as alive.
+    lastCycleAt = Date.now();
   } finally {
     cycleInProgress = false;
   }
@@ -555,6 +583,9 @@ async function runAllSymbols() {
 // Vote-flip exits that fail on the exchange are alerted immediately and
 // retried by the fast risk loop (live) instead of waiting 12h.
 const tsmCoreFailedCloses = new Set();
+// Rung bookkeeping: alert on transitions, and only once per boot on infeasibility.
+let tsmLastRungKey = null;
+let tsmFeasibilityAlerted = false;
 async function runTsmCoreCycle() {
   const coreCfg = config.tsmCore ?? {};
   if (!coreCfg.enabled) return;
@@ -563,6 +594,54 @@ async function runTsmCoreCycle() {
   tsmCoreFailedCloses.clear();
   try {
     const status = await trader.getStatus();
+
+    // ── Equity-ladder rung selection (HWM ratchet) ──────────────────────────
+    // Sizing keys off the account's all-time-high equity, never current equity:
+    // wins and deposits both step risk DOWN a rung; a drawdown never steps it
+    // back up. See config.tsmCore.equityLadder for the rung rationale.
+    const currentEquity = calcEquityFromStatus(status);
+    const hwmEquity = Math.max(
+      currentEquity,
+      ...loadEquityHistory().map((p) => Number(p.equity) || 0),
+    );
+    const rung = selectSleeveRung(hwmEquity, coreCfg.equityLadder);
+    const active = rung
+      ? { ...coreCfg, symbols: rung.symbols, deploymentPct: rung.deploymentPct }
+      : coreCfg;
+    const nextRung = rung
+      ? (coreCfg.equityLadder ?? [])
+        .filter((r) => Number(r.minHwmEquity) > Number(rung.minHwmEquity))
+        .sort((a, b) => Number(a.minHwmEquity) - Number(b.minHwmEquity))[0] ?? null
+      : null;
+    const rungKey = `${(active.symbols ?? []).length}@${active.deploymentPct}`;
+    logger.info(
+      `[TSM-CORE] rung ${rungKey} (HWM $${hwmEquity.toFixed(2)})`
+      + `${nextRung ? ` · next de-risk at $${nextRung.minHwmEquity} HWM` : ' · top rung'}`,
+    );
+    if (tsmLastRungKey !== null && tsmLastRungKey !== rungKey) {
+      void notifyAlert(
+        `🧲 TSM sleeve de-risked: ${tsmLastRungKey} → ${rungKey} (HWM $${hwmEquity.toFixed(2)}). `
+        + 'Held slots will drift-rebalance to the new size.',
+      );
+    }
+    tsmLastRungKey = rungKey;
+
+    // Advisory only (order-time enforcement lives in the trader): can this rung
+    // actually place an order at CURRENT equity under adverse multipliers?
+    const feas = sleeveFeasibility({
+      equity: currentEquity,
+      nSymbols: (active.symbols ?? []).length,
+      deploymentPct: active.deploymentPct,
+      riskOffFactor: Number(coreCfg.macroOverlay?.riskOffFactor ?? 0.5),
+    });
+    if (!feas.feasible && !tsmFeasibilityAlerted) {
+      tsmFeasibilityAlerted = true;
+      const message = `[TSM-CORE] rung ${rungKey} cannot clear the exchange min-notional floor at current `
+        + `equity $${currentEquity.toFixed(2)} (adverse slot ≈ $${feas.adverseSlotUsd}) — sleeve will idle in cash. `
+        + `Viable from ~$${feas.viableFromEquity} equity.`;
+      logger.warn(message);
+      void notifyAlert(message);
+    }
 
     // ── Macro overlay (M1): half size while NASDAQ < its 100d EMA ───────────
     // FRED feed is keyless with a 12h disk cache; any failure → neutral (1).
@@ -585,7 +664,7 @@ async function runTsmCoreCycle() {
     const prices = new Map();
     const fractions = new Map();
     const vols = new Map();
-    for (const symbol of coreCfg.symbols ?? []) {
+    for (const symbol of active.symbols ?? []) {
       const candles = dashboardState.getCandles(symbol);
       if (!candles || candles.length < 2) {
         logger.warn(`[TSM-CORE] ${symbol}: no candles cached — skipping`);
@@ -629,8 +708,7 @@ async function runTsmCoreCycle() {
     // Equal split of deploymentPct × total equity across core symbols; each
     // slot then scales by its vol/macro fraction. Opens are additionally
     // capped at available cash inside openCorePosition.
-    const equity = calcEquityFromStatus(status);
-    const perSlot = (equity * Number(coreCfg.deploymentPct ?? 0.5)) / Math.max((coreCfg.symbols ?? []).length, 1);
+    const perSlot = (currentEquity * Number(active.deploymentPct ?? 0.5)) / Math.max((active.symbols ?? []).length, 1);
 
     const emit = (result) => {
       dashboardState.pushTrade(result);
@@ -692,7 +770,7 @@ async function runTsmCoreCycle() {
     dashboardState.setTsmCore({
       enabled: true,
       updatedAt: new Date().toISOString(),
-      deploymentPct: Number(coreCfg.deploymentPct ?? 0.5),
+      deploymentPct: Number(active.deploymentPct ?? 0.5),
       enterVotes: coreCfg.enterVotes ?? null,
       stayVotes: coreCfg.stayVotes ?? null,
       volTarget: coreCfg.volTarget ?? null,
@@ -743,9 +821,14 @@ function logStartup() {
     `Risk limits: maxDailyLossPct=${config.risk.maxDailyLossPct} maxOpenPositions=${config.risk.maxOpenPositions} minConfidence=${config.risk.minConfidence} (×${config.risk.confidenceThresholdScale ?? 1} scale → entry gate ${scaleMinConfidence(config.risk.minConfidence).toFixed(3)})`,
   );
   const tsm = config.tsmCore;
+  // The active rung is resolved per-cycle from HWM equity (needs trader status),
+  // so startup shows the ladder itself; the first cycle logs the selected rung.
+  const ladderDesc = Array.isArray(tsm?.equityLadder) && tsm.equityLadder.length
+    ? `ladder ${tsm.equityLadder.map((r) => `$${r.minHwmEquity}+→${r.symbols.length}@${r.deploymentPct}`).join(' · ')} (HWM ratchet)`
+    : `symbols=${(tsm?.symbols ?? []).join(',')} deploy=${((tsm?.deploymentPct ?? 0.5) * 100).toFixed(0)}% (static)`;
   logger.info(
     `TSM core sleeve: ${tsm?.enabled
-      ? `ON (${paperMode ? 'paper' : 'LIVE — real orders'}) symbols=${(tsm.symbols ?? []).join(',')} deploy=${((tsm.deploymentPct ?? 0.5) * 100).toFixed(0)}% lookbacks=${(tsm.lookbackBars ?? []).join('/')} bars`
+      ? `ON (${paperMode ? 'paper' : 'LIVE — real orders'}) ${ladderDesc} lookbacks=${(tsm.lookbackBars ?? []).join('/')} bars`
       : 'OFF'}`,
   );
   logger.info(
@@ -1336,6 +1419,9 @@ async function refreshBalance() {
     );
     const status = await trader.getStatus();
     dashboardState.updateStatus(status, riskManager.getDailyStats());
+    // Daily valuation point for time-weighted return — without it a deposit
+    // can't be separated from performance. No-ops after the first write each day.
+    recordEquitySnapshot(calcEquityFromStatus(status));
     pushEvent('status', { balance: status.balance });
   } catch (err) {
     logger.debug(`Balance poll error: ${err.message}`);
@@ -1363,6 +1449,31 @@ const cycleScheduler = createAlignedScheduler({
 });
 
 cycleScheduler.start();
+
+// ── Cycle watchdog (deadman alert) ──────────────────────────────────────────
+// Alerts on the ABSENCE of completed cycles: the July 2026 host suspend stalled
+// the loop 18h and skewed it for 24 days with zero alerts, because a dead
+// process emits no error. Checks every 30 min; fires once per incident via
+// Telegram and re-arms when cycles resume.
+const CYCLE_WATCHDOG_MS = 30 * 60_000;
+const cycleWatchdogId = setInterval(() => {
+  const { stale, gapMs, thresholdMs } = checkCycleGap({
+    lastCycleAt, now: Date.now(), periodMs: config.pollIntervalMs,
+  });
+  const { fire, recovered } = updateWatchdogLatch(watchdogLatch, stale);
+  if (fire) {
+    const hours = (gapMs / 3_600_000).toFixed(1);
+    const message = `⏰ WATCHDOG: no completed trading cycle in ${hours}h `
+      + `(threshold ${(thresholdMs / 3_600_000).toFixed(1)}h). Host suspended or loop hung — `
+      + `the bot is NOT making decisions. Last cycle: ${new Date(lastCycleAt).toUTCString()}.`;
+    logger.error(message);
+    void notifyAlert(message);
+  } else if (recovered) {
+    logger.info('[WATCHDOG] cycles resumed — re-armed');
+    void notifyAlert('✅ WATCHDOG: trading cycles resumed.');
+  }
+}, CYCLE_WATCHDOG_MS);
+cycleWatchdogId.unref?.();
 
 process.on('SIGINT', () => {
   if (shuttingDown) {

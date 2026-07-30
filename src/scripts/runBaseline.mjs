@@ -18,6 +18,7 @@
 import 'dotenv/config';
 process.setMaxListeners(100);
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { sharpeOf, tradeReturnFraction } from '../monitor/driftMonitor.js';
 import config from '../../config/default.js';
 import {
   loadAllSymbols,
@@ -109,7 +110,21 @@ for (const window of allWindows) {
     nTrials,
     budget,
     maxOpenPositions: config.risk?.maxOpenPositions ?? 4,
+    includeRaw: true, // per-trade Sharpe below needs the trade list
   });
+  // Per-trade Sharpe (mean/std of per-trade returns, UN-annualised) — the basis
+  // the live drift monitor compares against (see src/monitor/driftMonitor.js).
+  // The daily-equity Sharpe printed above is NOT comparable to it.
+  if (!r.skipped && Array.isArray(r.trades)) {
+    const rets = r.trades
+      .map((t) => tradeReturnFraction(t))
+      .filter((x) => Number.isFinite(x));
+    r.per_trade_sharpe = Number(sharpeOf(rets).toFixed(4));
+    r.per_trade_n = rets.length;
+    delete r.trades; // keep the baseline JSON lean (raw only served this stat)
+    delete r.symbol_stats;
+    delete r.equity_curve;
+  }
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   if (r.skipped) {
     console.log(`SKIP (${r.reason})  [${elapsed}s]`);

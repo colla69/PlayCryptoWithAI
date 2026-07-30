@@ -8,6 +8,7 @@
  *
  * Usage:  npm run download-history
  *         npm run download-history -- --years 2 --timeframe 4h
+ *         npm run download-history -- --timeframe 4h --repair   # overwrite existing bars
  */
 import 'dotenv/config';
 import ccxt from 'ccxt';
@@ -52,6 +53,8 @@ async function fetchHistorical(symbol, timeframe, totalCandles) {
 const args         = process.argv.slice(2);
 const yearsArg     = args.includes('--years')     ? Number(args[args.indexOf('--years')     + 1]) : 2;
 const timeframeArg = args.includes('--timeframe') ? String(args[args.indexOf('--timeframe') + 1]) : config.timeframe;
+// Re-fetch and overwrite existing bars instead of only appending new ones.
+const repair       = args.includes('--repair');
 const msPerCandle  = TF_MS[timeframeArg] ?? 14_400_000;
 const totalCandles = Math.ceil((yearsArg * 365.25 * 24 * 3600 * 1000) / msPerCandle) + 10;
 
@@ -87,8 +90,15 @@ for (const symbol of config.symbols) {
 
     let merged = [...cached];
 
-    if (isUndersizedCache) {
-      process.stdout.write(` backfilling to ${totalCandles} candles… `);
+    if (isUndersizedCache || repair) {
+      // `--repair` re-fetches the whole window and lets the exchange payload
+      // overwrite what is on disk. Needed because the forward-only path below
+      // never revisits an existing bar, so a bar frozen mid-formation by the old
+      // first-wins merge stays wrong forever — no amount of normal downloading
+      // fixes it. Verify with `rebuildDeepHistory.mjs` (dry run) afterwards.
+      process.stdout.write(repair && !isUndersizedCache
+        ? ` repairing ${totalCandles} candles… `
+        : ` backfilling to ${totalCandles} candles… `);
       merged = await fetchHistorical(symbol, timeframeArg, totalCandles);
       await saveCachedCandles(symbol, timeframeArg, merged);
       process.stdout.write(`+${Math.max(0, merged.length - cached.length)} new  `);
@@ -97,16 +107,31 @@ for (const symbol of config.symbols) {
       process.stdout.write(` fetching ${needed} new candles… `);
 
       const fresh = await fetchHistorical(symbol, timeframeArg, needed);
-      const seen = new Set(cached.map((c) => c.timestamp));
-      const added = fresh.filter((c) => !seen.has(c.timestamp));
 
-      merged = [...cached, ...added];
+      // Payload-wins on a timestamp collision. The previous run's LAST cached bar
+      // was still forming when it was written, so its OHLCV is partial; a
+      // first-wins merge froze that bar permanently and the corrected version was
+      // discarded on every subsequent download. It is not a rounding error —
+      // BTC's 2026-06-24 04:00 4h bar closed at 62839.11 while the next bar opened
+      // at 62591.50, a break in the open/close chain that appears nowhere else,
+      // and its volume was ~40% short. Same failure as dashboardState.updateCandles
+      // and saveCachedCandles; see "Live ≡ Backtest" in .claude/rules/project.md.
+      const byTimestamp = new Map();
+      for (const c of cached) byTimestamp.set(c.timestamp, c);
+      let corrected = 0;
+      for (const c of fresh) {
+        if (byTimestamp.has(c.timestamp)) corrected++;
+        byTimestamp.set(c.timestamp, c);
+      }
+      const added = fresh.length - corrected;
+
       const cutoff = Date.now() - yearsArg * 365 * 24 * 60 * 60 * 1000;
-      merged = merged.filter((c) => c.timestamp >= cutoff);
-      merged.sort((a, b) => a.timestamp - b.timestamp);
+      merged = [...byTimestamp.values()]
+        .filter((c) => c.timestamp >= cutoff)
+        .sort((a, b) => a.timestamp - b.timestamp);
 
       await saveCachedCandles(symbol, timeframeArg, merged);
-      process.stdout.write(`+${added.length} new  `);
+      process.stdout.write(`+${added} new, ${corrected} corrected  `);
     } else {
       process.stdout.write(` already up-to-date      `);
     }

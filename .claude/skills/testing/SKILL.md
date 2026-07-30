@@ -12,7 +12,7 @@ description: >-
 The suite runs on Node's built-in `node:test` (no external runner):
 
 ```bash
-npm test                                         # expect ≥329 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥383 pass, 0 fail (covers tests/ AND src/tests/)
 ```
 
 Tests live in `tests/<area>/<subject>.test.js`, mirroring `src/` (`tests/engine/`,
@@ -38,7 +38,11 @@ Automated tests do **not** replace these — run both:
 | `tests/core/cycleScheduler.test.js` | The cycle drifting off candle close and never re-aligning |
 | `tests/utils/candleFreshness.test.js` | Trading on a frozen series from a delisted/thin pair |
 | `tests/backtester/minNotional.test.js` | The simulator filling orders the exchange would reject |
-| `tests/backtester/liveParityInventory.test.js` | **A live rule shipping without a backtest counterpart** — the shape of all four parity breaks |
+| `tests/backtester/liveParityInventory.test.js` | **A live rule shipping without a backtest counterpart** — the shape of all five parity breaks |
+| `tests/scripts/downloadHistoryMerge.test.js` | The downloader freezing a mid-formation bar into the research data (5th parity break) |
+| `tests/monitor/cycleWatchdog.test.js` | The loop dying silently — July 2026's 18h stall produced zero alerts for 24 days |
+| `tests/signals/webhookAuth.test.js` | The webhook running unauthenticated — external signals VOTE in the live aggregator |
+| `tests/engine/tsmCore.test.js` (ladder suite) | Sleeve sizing keyed off current equity (martingale) instead of the HWM ratchet; rungs drifting from the validated table |
 
 When a bug is fixed, add the test that would have caught it **and reference the incident
 in the file docstring** — the fixtures above are the reason these bugs can't return silently.

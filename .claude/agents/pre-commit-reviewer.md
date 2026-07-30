@@ -12,7 +12,7 @@ Last gate before commit. Fast and decisive: safe → pass, unsafe → block with
 ## Steps
 
 1. `node --check` on modified `.js` files.
-2. `npm test` — expect ≥329 pass, 0 fail. Block on any failure.
+2. `npm test` — expect ≥383 pass, 0 fail. Block on any failure.
 3. No secrets/`.env` in diff.
 4. Check against rules below.
 
