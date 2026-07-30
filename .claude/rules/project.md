@@ -81,6 +81,11 @@ fix belongs in the engine.
   indicator downstream. This shipped and went unnoticed for months — see Live ≡ Backtest below.
 - Smoke-test trades tagged `note: '🔬 smoke-test'` — never remove.
 - Never commit secrets. Keys from `.env` only.
+- **External signals are votes.** Anything reaching the signal bus votes in the live aggregator
+  (webhook weight 0.8) and exits fire at a lowered 0.7× threshold. The webhook is OFF by default
+  and `startWebhookServer` refuses to run without `WEBHOOK_TOKEN` (header `x-webhook-token`).
+  Never reintroduce an unauthenticated path to the signal bus — it ran open on host-networked
+  port 3000 from the first commit until 2026-07-29.
 - **Docs live in `docs/`.** All project documentation (`STRATEGY.md`, `TECHNICAL.md`, `TESTNET.md`, `WORKFLOW.md`, etc.) lives under `docs/`; `README.md` is the only `.md` at the repo root. New docs go in `docs/` and are linked from `README.md`. Do **not** move toolchain config that happens to be Markdown — `CLAUDE.md` (root + `public/` + `src/dashboard/`) and everything under `.claude/` must stay where the tooling loads them.
 
 ## Signal Engine (current state — post robustness overhaul)
@@ -94,7 +99,13 @@ fix belongs in the engine.
 - **Portfolio risk gates** (`risk/portfolioRisk.js`): correlation cap (0.85), weekly DD breaker (−10%→72h), position-aging exit (14 bars). Daily-loss + weekly-DD %-limits scale off LIVE equity (`calcEquityFromStatus`), not static `initialBalance` (fallback only).
 - **Asymmetric exit**: open positions exit at 70% of normal threshold when SELL majority exists.
 - **MTF filter**: 15m recency-weighted alignment score blocks entries when score < 0.5.
-- **TSM core sleeve** (`engine/tsmCore.js`): experimental majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL market orders in live) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
+- **TSM core sleeve** (`engine/tsmCore.js`): majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL market orders in live) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
+- **Sleeve sizing = HWM equity ladder** (`tsmCore.equityLadder`, 2026-07-29): rungs select between
+  individually validated static profiles by the account's all-time-high equity (from
+  `data/equity_history.json`). **Never key sizing off current equity — that is martingale** (sizes
+  up after losses). Rungs: $0+ 2@0.50 · $320+ 2@0.30 · $970+ 4@0.20; combined account maxDD
+  measured −17.4% / −10.1% / ~−7% (ρ=0.025 vs scalper). `sleeveFeasibility()` is advisory-only;
+  order-time $11-floor enforcement lives in the trader AND the simulator.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
 ## Live ≡ Backtest (hard invariant — four ways it has actually broken)
@@ -201,7 +212,7 @@ Results without full filter coverage are invalid for decision-making.
 
 ```bash
 node --check <file>                              # syntax
-npm test                                         # expect ≥329 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥383 pass, 0 fail (covers tests/ AND src/tests/)
 SMOKE_TEST=false PAPER_MODE=true node src/main.js  # boot test (kill after "Initialising")
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 730   # Y2
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 1460  # full OOS

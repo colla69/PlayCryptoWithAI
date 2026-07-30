@@ -132,6 +132,9 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | In-trade | Take-profit (12%) | Market sell |
 | In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
 | In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
+| Ops | Cycle watchdog (30 min) | Telegram alert when the loop stops deciding |
+| Ops | Drift monitor (armed, per-trade Sharpe ref 0.4658) | Telegram alert when live diverges from backtest beyond 2 SE |
+| Sizing | HWM equity ladder | Sleeve risk steps down as all-time-high equity grows — never back up |
 
 ### Timing Architecture
 
@@ -143,6 +146,7 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | MTF 15m cache | 15 min | Refresh 15m candle cache for filters |
 | MTF 4h cache | 4h | Refresh 4h candle cache for filters |
 | Balance sync | 5 min | Sync exchange balance + position restore |
+| Cycle watchdog | 30 min | Telegram deadman alert if no cycle completes within 1.15× the candle period |
 
 ---
 

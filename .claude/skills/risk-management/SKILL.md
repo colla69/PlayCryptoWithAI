@@ -36,6 +36,15 @@ All default values are in `config/default.js`:
 
 ## Key Invariants
 
+- **Sleeve sizing keys off HIGH-WATER-MARK equity, never current equity.** Current-equity selection
+  sizes up after losses (martingale). The `tsmCore.equityLadder` rungs are individually validated
+  static profiles — never interpolate between them, never add a rung without a backtest of that
+  exact profile, and keep each `minHwmEquity` above the rung's $11-floor viability equity
+  (`sleeveFeasibility()`).
+- **Fixed dollar floors beat fractional sizing on small accounts.** Binance's $11 min notional is
+  ~6% of a $189 account; any sizing change must be checked against it at CURRENT live equity, not
+  the $1000 research budget (where it never binds).
+
 1. **Stop-loss fires before take-profit is checked** — never skip the stop check.
 2. **Trailing stop state is per-position** — `position.peakPrice` must be updated every price tick.
 3. **Break-even only activates once** — use a `position.breakEvenSet` flag.

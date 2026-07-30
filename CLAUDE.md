@@ -41,7 +41,7 @@ when working in those trees. Commit-message rules: `@.claude/rules/git-commit.md
 
 ```bash
 node --check <changed files>
-npm test                                         # expect ≥329 pass, parity fixtures green
+npm test                                         # expect ≥383 pass, parity fixtures green
 SMOKE_TEST=false PAPER_MODE=true DASHBOARD_PORT=<free> WEBHOOK_PORT=<free> node src/main.js  # boot, then kill
 PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p>     # metrics vs baseline (strategy/risk changes)
 ```
