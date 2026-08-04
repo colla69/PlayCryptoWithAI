@@ -4,7 +4,7 @@ import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 import logger, { appendTrade } from '../utils/logger.js';
-import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
+import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit, calcCoreClaims } from './traderUtils.js';
 
 // Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
 // Re-exported from the shared module so the backtester enforces the identical
@@ -181,34 +181,28 @@ export class LiveTrader {
 
       // ── TSM core positions first ──────────────────────────────────────────
       // The wallet asset is fungible: free BTC may back BOTH a core and a
-      // scalper position. Core legs restore from persisted state (which
-      // carries qty); whatever they claim is subtracted from the balance the
-      // scalper restore below is allowed to attribute.
-      const coreClaimedByBase = new Map();
-      for (const [key, saved] of Object.entries(savedState)) {
+      // scalper position. calcCoreClaims reserves what every core leg owns —
+      // persisted AND already live in memory — so the scalper restore below can
+      // only attribute what is genuinely left over. Reserving the in-memory legs
+      // matters most: they never enter the restore loop, and omitting them let
+      // the scalper claim the sleeve's own coins as a phantom position.
+      const {
+        claimsByBase: coreClaimedByBase,
+        restorable: coreRestorable,
+        dropped: coreDropped,
+      } = calcCoreClaims({
+        savedState,
+        livePositions: this.positions,
+        freeBalances: balance.free ?? {},
+      });
+
+      for (const { key, reason } of coreDropped) {
+        logger.warn(`[LIVE] ${key}: core entry in position state has ${reason} — dropped (not claiming wallet coins)`);
+      }
+
+      for (const { key, market, base, savedQty, entryPrice, saved } of coreRestorable) {
         try {
-          if (!saved?.isCore || !String(key).endsWith('#core') || this.positions.has(key)) continue;
-          const market = key.split('#')[0];
-          const base = market.split('/')[0];
           const freeBase = Number(balance.free?.[base] ?? 0);
-          const savedQty = Number(saved.qty ?? 0);
-          const entryPrice = roundPrice(Number(saved.entryPrice ?? 0));
-          if (!(savedQty > 0) || !(entryPrice > 0)) continue;
-
-          // Sanity-check the saved record before it can drive real sell orders:
-          // a corrupt/hand-edited state file must not claim wallet coins the
-          // sleeve never bought. openedAt must exist and lie in the past.
-          const openedAtMs = Date.parse(saved.openedAt ?? '');
-          if (!Number.isFinite(openedAtMs) || openedAtMs > Date.now()) {
-            logger.warn(`[LIVE] ${key}: core entry in position state has invalid openedAt — dropped (not claiming wallet coins)`);
-            continue;
-          }
-
-          // Whatever the sleeve believes it owns is reserved from the scalper
-          // restore below EVEN IF this restore attempt fails — otherwise the
-          // scalper absorbs the core's coins and the sleeve double-buys later.
-          coreClaimedByBase.set(base, (coreClaimedByBase.get(base) ?? 0) + Math.min(savedQty, freeBase));
-
           // Clamp to what the wallet actually holds (manual sells shrink it)
           const qty = roundQty(Math.min(savedQty, freeBase));
           const ticker = await fetchTickerFn(market);
