@@ -157,3 +157,94 @@ export function calcPartialExit(position, currentPrice, firstStagePctOfTp, first
   }
   return { shouldExit: false };
 }
+
+const isCoreRecord = (key, record) => record?.isCore === true && String(key).endsWith('#core');
+const baseOfCoreKey = (key) => String(key).split('#')[0].split('/')[0];
+
+/**
+ * Reserve the wallet coins the TSM core sleeve already owns, per base asset.
+ *
+ * The wallet asset is fungible: free ETH may back BOTH a core and a scalper
+ * position on the same market. Every core leg must reserve its coins before the
+ * scalper restore attributes whatever is left — **including legs already live in
+ * memory**, which never enter the restore loop (it skips keys already tracked)
+ * but own their coins all the same. Missing that case let the scalper claim the
+ * sleeve's own ETH as a phantom position, double-counting it into equity.
+ *
+ * Claims are clamped to the wallet's actual free balance, so a corrupt or stale
+ * state file can never reserve — or later sell — coins the sleeve never bought.
+ *
+ * @param {object} args
+ * @param {object} [args.savedState]     persisted position state, keyed by symbol
+ * @param {Map|Array|object} [args.livePositions] positions currently in memory
+ * @param {object} [args.freeBalances]   free wallet balance per base asset
+ * @param {number} [args.now]            clock override for openedAt validation
+ * @returns {{
+ *   claimsByBase: Map<string, number>,
+ *   restorable: Array<{key: string, market: string, base: string, savedQty: number, entryPrice: number, saved: object}>,
+ *   dropped: Array<{key: string, reason: string}>
+ * }}
+ */
+export function calcCoreClaims({
+  savedState = {},
+  livePositions = new Map(),
+  freeBalances = {},
+  now = Date.now(),
+} = {}) {
+  const claimsByBase = new Map();
+  const restorable = [];
+  const dropped = [];
+
+  const claim = (base, qty) => {
+    if (!(Number(qty) > 0)) return;
+    const free = Number(freeBalances?.[base] ?? 0);
+    const already = claimsByBase.get(base) ?? 0;
+    const room = Math.max(0, free - already);
+    if (room <= 0) return;
+    claimsByBase.set(base, already + Math.min(Number(qty), room));
+  };
+
+  const liveEntries = livePositions instanceof Map
+    ? [...livePositions.entries()]
+    : Array.isArray(livePositions)
+      ? livePositions
+      : Object.entries(livePositions ?? {});
+  const liveKeys = new Set(liveEntries.map(([key]) => key));
+
+  for (const [key, position] of liveEntries) {
+    if (!isCoreRecord(key, position)) continue;
+    claim(baseOfCoreKey(key), Number(position?.qty ?? 0));
+  }
+
+  for (const [key, saved] of Object.entries(savedState ?? {})) {
+    if (!isCoreRecord(key, saved)) continue;
+    if (liveKeys.has(key)) continue; // already reserved from memory above
+
+    const savedQty = Number(saved?.qty ?? 0);
+    const entryPrice = roundPrice(Number(saved?.entryPrice ?? 0));
+    if (!(savedQty > 0) || !(entryPrice > 0)) continue;
+
+    // Sanity-check the saved record before it can drive real sell orders:
+    // a corrupt/hand-edited state file must not claim wallet coins the
+    // sleeve never bought. openedAt must exist and lie in the past.
+    const openedAtMs = Date.parse(saved?.openedAt ?? '');
+    if (!Number.isFinite(openedAtMs) || openedAtMs > now) {
+      dropped.push({ key, reason: 'invalid openedAt' });
+      continue;
+    }
+
+    // Reserved EVEN IF the restore below fails on price/notional — otherwise the
+    // scalper absorbs the core's coins and the sleeve double-buys later.
+    claim(baseOfCoreKey(key), savedQty);
+    restorable.push({
+      key,
+      market: String(key).split('#')[0],
+      base: baseOfCoreKey(key),
+      savedQty,
+      entryPrice,
+      saved,
+    });
+  }
+
+  return { claimsByBase, restorable, dropped };
+}

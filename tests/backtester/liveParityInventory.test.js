@@ -154,6 +154,15 @@ const INTENTIONALLY_LIVE_ONLY = [
           + 'sleeveFeasibility is a startup/cycle advisory only; order-time enforcement of the '
           + 'min-notional floor exists on BOTH sides via the shared exchangeLimits constant.',
   },
+  {
+    rule: 'Core-sleeve wallet claim on position restore (calcCoreClaims)',
+    reason: 'Restoring positions by reading wallet balances only exists live — a backtest '
+          + 'never reconciles against a fungible wallet, so there is no counterpart to mirror. '
+          + 'The rule reserves the coins each core leg owns (persisted AND in-memory) before '
+          + 'the scalper restore attributes the remainder; without it the scalper claimed the '
+          + "sleeve's own ETH as a phantom position, inflating equity ~25% and sizing the sleeve "
+          + 'off capital that did not exist (observed live 2026-08-03).',
+  },
 ];
 
 describe('live ≡ backtest inventory', () => {
