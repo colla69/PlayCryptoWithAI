@@ -1275,6 +1275,13 @@ async function refreshOpenPositionPrices() {
       const price  = Number(ticker?.last ?? ticker?.close ?? 0);
       if (price > 0) {
         dashboardState.updatePrice(symbol, price);
+        // Mark the trader's own copy too. dashboardState.getSummary() overlays
+        // this price for the dashboard, which is exactly why a stale
+        // position.currentPrice stayed invisible for six days — everything
+        // reading the RAW getStatus() (equity_history, the sleeve HWM ladder,
+        // the %-of-equity brakes) saw the entry price instead. Marking here
+        // covers positions with no stops, and paper as well as live.
+        trader.markPrice?.(symbol, price);
         updates[symbol] = price;
       }
     }));

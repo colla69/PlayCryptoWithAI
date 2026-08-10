@@ -67,6 +67,26 @@ export class PaperTrader {
     };
   }
 
+  /**
+   * Mark an open position to market. Mirrors LiveTrader.markPrice so paper and
+   * live value an open book the same way — see the note there. Paper needs it
+   * more, not less: the fast risk loop is live-only, and #checkRisk is private
+   * and only reached through execute(), so a paper core leg was never marked
+   * after it opened.
+   *
+   * @returns {boolean} whether a position was marked
+   */
+  markPrice(symbol, price) {
+    const position = this.positions.get(symbol);
+    if (!position) return false;
+    // Validate BEFORE rounding — this trader's roundPrice calls .toFixed()
+    // directly and throws on undefined.
+    const value = Number(price);
+    if (!Number.isFinite(value) || value <= 0) return false;
+    position.currentPrice = roundPrice(value);
+    return true;
+  }
+
   #checkRisk(symbol, currentPrice) {
     const position = this.positions.get(symbol);
 

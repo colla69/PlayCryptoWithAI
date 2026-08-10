@@ -140,6 +140,28 @@ export class LiveTrader {
     }
   }
 
+  /**
+   * Mark an open position to market. Valuation-only: it touches nothing the
+   * stop/trailing/exit maths reads (those all take the price as an argument),
+   * so it is safe to call far more often than checkRisk.
+   *
+   * Exists because `position.currentPrice` is what `calcEquityFromStatus` reads,
+   * and it used to be written ONLY by checkRisk — which the risk loop skipped
+   * for core sleeve legs, freezing their valuation at the entry price for the
+   * life of the position (2026-08-10). Marking from the 5s price poll means a
+   * position is marked whether or not it has stops, and in paper as well as live.
+   *
+   * @returns {boolean} whether a position was marked
+   */
+  markPrice(symbol, price) {
+    const position = this.positions.get(symbol);
+    if (!position) return false;
+    const value = Number(price);
+    if (!Number.isFinite(value) || value <= 0) return false;
+    position.currentPrice = roundPrice(value);
+    return true;
+  }
+
   #positionRows() {
     return Array.from(this.positions.entries()).map(([symbol, position]) => ({
       symbol,
