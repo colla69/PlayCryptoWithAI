@@ -74,11 +74,13 @@ fix belongs in the engine.
 - `binanceClient.js` = sole exchange caller.
 - Strategies are stateless — no mutation between calls.
 - All trading decisions use past/closed candles only. **No lookahead.**
-- **Candle merges are payload-wins.** The exchange payload overwrites any overlapping
-  timestamp, in memory (`dashboardState.updateCandles`) and on disk (`saveCachedCandles`).
-  Every cycle fetches a window containing the still-forming bar; a first-wins merge freezes
-  that partial bar into history and discards its closed version, silently corrupting every
-  indicator downstream. This shipped and went unnoticed for months — see Live ≡ Backtest below.
+- **Candle merges are payload-wins — and never hand-rolled.** The exchange payload overwrites
+  any overlapping timestamp. The single copy of the rule is `src/utils/mergeCandles.js`
+  (used by `dashboardState.updateCandles` and the startup seed; `saveCachedCandles` applies
+  the same direction on disk). Every fetch window contains the still-forming bar; a first-wins
+  merge freezes that partial bar into history and discards its closed version, silently
+  corrupting every indicator downstream. Four separately hand-rolled merges have gotten the
+  direction wrong — see Live ≡ Backtest below. New merge = call `mergeCandles()`, not a fifth copy.
 - Smoke-test trades tagged `note: '🔬 smoke-test'` — never remove.
 - Never commit secrets. Keys from `.env` only.
 - **External signals are votes.** Anything reaching the signal bus votes in the live aggregator
@@ -108,10 +110,10 @@ fix belongs in the engine.
   order-time $11-floor enforcement lives in the trader AND the simulator.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
-## Live ≡ Backtest (hard invariant — four ways it has actually broken)
+## Live ≡ Backtest (hard invariant — six ways it has actually broken)
 
 The cardinal rule is that live and backtest produce identical decisions from identical inputs.
-Parity has broken four times in ways that were invisible for weeks. Check these on any change
+Parity has broken six times in ways that were invisible for weeks. Check these on any change
 touching signals, thresholds, or candle handling:
 
 | Break | Symptom | Guard |
@@ -121,11 +123,16 @@ touching signals, thresholds, or candle handling:
 | **Cycle drifted off candle close** | A host suspend left the loop firing 6h09m late for 48 consecutive cycles — different MTF/regime inputs than the backtester models | `createAlignedScheduler` re-derives from the clock; `tests/core/cycleScheduler.test.js` |
 | **Min notional enforced live only** | The simulator filled orders Binance would reject, so the deployment sweep reported an identical trade count at every position size | Shared `exchangeLimits.js`; `tests/backtester/minNotional.test.js` |
 | **Downloader merge first-wins** | The last cached bar was still forming when written; it froze and the corrected version was discarded on every later run — corrupting the research data itself. BTC's 2026-06-24 04:00 4h bar closed at 62839.11 while the next opened at 62591.50, with ~40% of its true volume | Payload-wins merge + `--repair`; `tests/scripts/downloadHistoryMerge.test.js` |
+| **Startup seed merge first-wins** | `initializeHistoricalData`'s `!seen.has(ts)` filter dropped the exchange's corrected copy of the newest cached bar on every boot — and the seed re-persists what it loads, so each restart re-froze the previous boot's partial bar. 36 of 37 symbols carried frozen 12h bars on the 2026-07-02/07-29/07-30 restart dates | Shared `mergeCandles()`; `tests/utils/mergeCandles.test.js` |
 
-**Three of the five were merges.** Wherever two sources of the same record combine — in memory, on
-disk, or in a downloader — state which one wins, and it is always the exchange payload. A frozen
-partial bar is silent: it corrupts every indicator computed from it and nothing errors. Repair with
-`npm run download-history -- --timeframe <tf> --repair`, then verify with `rebuildDeepHistory.mjs`.
+**Three of the six were merges — four sites in total** counting `saveCachedCandles`' blind
+overwrite (which truncated backfilled disk history rather than breaking decisions, so it has no
+row above). Wherever two sources of the same record combine — in memory, on disk, in a downloader,
+or in the startup seed — the exchange payload wins, and the merge is a call to
+`src/utils/mergeCandles.js`, never a hand-rolled loop: all four sites were separate hand-rolled
+merges. A frozen partial bar is silent: it corrupts every indicator computed from it and nothing
+errors. Repair with `npm run download-history -- --timeframe <tf> --repair`, then verify with
+`rebuildDeepHistory.mjs`.
 
 **The structural guard: `tests/backtester/liveParityInventory.test.js`.** Every rule that can reject
 or resize a live entry is listed there with the symbol implementing it on *both* sides. Adding a
@@ -212,7 +219,7 @@ Results without full filter coverage are invalid for decision-making.
 
 ```bash
 node --check <file>                              # syntax
-npm test                                         # expect ≥383 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥421 pass, 0 fail (covers tests/ AND src/tests/)
 SMOKE_TEST=false PAPER_MODE=true node src/main.js  # boot test (kill after "Initialising")
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 730   # Y2
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 1460  # full OOS

@@ -12,7 +12,7 @@ description: >-
 The suite runs on Node's built-in `node:test` (no external runner):
 
 ```bash
-npm test                                         # expect ≥383 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥421 pass, 0 fail (covers tests/ AND src/tests/)
 ```
 
 Tests live in `tests/<area>/<subject>.test.js`, mirroring `src/` (`tests/engine/`,
@@ -44,7 +44,9 @@ Automated tests do **not** replace these — run both:
 | `tests/signals/webhookAuth.test.js` | The webhook running unauthenticated — external signals VOTE in the live aggregator |
 | `tests/engine/tsmCore.test.js` (ladder suite) | Sleeve sizing keyed off current equity (martingale) instead of the HWM ratchet; rungs drifting from the validated table |
 | `tests/executor/coreClaims.test.js` | The scalper restore claiming the core sleeve's own wallet coins as a phantom position — in-memory legs must reserve first (2026-08-03: equity inflated ~25%) |
-| `tests/executor/coreMarkToMarket.test.js` | The fast risk loop skipping the price mark on core legs — `checkRisk` is the sole writer of `currentPrice`, and skipping froze equity valuation for six days (2026-08-04→09) |
+| `tests/executor/coreMarkToMarket.test.js` | The fast risk loop skipping the price mark on core legs — skipping froze equity valuation for six days (2026-08-04→09) |
+| `tests/executor/markPrice.test.js` | An open position going unmarked because it has no stops — `markPrice()` (5s poll, paper AND live) must mark every open position, valuation-only |
+| `tests/utils/mergeCandles.test.js` | A fifth hand-rolled candle merge getting the direction wrong — `mergeCandles()` is the single payload-wins copy (the startup seed's first-wins filter re-froze partial bars on every restart, 36/37 symbols) |
 
 When a bug is fixed, add the test that would have caught it **and reference the incident
 in the file docstring** — the fixtures above are the reason these bugs can't return silently.

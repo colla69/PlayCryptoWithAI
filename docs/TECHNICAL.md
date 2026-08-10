@@ -197,10 +197,15 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 3. If triggered → market sell, update dashboard, persist state
 4. Reduces market exposure window from 12h to ~2 min
 5. TSM core positions get NO stop evaluation, but they are still marked-to-market
-   every pass: checkRisk() is the only writer of position.currentPrice, and skipping
-   core legs froze the getStatus() valuation at the restore price — the dashboard
-   looked right (it overrides prices from its own map) while equity_history.json,
-   the sleeve's HWM ladder and every %-of-equity gate read a stale number
+   every pass. Marking matters because position.currentPrice is what
+   calcEquityFromStatus() values the book from; when only checkRisk() wrote it and
+   the risk loop skipped core legs, the getStatus() valuation froze at the restore
+   price — the dashboard looked right (it overrides prices from its own map) while
+   equity_history.json, the sleeve's HWM ladder and every %-of-equity gate read a
+   stale number for six days. Both traders now also expose markPrice() (valuation
+   only, touches nothing the stop maths reads), called from the 5-second price
+   poll, so every open position is marked whether or not it has stops — in paper
+   as well as live
 6. After marking, a vote-flip close that failed on the exchange is retried —
    every cycle until it fills
 ```
@@ -430,7 +435,7 @@ config
 | OCO for Lambda | Exchange handles exits 24/7 without running process |
 | TSM core positions (#core keys) | Coexist with scalper on same asset; `isCore: true` flag excludes them from risk-loop stops, correlation cap, daily-loss accounting (ring-fenced sleeve). The risk loop still marks their price each pass, and on restore core legs reserve their wallet coins before scalper attribution (`calcCoreClaims`) |
 | Candle cache merge-preserving | `saveCachedCandles` keeps disk bars strictly older than payload's first timestamp; empty payload no-ops (preserves deep research history) |
-| In-memory candle merge payload-wins | `dashboardState.updateCandles` lets the fresh exchange payload overwrite any overlapping timestamp. The old first-wins merge froze the forming candle captured mid-cycle and discarded its closed version, silently corrupting every indicator downstream and breaking live ≡ backtest (2026-07 soak: TIA scored CCI 49.1 live vs 76.7 in the backtester on identical on-disk data) |
+| In-memory candle merge payload-wins | The fresh exchange payload overwrites any overlapping timestamp; the single copy of the rule is `src/utils/mergeCandles.js`, used by `dashboardState.updateCandles` and the startup seed. The old first-wins merges froze the forming candle captured mid-cycle and discarded its closed version, silently corrupting every indicator downstream and breaking live ≡ backtest (2026-07 soak: TIA scored CCI 49.1 live vs 76.7 in the backtester on identical on-disk data; the seed's `!seen.has(ts)` filter re-froze partial bars on every restart — 36/37 symbols). Never hand-roll a merge — call `mergeCandles()` |
 
 ---
 

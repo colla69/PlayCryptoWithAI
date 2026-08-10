@@ -225,9 +225,10 @@ same asset.
 - Portfolio correlation cap (don't block a new core entry or penalise it)
 - Daily-loss accounting (core sleeve is ring-fenced, doesn't block scalper trades)
 - Risk-loop SL/TP management (both traders early-return on core positions before any stop
-  logic; the live fast risk loop still marks each core leg to market every pass — `checkRisk`
-  is the only writer of `position.currentPrice`, and skipping core legs froze the equity
-  valuation the HWM ladder reads — and retries a failed vote-flip close)
+  logic; core legs are still marked to market — by `markPrice()` from the 5s price poll in
+  paper and live, and by the live fast risk loop each pass. Leaving core legs unmarked froze
+  the equity valuation the HWM ladder reads for six days in 2026-08. The risk loop also
+  retries a failed vote-flip close)
 - The scalper's `maxOpenPositions` slots (core positions have their own capital budget)
 
 Trades tagged `note: '🧲 tsm-core'`.

@@ -44,11 +44,13 @@ All default values are in `config/default.js`:
 - **Fixed dollar floors beat fractional sizing on small accounts.** Binance's $11 min notional is
   ~6% of a $189 account; any sizing change must be checked against it at CURRENT live equity, not
   the $1000 research budget (where it never binds).
-- **Mark-to-market is part of risk management.** `checkRisk()` is the sole writer of
-  `position.currentPrice`; every %-of-equity gate and the sleeve's HWM ladder read equity valued
-  from it. A path that skips the mark for a class of positions freezes their valuation silently —
-  the dashboard hides it by overriding prices from its own map (frozen core-equity incident,
-  2026-08-04→09). Exempting a position from stops never exempts it from the mark.
+- **Mark-to-market is part of risk management.** Every %-of-equity gate and the sleeve's HWM
+  ladder read equity valued from `position.currentPrice`, written by `markPrice()` (both traders,
+  5s price poll) and `checkRisk()`. A path that lets a class of open positions go unmarked freezes
+  their valuation silently — the dashboard hides it by overriding prices from its own map (frozen
+  core-equity incident, 2026-08-04→09, when only `checkRisk` wrote the mark and the risk loop
+  skipped core legs). Exempting a position from stops never exempts it from the mark; `markPrice()`
+  stays valuation-only and must never touch state the stop maths reads.
 - **Wallet coins are attributed core-first on restore.** Free balances are fungible; `calcCoreClaims()`
   reserves what every core leg owns — persisted AND in-memory — before the scalper restore claims
   the remainder. Omitting in-memory legs created a phantom position inflating equity ~25%

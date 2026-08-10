@@ -127,7 +127,7 @@ Validation is local and mandatory before every commit:
 
 ```bash
 node --check <changed files>
-npm test                                  # ≥383 pass, parity fixtures green
+npm test                                  # ≥421 pass, parity fixtures green
 SMOKE_TEST=false PAPER_MODE=true node src/main.js        # boot, then kill
 PAPER_MODE=true node src/scripts/runBaseline.mjs         # strategy/risk changes only
 ```
