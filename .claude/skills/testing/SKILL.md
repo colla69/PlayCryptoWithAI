@@ -43,6 +43,8 @@ Automated tests do **not** replace these — run both:
 | `tests/monitor/cycleWatchdog.test.js` | The loop dying silently — July 2026's 18h stall produced zero alerts for 24 days |
 | `tests/signals/webhookAuth.test.js` | The webhook running unauthenticated — external signals VOTE in the live aggregator |
 | `tests/engine/tsmCore.test.js` (ladder suite) | Sleeve sizing keyed off current equity (martingale) instead of the HWM ratchet; rungs drifting from the validated table |
+| `tests/executor/coreClaims.test.js` | The scalper restore claiming the core sleeve's own wallet coins as a phantom position — in-memory legs must reserve first (2026-08-03: equity inflated ~25%) |
+| `tests/executor/coreMarkToMarket.test.js` | The fast risk loop skipping the price mark on core legs — `checkRisk` is the sole writer of `currentPrice`, and skipping froze equity valuation for six days (2026-08-04→09) |
 
 When a bug is fixed, add the test that would have caught it **and reference the incident
 in the file docstring** — the fixtures above are the reason these bugs can't return silently.

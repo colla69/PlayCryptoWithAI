@@ -13,6 +13,18 @@ backtest of that exact static profile, or (c) sets a rung threshold below its $1
 equity. Block any sizing change that was only validated at the $1000 research budget without
 checking the $11 floor at live equity (~$189).
 
+**Valuation rule:** `LiveTrader.checkRisk()` is the only writer of `position.currentPrice`;
+`calcEquityFromStatus()` — and through it the HWM ladder and every %-of-equity gate — values
+positions from it. Block any change that skips the mark for a class of positions (a bare
+`continue`/early-return before `checkRisk`): the freeze is silent because the dashboard overrides
+prices from its own map (frozen core-equity incident, 2026-08-04→09). "No stops for these
+positions" never means "no mark".
+
+**Restore-attribution rule:** wallet balances are fungible. On restore, every core leg —
+persisted AND already live in memory — must reserve its coins via `calcCoreClaims()` before the
+scalper restore attributes the remainder. Block any restore change that attributes free balance
+without that reservation (phantom-position incident, 2026-08-03: equity inflated ~25%).
+
 Capital-at-risk issues only. No general code review.
 
 ## Checklist

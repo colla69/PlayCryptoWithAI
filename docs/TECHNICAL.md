@@ -102,6 +102,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
 | `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
 | `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
+| `repairPhantomState.mjs` | One-shot ops repair (2026-08-03 incident): strip the phantom scalper position that absorbed the core sleeve's ETH from state/trade/equity files. Bot stopped; dry-run by default, `--apply` to write; idempotent, refuses to write if files don't match the incident state |
+| `repairFrozenCoreEquity.mjs` | One-shot ops repair (2026-08-10 incident): rewrite the 08-04→08-09 `equity_history.json` snapshots frozen by the unmarked core legs, from verified Binance 1m closes. Bot stopped; dry-run by default, `--apply` to write; idempotent, writes `.bak` |
 
 ### Lambda (`src/lambda/`)
 
@@ -182,6 +184,7 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
    For each core symbol: computeTsmVote(trailing momentum) → majority vote
    If vote flips: openCorePosition / closeCorePosition → position tracked with isCore flag
    Core positions excluded from risk-loop SL/TP, correlation cap, daily-loss accounting
+   (the fast risk loop still marks their price each pass — valuation only, never stops)
    Failed vote-flip closes → Telegram alert + retry via fast risk loop (live only)
 ```
 
@@ -193,8 +196,13 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 2. Evaluate: trailing stop, break-even, stop-loss, take-profit
 3. If triggered → market sell, update dashboard, persist state
 4. Reduces market exposure window from 12h to ~2 min
-5. TSM core positions are skipped (no stops) EXCEPT to retry a vote-flip
-   close that failed on the exchange — retried every cycle until it fills
+5. TSM core positions get NO stop evaluation, but they are still marked-to-market
+   every pass: checkRisk() is the only writer of position.currentPrice, and skipping
+   core legs froze the getStatus() valuation at the restore price — the dashboard
+   looked right (it overrides prices from its own map) while equity_history.json,
+   the sleeve's HWM ladder and every %-of-equity gate read a stale number
+6. After marking, a vote-flip close that failed on the exchange is retried —
+   every cycle until it fills
 ```
 
 ### MTF Candle Cache
@@ -212,6 +220,12 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 ### Position Sync (startup + every 5 min)
 
 ```
+0. Core sleeve claims FIRST (calcCoreClaims, executor/traderUtils.js): every core
+   leg — persisted AND already live in memory — reserves the wallet coins it owns,
+   clamped to the free balance, before the scalper restore below may attribute
+   anything. In-memory legs never enter the restore loop but own their coins all
+   the same; omitting them let the scalper claim the sleeve's own ETH as a
+   phantom position (observed live 2026-08-03, equity inflated ~25%)
 1. fetchBalance() → all asset quantities
 2. For each symbol: if balance > MIN_RESTORE_NOTIONAL ($5)
 3. Find entry price from trade history (walk newest BUY)
@@ -323,9 +337,12 @@ sized to `tsmCore.deploymentPct` of the account (default 50%), so enabling
 and `🧲 tsm-core`-tagged trades once momentum turns positive. Core positions
 have **no SL/TP** — the only exit is the momentum-vote flip; a close that fails
 on the exchange fires a Telegram alert and is retried by the fast risk loop
-every ~2 min until it fills. Core positions restore across restarts from
-`data/position_state.json` (`qty` + `isCore` are persisted so wallet coins are
-attributed between the core and scalper legs of the same market).
+every ~2 min until it fills. The same loop marks each core leg to market every
+pass (valuation only — no stop is ever evaluated), which keeps
+`data/equity_history.json` and the sleeve's HWM ladder honest. Core positions
+restore across restarts from `data/position_state.json` (`qty` + `isCore` are
+persisted); on restore, core legs reserve their wallet coins first
+(`calcCoreClaims`) so the scalper can only attribute what is genuinely left.
 
 (The former `docker-compose.soak.yml` paper-soak container is retired — real-money
 operation replaced it as the source of operational truth. `data-soak/`/`logs-soak/`
@@ -411,7 +428,7 @@ config
 | Position state persistence | SL/HWM/entry saved to disk on every change; survives restarts without losing break-even protection |
 | DailyRotateFile logging | 50 MB max per file, 30-day retention; dashboard reads today's dated file with 512 KB tail for speed |
 | OCO for Lambda | Exchange handles exits 24/7 without running process |
-| TSM core positions (#core keys) | Coexist with scalper on same asset; `isCore: true` flag excludes them from risk-loop, correlation cap, daily-loss accounting (ring-fenced sleeve) |
+| TSM core positions (#core keys) | Coexist with scalper on same asset; `isCore: true` flag excludes them from risk-loop stops, correlation cap, daily-loss accounting (ring-fenced sleeve). The risk loop still marks their price each pass, and on restore core legs reserve their wallet coins before scalper attribution (`calcCoreClaims`) |
 | Candle cache merge-preserving | `saveCachedCandles` keeps disk bars strictly older than payload's first timestamp; empty payload no-ops (preserves deep research history) |
 | In-memory candle merge payload-wins | `dashboardState.updateCandles` lets the fresh exchange payload overwrite any overlapping timestamp. The old first-wins merge froze the forming candle captured mid-cycle and discarded its closed version, silently corrupting every indicator downstream and breaking live ≡ backtest (2026-07 soak: TIA scored CCI 49.1 live vs 76.7 in the backtester on identical on-disk data) |
 
