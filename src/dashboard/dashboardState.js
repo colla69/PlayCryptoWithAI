@@ -1,4 +1,5 @@
 import { loadPersistedState, scheduleSave, loadSignalHistory, scheduleHistorySave, loadTradesFromCsv, MAX_SIGNAL_HISTORY } from './persistence.js';
+import { mergeCandles, CANDLE_WINDOW } from '../utils/mergeCandles.js';
 
 const MAX_TRADES = 100;
 const MAX_SIGNALS = 50;
@@ -201,24 +202,12 @@ export class DashboardState {
 
     if (candles.length >= existing.length) {
       // Full replacement (initial load or larger batch)
-      this.candleMap.set(symbol, candles.slice(-2_500).map((c) => ({ ...c })));
+      this.candleMap.set(symbol, candles.slice(-CANDLE_WINDOW).map((c) => ({ ...c })));
     } else {
-      // Live cycle: merge the fresh window into history, keeping the latest 2500.
-      //
-      // The exchange payload MUST win on a timestamp collision. Each cycle fetches
-      // a window that includes the still-forming candle; the previous cycle's
-      // snapshot of that same bar is incomplete. The old merge was first-wins with
-      // `existing` placed first, so that partial bar was frozen into history for
-      // good and its corrected, closed version was discarded 12h later — silently
-      // corrupting every indicator computed from it afterwards. (This is why live
-      // and the backtester disagreed on TIA in the 2026-07 soak: the on-disk cache
-      // is payload-wins and stayed correct, while the in-memory series that
-      // actually feeds the strategies drifted.)
-      const byTimestamp = new Map();
-      for (const candle of existing) byTimestamp.set(candle.timestamp, candle);
-      for (const candle of candles) byTimestamp.set(candle.timestamp, candle);
-      const unique = [...byTimestamp.values()].sort((a, b) => a.timestamp - b.timestamp);
-      this.candleMap.set(symbol, unique.slice(-2_500).map((c) => ({ ...c })));
+      // Live cycle: merge the fresh window into history. Payload-wins — see
+      // src/utils/mergeCandles.js for why, and for the four times getting this
+      // direction wrong has silently corrupted the series.
+      this.candleMap.set(symbol, mergeCandles(existing, candles).map((c) => ({ ...c })));
     }
     this.#touch();
   }

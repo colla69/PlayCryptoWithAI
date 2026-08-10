@@ -5,6 +5,7 @@ process.setMaxListeners(50);
 import config from '../config/default.js';
 import { fetchOHLCV, fetchHistoricalOHLCV, fetchTicker, paperMode, testnetMode } from './exchange/binanceClient.js';
 import { loadCachedCandles, saveCachedCandles } from './exchange/candleCache.js';
+import { mergeCandles } from './utils/mergeCandles.js';
 import SignalAggregator from './engine/signalAggregator.js';
 import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
@@ -931,10 +932,15 @@ async function initializeHistoricalData() {
           logger.info(`${symbol}: cache has ${cached.length} candles, fetching new ones since last close…`);
           const fresh = await fetchHistoricalOHLCV(symbol, tf, Math.ceil((Date.now() - sinceTs) / msPerTf) + 5);
           if (fresh.length) {
-            const seen = new Set(cached.map((c) => c.timestamp));
-            const newCandles = fresh.filter((c) => !seen.has(c.timestamp));
-            cached = [...cached, ...newCandles].slice(-2_500);
-            logger.info(`${symbol}: appended ${newCandles.length} new candles`);
+            // Payload-wins. The fetch deliberately overlaps the tail of the cache
+            // (+5 bars) and the newest cached bar is routinely one a previous boot
+            // persisted while it was still forming. The old `!seen.has(ts)` filter
+            // dropped the exchange's corrected copy, so that partial bar survived
+            // every restart — and got re-saved below, freezing it permanently.
+            const before = cached.length;
+            cached = mergeCandles(cached, fresh);
+            logger.info(`${symbol}: merged ${fresh.length} fetched candles `
+              + `(+${cached.length - before} new, payload-wins on overlap)`);
           }
         } else {
           logger.info(`${symbol}: cache is up-to-date (${cached.length} candles)`);
@@ -1269,6 +1275,13 @@ async function refreshOpenPositionPrices() {
       const price  = Number(ticker?.last ?? ticker?.close ?? 0);
       if (price > 0) {
         dashboardState.updatePrice(symbol, price);
+        // Mark the trader's own copy too. dashboardState.getSummary() overlays
+        // this price for the dashboard, which is exactly why a stale
+        // position.currentPrice stayed invisible for six days — everything
+        // reading the RAW getStatus() (equity_history, the sleeve HWM ladder,
+        // the %-of-equity brakes) saw the entry price instead. Marking here
+        // covers positions with no stops, and paper as well as live.
+        trader.markPrice?.(symbol, price);
         updates[symbol] = price;
       }
     }));
