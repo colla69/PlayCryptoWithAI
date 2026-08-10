@@ -8,6 +8,13 @@ node_modules/
 
 # Runtime logs (not trade history)
 logs/*
+# Everything under data/ is runtime or re-derivable state: candle caches,
+# equity history, position state, dashboard persistence.
+#
+# Do NOT `git add -f` the candle caches back in. They were force-added past this
+# rule until 2026-08-10, which meant ~350 MB of new blobs every time a repair
+# rewrote them and a permanently dirty working tree in between. Rebuild instead:
+#   npm run download-history -- --timeframe <tf>
 data/*
 
 # Editor / OS
