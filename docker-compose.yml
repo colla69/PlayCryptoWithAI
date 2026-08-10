@@ -15,10 +15,15 @@ services:
     env_file: ./.env
 
     # ── Persistence ──────────────────────────────────────────────────────────
-    # Bind mounts: data/ and logs/ live on the host (and in git).
-    # trades.csv and dashboard_persist.json are committed to the repo so
-    # trade history survives server moves and is git-tracked.
-    # Candle files (~300 MB) are also committed; no named volumes needed.
+    # Bind mounts: data/ and logs/ live on the host, NOT in git — `.gitignore`
+    # covers both (`data/*`, `logs/*`). A fresh host therefore starts empty and
+    # rebuilds its own state rather than inheriting someone else's:
+    #   candles  → `npm run download-history`, or just boot: initializeHistoricalData
+    #              cold-starts and backfills config.historicalCandles bars per symbol
+    #   equity / positions / trades / dashboard state → written at runtime
+    # The candle caches were tracked until 2026-08-10. At ~350 MB that doubled the
+    # git history every time a --repair rewrote them, to carry data the exchange
+    # will always re-serve — and it kept the working tree permanently dirty.
     volumes:
       - ./data:/app/data     # candles, dashboard_persist.json, fearGreed, etc.
       - ./logs:/app/logs     # trades.csv (git-tracked), app.log (gitignored)

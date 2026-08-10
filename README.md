@@ -160,11 +160,21 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | `data/deposits.json` | Deposit tracker (gitignored, runtime-only) |
 | `data/equity_history.json` | Daily equity snapshots — the valuation series TWR chains between |
 | `data/filtered_optimization_results.json` | Per-symbol optimizer results (pass/fail) |
-| `data/candles/` | Cached OHLCV data |
+| `data/candles/` | Cached OHLCV data (gitignored — see below) |
 | `logs/trades.csv` | Trade journal |
 | `logs/app-YYYY-MM-DD.log` | Runtime log (DailyRotateFile, 50 MB max, 30 d retention) |
 
-All state files are bind-mounted in Docker. `git pull` restores everything on a new server.
+All state files are bind-mounted in Docker, and **none of them are in git** —
+`.gitignore` covers `data/*` and `logs/*`. A new server starts with empty state
+and rebuilds it rather than inheriting a snapshot:
+
+```bash
+npm run download-history -- --timeframe 12h    # and 4h + 15m for the MTF filters
+```
+
+Booting without any cache also works: `initializeHistoricalData` cold-starts and
+backfills `config.historicalCandles` bars per symbol from Binance. Only the
+backtests need the 4h/15m series present up front.
 
 ---
 
