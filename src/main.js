@@ -1293,14 +1293,23 @@ if (!paperMode) {
 
       logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s)`);
       for (const pos of openPositions) {
-        // Core sleeve positions have no stops — nothing to manage here except
-        // retrying a vote-flip exit that failed on the exchange.
+        // Core sleeve positions have no stops, so there is no SL/TP to manage —
+        // but checkRisk is still the ONLY writer of position.currentPrice, and
+        // skipping it froze the raw getStatus() valuation at the open/restore
+        // price for the whole life of the position. dashboardState.getSummary()
+        // hid that by overriding currentPrice from its own price map, so the
+        // dashboard looked right while equity_history.json, the sleeve's HWM
+        // ladder and every %-of-equity risk gate read a six-day-stale number.
+        // Mark the price first, then retry a vote-flip exit that failed earlier.
         if (pos.isCore) {
-          if (tsmCoreFailedCloses.has(pos.symbol)) {
-            try {
-              const ticker = await fetchTicker(baseSymbol(pos.symbol));
-              const price = Number(ticker?.last ?? ticker?.close ?? 0);
-              if (price > 0) {
+          try {
+            const ticker = await fetchTicker(baseSymbol(pos.symbol));
+            const price = Number(ticker?.last ?? ticker?.close ?? 0);
+            if (price > 0) {
+              dashboardState.updatePrice(pos.symbol, price);
+              await trader.checkRisk(pos.symbol, price);
+
+              if (tsmCoreFailedCloses.has(pos.symbol)) {
                 const retried = await trader.closeCorePosition(pos.symbol, price);
                 if (retried) {
                   tsmCoreFailedCloses.delete(pos.symbol);
@@ -1310,9 +1319,9 @@ if (!paperMode) {
                   pushEvent('trade', retried);
                 }
               }
-            } catch (err) {
-              logger.debug(`[RISK-LOOP] ${pos.symbol}: core close retry failed — ${err.message}`);
             }
+          } catch (err) {
+            logger.debug(`[RISK-LOOP] ${pos.symbol}: core check failed — ${err.message}`);
           }
           continue;
         }
