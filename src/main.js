@@ -16,6 +16,7 @@ import { checkCycleGap, updateWatchdogLatch } from './monitor/cycleWatchdog.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
+import { runtimeDir } from './utils/runtimePaths.js';
 import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import { recordEquitySnapshot, loadEquityHistory } from './dashboard/equityHistory.js';
@@ -1159,7 +1160,7 @@ if (config.dashboard?.enabled) {
     dashboardState.clearHistory();
     const { writeFileSync } = await import('node:fs');
     const { join } = await import('node:path');
-    writeFileSync(join(process.cwd(), 'logs', 'trades.csv'), 'timestamp,symbol,side,price,qty,pnl,balance\n', 'utf8');
+    writeFileSync(join(runtimeDir('logs'), 'trades.csv'), 'timestamp,symbol,side,price,qty,pnl,balance\n', 'utf8');
     logger.info('[dashboard] Trade history reset');
   };
   dashboardServer = startDashboardServer(dashboardPort, { runSmokeTest, fetchCandles: fetchOHLCV, closePosition, resetHistory, refreshBalance });

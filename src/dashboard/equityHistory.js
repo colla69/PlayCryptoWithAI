@@ -15,8 +15,9 @@
 import fs from 'fs';
 import path from 'path';
 import logger from '../utils/logger.js';
+import { runtimeDir } from '../utils/runtimePaths.js';
 
-const FILE = () => path.resolve(process.cwd(), 'data', 'equity_history.json');
+const FILE = () => path.join(runtimeDir('data'), 'equity_history.json');
 /** ~5 years of daily points; far beyond any window the baseline runner uses. */
 const MAX_POINTS = 2000;
 

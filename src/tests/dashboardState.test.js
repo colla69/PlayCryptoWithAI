@@ -12,14 +12,22 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { rmSync, existsSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { STATE_FILE as TEST_PERSIST_FILE } from '../dashboard/persistence.js';
 
-// ── path helpers ──────────────────────────────────────────────────────────────
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR  = join(__dirname, '../../data');
-const TEST_PERSIST_FILE = join(DATA_DIR, 'dashboard_persist.json');
+// The persist file resolves to a per-process temp dir in any test process
+// (src/utils/runtimePaths.js). This suite used to rmSync the checkout's
+// data/dashboard_persist.json — the live bot's bind-mounted state (2026-09-28) —
+// so the delete re-checks its target itself rather than trusting the resolver.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+function removePersistFile() {
+  assert.ok(relative(REPO_ROOT, TEST_PERSIST_FILE).startsWith('..'),
+    `refusing to delete ${TEST_PERSIST_FILE}: it is inside the checkout (live bot state)`);
+  if (existsSync(TEST_PERSIST_FILE)) rmSync(TEST_PERSIST_FILE);
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function makeTrade(overrides = {}) {
@@ -52,7 +60,7 @@ describe('DashboardState', () => {
 
   before(async () => {
     // Clean up any leftover persist file so tests start fresh
-    if (existsSync(TEST_PERSIST_FILE)) rmSync(TEST_PERSIST_FILE);
+    removePersistFile();
     // Import AFTER cleaning persist file so constructor sees empty state
     const mod = await import('../dashboard/dashboardState.js');
     dashboardState = mod.dashboardState;
@@ -62,7 +70,7 @@ describe('DashboardState', () => {
   });
 
   after(() => {
-    if (existsSync(TEST_PERSIST_FILE)) rmSync(TEST_PERSIST_FILE);
+    removePersistFile();
   });
 
   // ── pushTrade ───────────────────────────────────────────────────────────────
@@ -233,7 +241,7 @@ describe('DashboardState', () => {
     });
 
     it('loadPersistedState returns null when no file exists', async () => {
-      if (existsSync(TEST_PERSIST_FILE)) rmSync(TEST_PERSIST_FILE);
+      removePersistFile();
       const { loadPersistedState } = await import('../dashboard/persistence.js');
       assert.equal(loadPersistedState(), null);
     });

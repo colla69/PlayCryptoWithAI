@@ -12,7 +12,7 @@ description: >-
 The suite runs on Node's built-in `node:test` (no external runner):
 
 ```bash
-npm test                                         # expect ≥421 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥432 pass, 0 fail (covers tests/ AND src/tests/)
 ```
 
 Tests live in `tests/<area>/<subject>.test.js`, mirroring `src/` (`tests/engine/`,
@@ -25,7 +25,8 @@ both roots, but a bare `node --test 'tests/**/*.test.js'` **silently misses it**
 
 Automated tests do **not** replace these — run both:
 - `node --check <file>` — syntax validation
-- `SMOKE_TEST=false PAPER_MODE=true node src/main.js` — boot validation
+- `PLAYCRYPTO_RUNTIME_DIR=$(mktemp -d) SMOKE_TEST=false PAPER_MODE=true node src/main.js` — boot validation
+  (without the override a paper boot writes into the live bot's bind-mounted `data/` and `logs/`)
 - `PAPER_MODE=true node src/scripts/runBaseline.mjs` — metrics, for strategy/risk changes
 
 ## Invariant Fixtures (keep green — they encode real outages)
@@ -46,6 +47,7 @@ Automated tests do **not** replace these — run both:
 | `tests/executor/coreClaims.test.js` | The scalper restore claiming the core sleeve's own wallet coins as a phantom position — in-memory legs must reserve first (2026-08-03: equity inflated ~25%) |
 | `tests/executor/coreMarkToMarket.test.js` | The fast risk loop skipping the price mark on core legs — skipping froze equity valuation for six days (2026-08-04→09) |
 | `tests/executor/markPrice.test.js` | An open position going unmarked because it has no stops — `markPrice()` (5s poll, paper AND live) must mark every open position, valuation-only |
+| `tests/utils/runtimePaths.test.js` | A test run writing the live bot's state — ./data and ./logs are bind-mounted into the container; on 2026-09-28 `npm test` deleted the live `dashboard_persist.json` and seeded +$438 of fixture P&L into the daily-loss brake. New state files go through `runtimeDir()` |
 | `tests/utils/mergeCandles.test.js` | A fifth hand-rolled candle merge getting the direction wrong — `mergeCandles()` is the single payload-wins copy (the startup seed's first-wins filter re-froze partial bars on every restart, 36/37 symbols) |
 
 When a bug is fixed, add the test that would have caught it **and reference the incident

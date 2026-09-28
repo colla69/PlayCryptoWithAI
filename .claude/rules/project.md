@@ -52,6 +52,14 @@ fix belongs in the engine.
 
 - `main.js` = orchestration only. Business logic → relevant module.
 - `dashboardState.js` = sole writer of `dashboard_persist.json`.
+- **Bot state paths go through `runtimeDir()`** (`src/utils/runtimePaths.js`). The live container
+  bind-mounts this checkout's `data/` and `logs/`, so anything that writes there from a dev shell
+  writes the live bot's state. In any test process (`node --test`, `--test-isolation=none`,
+  `node x.test.js`, vitest) the resolver points at a temp dir, and it throws if a test would resolve
+  inside the checkout. On 2026-09-28, before it existed, `npm test` deleted the live
+  `dashboard_persist.json` and its fixture trades seeded +$438 into the daily-loss brake.
+  `tests/utils/runtimePaths.test.js` probes every launch mode and fails on any new direct
+  `data/`/`logs/` path.
 - `binanceClient.js` = sole exchange caller.
 - Strategies are stateless — no mutation between calls.
 - All trading decisions use past/closed candles only. **No lookahead.**

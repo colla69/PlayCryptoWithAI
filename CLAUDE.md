@@ -39,8 +39,8 @@ in the trading code.
 
 ```bash
 node --check <changed files>
-npm test                                         # expect ≥421 pass, parity fixtures green (bare `node --test` misses src/tests/)
-SMOKE_TEST=false PAPER_MODE=true DASHBOARD_PORT=<free> WEBHOOK_PORT=<free> node src/main.js  # boot, kill after "Next cycle aligned"
+npm test                                         # expect ≥432 pass, parity fixtures green (bare `node --test` misses src/tests/)
+PLAYCRYPTO_RUNTIME_DIR=$(mktemp -d) SMOKE_TEST=false PAPER_MODE=true DASHBOARD_PORT=<free> WEBHOOK_PORT=<free> node src/main.js  # boot, kill after "Next cycle aligned"
 PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p>     # metrics vs baseline (strategy/risk changes)
 ```
 

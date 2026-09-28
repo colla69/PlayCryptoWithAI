@@ -14,7 +14,7 @@ with the fix.
 ## Run
 
 1. `node --check` on every modified `.js`/`.mjs` file.
-2. `npm test` — expect ≥421 pass, 0 fail. Any failure blocks.
+2. `npm test` — expect ≥432 pass, 0 fail. Any failure blocks.
 3. Read the staged diff (`git diff --cached`, or the working diff if nothing is staged): no
    secrets, no `.env` files.
 

@@ -4,6 +4,7 @@ import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 import logger, { appendTrade } from '../utils/logger.js';
+import { runtimeDir } from '../utils/runtimePaths.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit, calcCoreClaims } from './traderUtils.js';
 
 // Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
@@ -17,7 +18,7 @@ const roundMoney = (value) => Number(Number(value ?? 0).toFixed(2));
 const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
 
-const POSITION_STATE_FILE = path.join(process.cwd(), 'data', 'position_state.json');
+const POSITION_STATE_FILE = path.join(runtimeDir('data'), 'position_state.json');
 
 export class LiveTrader {
   constructor(config = {}) {
@@ -932,6 +933,7 @@ export class LiveTrader {
       const json = JSON.stringify(state, null, 2);
       // Atomic write: tmp → rename prevents corruption on crash
       const tmpFile = POSITION_STATE_FILE + '.tmp';
+      fs.mkdirSync(path.dirname(POSITION_STATE_FILE), { recursive: true });
       fs.writeFileSync(tmpFile, json);
       fs.renameSync(tmpFile, POSITION_STATE_FILE);
       // Also write a backup so we have redundancy

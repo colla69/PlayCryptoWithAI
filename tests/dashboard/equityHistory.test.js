@@ -14,15 +14,15 @@ import os from 'os';
 import path from 'path';
 import { recordEquitySnapshot, loadEquityHistory } from '../../src/dashboard/equityHistory.js';
 
-// The module resolves its file from process.cwd(), so isolate each test in a tmp dir.
-let tmp; let cwd;
+// The module resolves its file via runtimeDir('data'), which reads
+// PLAYCRYPTO_RUNTIME_DIR on every call — isolate each test in a fresh tmp dir.
+let tmp;
 beforeEach(() => {
-  cwd = process.cwd();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'equity-'));
-  process.chdir(tmp);
+  process.env.PLAYCRYPTO_RUNTIME_DIR = tmp;
 });
 afterEach(() => {
-  process.chdir(cwd);
+  delete process.env.PLAYCRYPTO_RUNTIME_DIR;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
