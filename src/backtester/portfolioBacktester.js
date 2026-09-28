@@ -233,6 +233,10 @@ export class PortfolioBacktester {
     });
 
     const allData = this.#precomputeData(symbolCandles, symbols);
+    // Read-only research accessor: the per-bar aggregator decisions this run traded on,
+    // so studies (e.g. runBearSide.mjs mirroring SELLs as shorts) reuse the exact
+    // signal path instead of re-deriving it. Nothing in the simulation reads it.
+    this.precomputed = allData;
     const correlationMatrix = this.correlationFilter
       ? this.#computeCorrelationMatrix(symbolCandles, symbols)
       : null;

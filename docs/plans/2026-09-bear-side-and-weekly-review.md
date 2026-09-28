@@ -15,7 +15,11 @@ Two requests after the agentic-setup PR merged:
 
 The work moves to **another PC** to run tests; the live PC keeps running the bot.
 
-**Status (2026-09-28):** plan approved, nothing implemented yet. Phase 1 starts on the research PC.
+**Status (2026-09-28):** Phase 1 done — run on the live PC after all, inside a separate git worktree
+(`../PlayCryptoWithAI-research`, own `data/` and `node_modules`, `PLAYCRYPTO_RUNTIME_DIR` outside the
+checkout, jobs under `nice`/`ionice`); the live bot's state files were verified unchanged. Results:
+[`docs/BEAR_SIDE_STUDY.md`](../BEAR_SIDE_STUDY.md) — shorting rejected; idle-cash yield pending the
+read-only probe run (needs a read-only API key in `.env.probe`). Phase 2 not started.
 
 ## Facts established while planning
 

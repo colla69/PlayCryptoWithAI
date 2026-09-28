@@ -197,6 +197,89 @@ export async function fetchTicker(symbol) {
   };
 }
 
+// API-key permissions that let a key change anything. The margin probe refuses to
+// run with a key holding any of them: it must never be pointed at the live trading key.
+// Fail closed: any other enable*/permits* flag Binance reports is treated as write-capable
+// unless it is a known read permission.
+const WRITE_PERMISSIONS = [
+  'enableSpotAndMarginTrading', 'enableWithdrawals', 'enableInternalTransfer',
+  'enableMargin', 'enableFutures', 'permitsUniversalTransfer', 'enableVanillaOptions',
+  'enablePortfolioMarginTrading', 'enableFixApiTrade',
+];
+const READ_PERMISSIONS = new Set(['enableReading', 'enableFixReadOnly']);
+const redactSignature = (text) => String(text).replace(/signature=[0-9a-f]+/gi, 'signature=***');
+
+/**
+ * Read-only report of the margin and futures access this account actually has —
+ * the account's own answer to the bear-side feasibility question, instead of
+ * regulatory guesswork. GET endpoints only: no orders, borrows, transfers or
+ * account changes. Each product's error is kept verbatim, because for a product
+ * the account can't use, the error code IS the answer. Returns flags and rates
+ * only, never balances.
+ * @param {string[]} symbols - isolated-margin pairs to check, e.g. ['BTC/USDC']
+ */
+export async function fetchMarginAccessReport(symbols = ['BTC/USDC', 'ETH/USDC']) {
+  const restrictions = await client.sapiGetAccountApiRestrictions();
+  if (restrictions?.enableReading !== true || restrictions.enableSpotAndMarginTrading !== false
+      || restrictions.enableWithdrawals !== false) {
+    throw new Error('refusing: unrecognised apiRestrictions response — cannot prove the key is read-only');
+  }
+  const writable = Object.keys(restrictions).filter((k) =>
+    (WRITE_PERMISSIONS.includes(k) || (/^(enable|permits)/.test(k) && !READ_PERMISSIONS.has(k)))
+    && restrictions[k] !== false);
+  if (writable.length) {
+    throw new Error(`refusing: API key has write permissions (${writable.join(', ')}) — use a read-only key`);
+  }
+
+  const ids = symbols.map((s) => s.replace('/', ''));
+  const assets = [...new Set(symbols.map((s) => s.split('/')[0]))];
+  const probe = async (label, fn) => {
+    try { return { label, ok: true, data: await fn() }; }
+    catch (err) { return { label, ok: false, error: redactSignature(err?.message ?? err).slice(0, 300) }; }
+  };
+
+  const report = [{ label: 'api key permissions', ok: true, data: { enableReading: restrictions.enableReading } }];
+  report.push(await probe('isolated margin USDC pairs', async () => {
+    const pairs = await client.sapiGetMarginIsolatedAllPairs();
+    return pairs
+      .filter((p) => p.quote === 'USDC')
+      .map((p) => ({ symbol: p.symbol, isMarginTrade: p.isMarginTrade, isSellAllowed: p.isSellAllowed }));
+  }));
+  report.push(await probe('cross margin account', async () => {
+    const a = await client.sapiGetMarginAccount();
+    return { borrowEnabled: a.borrowEnabled, tradeEnabled: a.tradeEnabled, transferEnabled: a.transferEnabled };
+  }));
+  report.push(await probe('isolated margin accounts', async () => {
+    const a = await client.sapiGetMarginIsolatedAccount({ symbols: ids.join(',') });
+    return (a.assets ?? []).map((x) => ({ symbol: x.symbol, enabled: x.enabled, isolatedCreated: x.isolatedCreated }));
+  }));
+  for (const asset of assets) {
+    report.push(await probe(`${asset} borrow rate history`, async () => {
+      const rows = await client.sapiGetMarginInterestRateHistory({ asset });
+      return rows.map((r) => ({ timestamp: Number(r.timestamp), dailyInterestRate: Number(r.dailyInterestRate), vipLevel: r.vipLevel }));
+    }));
+  }
+  // Idle-cash yield (bear-side study cell S4): is a flexible USDC product open to this account?
+  let earnProductId = null;
+  report.push(await probe('Simple Earn flexible USDC', async () => {
+    const res = await client.sapiGetSimpleEarnFlexibleList({ asset: 'USDC' });
+    const rows = (res?.rows ?? []).map((r) => ({ productId: r.productId, status: r.status, canPurchase: r.canPurchase, isSoldOut: r.isSoldOut, latestAPR: Number(r.latestAnnualPercentageRate) }));
+    earnProductId = rows[0]?.productId ?? null;
+    return rows;
+  }));
+  if (earnProductId) {
+    report.push(await probe('Simple Earn USDC rate history', async () => {
+      const res = await client.sapiGetSimpleEarnFlexibleHistoryRateHistory({ productId: earnProductId, size: 100 });
+      return (res?.rows ?? []).map((r) => ({ time: Number(r.time), apr: Number(r.annualPercentageRate) }));
+    }));
+  }
+  report.push(await probe('USDⓈ-M futures account', async () => {
+    const rows = await client.fapiPrivateV2GetBalance();
+    return { reachable: true, assetRows: rows.length };
+  }));
+  return report;
+}
+
 export async function fetchBalance() {
   if (paperMode) {
     return {
@@ -333,6 +416,7 @@ export default {
   fetchOHLCV,
   fetchHistoricalOHLCV,
   fetchTicker,
+  fetchMarginAccessReport,
   fetchBalance,
   createOrder,
   amountToPrecision,

@@ -365,6 +365,7 @@ export function runWindow({
   budget = 1000,
   maxOpenPositions = config.risk?.maxOpenPositions ?? 4,
   includeRaw = false,
+  includeDecisions = false,   // per-bar aggregator decisions (large) — research opt-in, separate from includeRaw
   filterOverrides = {},
   rideWinnersTrail = 0,
   ridePartial = null,
@@ -482,6 +483,10 @@ export function runWindow({
     // equityCurve is needed to correlate this sleeve against another one; a
     // combined drawdown cannot be derived from summary metrics alone.
     ...(includeRaw && { trades: result.trades, symbol_stats: result.symbolStats, equity_curve: result.equityCurve }),
+    // The per-bar aggregator output the run traded on, for studies that reuse the exact signal
+    // path (runBearSide.mjs). Its own flag: runBaseline passes includeRaw and would otherwise
+    // write every window's per-bar array into data/baseline.json.
+    ...(includeDecisions && { decisions: backtester.precomputed }),
   };
 }
 

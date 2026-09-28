@@ -379,3 +379,7 @@ retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
 > that capital to a *different* sleeve (TSM core), not loosening the scalper.
 | Trailing stop (replace TP) | Gives back profit on retracements | Rejected (pre-overhaul) |
 | More slots (5–8) | Dilutes capital, no DD benefit | Rejected (pre-overhaul) |
+| **Short BTC/ETH on margin in `BEAR_TREND`** (1× isolated, mirror of the TSM rule; 2026-09) | Earns inside deep bears (+22.8% 2018, +16.6% 2022, USDT price proxy) but −7.6% over 2018–2026 (DD −52%, DSR 0.02). As an overlay: Sharpe 0.06, DSR 0.01, negative in 2024–26; the book's max DD −10.6% → −18.5% (engine B0 — see the study's caveat). 2× and ungated variants worse. Perps are closed to German users anyway | **Rejected** — [BEAR_SIDE_STUDY.md](BEAR_SIDE_STUDY.md) |
+| Short alts on the scalper's SELLs in `BEAR_TREND` (2026-09) | Worked in 2021–23 (overlay Sharpe 0.96), lost in 2024–26 (−0.30); overlay DSR 0.04; book max DD −10.6% → −13.2% (engine B0) | **Rejected** |
+| PAXG (gold) while `BEAR_TREND` (2026-09) | No effect on USDC data; −13.5% during the 2022 bear on proxy data — not a crypto-bear hedge | **Rejected** |
+| Yield on idle USDC while `BEAR_TREND` (2026-09) | ≈ +0.3%/yr; a fixed yield passes any rf = 0 Sharpe/DD gate by construction, so it is a cash-management note, not a strategy | **Pending** — depends on Binance Earn being open to an EU account (`probeMarginAccess.mjs`) |

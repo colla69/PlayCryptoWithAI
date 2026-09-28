@@ -17,7 +17,9 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
 📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
-📖 **[Plan: bear-side study + weekly review](docs/plans/2026-09-bear-side-and-weekly-review.md)** — next work (2026-09)
+📖 **[Bear-Side Study](docs/BEAR_SIDE_STUDY.md)** — shorting, gold and idle-cash yield in bear markets (measured 2026-09: shorting rejected)  
+📖 **[Plan: bear-side study + weekly review](docs/plans/2026-09-bear-side-and-weekly-review.md)** — next work (2026-09)  
+📖 **[Plan: backtester time alignment](docs/plans/2026-09-backtester-time-alignment.md)** — open engine bug found 2026-09 (long-window backtests misalign late-listed symbols)
 
 ---
 

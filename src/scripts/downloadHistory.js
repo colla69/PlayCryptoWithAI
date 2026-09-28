@@ -9,6 +9,8 @@
  * Usage:  npm run download-history
  *         npm run download-history -- --years 2 --timeframe 4h
  *         npm run download-history -- --timeframe 4h --repair   # overwrite existing bars
+ *         npm run download-history -- --timeframe 12h --years 9.2 --symbols BTC/USDT,ETH/USDT
+ *           (research only: --symbols replaces config.symbols, e.g. for price-history proxies)
  */
 import 'dotenv/config';
 import ccxt from 'ccxt';
@@ -55,6 +57,8 @@ const yearsArg     = args.includes('--years')     ? Number(args[args.indexOf('--
 const timeframeArg = args.includes('--timeframe') ? String(args[args.indexOf('--timeframe') + 1]) : config.timeframe;
 // Re-fetch and overwrite existing bars instead of only appending new ones.
 const repair       = args.includes('--repair');
+const symbolsArg   = args.includes('--symbols') ? String(args[args.indexOf('--symbols') + 1]).split(',').map((s) => s.trim()).filter(Boolean) : null;
+const symbols      = symbolsArg ?? config.symbols;
 const msPerCandle  = TF_MS[timeframeArg] ?? 14_400_000;
 const totalCandles = Math.ceil((yearsArg * 365.25 * 24 * 3600 * 1000) / msPerCandle) + 10;
 
@@ -74,11 +78,11 @@ function fmt(ms) {
 console.log(`\n📥  Historical candle downloader`);
 console.log(`    Timeframe : ${timeframeArg}`);
 console.log(`    History   : ${yearsArg} year(s) → ~${totalCandles} candles per symbol`);
-console.log(`    Symbols   : ${config.symbols.join(', ')}\n`);
+console.log(`    Symbols   : ${symbols.join(', ')}\n`);
 
 const results = [];
 
-for (const symbol of config.symbols) {
+for (const symbol of symbols) {
   const t0 = Date.now();
   process.stdout.write(`  ${symbol.padEnd(12)}`);
 

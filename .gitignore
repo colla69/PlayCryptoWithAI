@@ -5,6 +5,8 @@ node_modules/
 .env.local
 .env.*.local
 .env.live
+# read-only Binance key for src/scripts/probeMarginAccess.mjs
+.env.probe
 
 # Runtime logs (not trade history)
 logs/*

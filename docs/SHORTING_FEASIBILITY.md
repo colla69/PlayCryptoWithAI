@@ -1,8 +1,24 @@
 # Shorting / Bear-Side Hedging — Feasibility Note (Phase 6b)
 
-**Status: research only. No shorting code is shipped. Recommendation: stay spot-only; do not
-implement Route 6B unless the user confirms a jurisdiction/account where Binance USDC perps are
-actually available.**
+**Status (updated 2026-09-28): closed — measured and rejected.** The open checklist below is now
+answered by [`BEAR_SIDE_STUDY.md`](BEAR_SIDE_STUDY.md):
+
+- **Perps (Route 6B):** Binance futures/derivatives are unavailable to users in Germany, Italy and
+  the Netherlands (Binance announcement "Unavailability of Futures and Derivatives Products in
+  Germany, Italy, and the Netherlands"). Route 6B is closed for this account.
+- **Spot margin (the route this note never analysed):** EEA margin stays available with USDC
+  borrowing (Binance "USDC is Now MiCA-Compliant…"), and 31 of the bot's 37 USDC pairs are
+  margin-enabled. It was measured anyway: shorting BTC/ETH in `BEAR_TREND` earns inside deep bears
+  (+22.8% in 2018, +16.6% in 2022 on proxy data) but loses across the cycle: as an overlay its Sharpe
+  is 0.06 (deflated Sharpe 0.01) and negative in 2024–26, and it nearly doubles the book's max DD.
+  Shorting alts on the scalper's SELLs worked in 2021–23 and lost in 2024–26. Rejected — not a
+  regulatory call, a measured one.
+- **Account-level check:** `src/scripts/probeMarginAccess.mjs` reads margin, futures and Earn access
+  from the account itself with a read-only key. It no longer decides anything for shorting, since no
+  short cell passed.
+- Binance has had no MiCA authorisation since 2026-07-01; see the venue table in the study.
+
+Route 6A (cash in `BEAR_TREND`) stays the bear-side answer. The original analysis follows unchanged.
 
 > ⚠️ Regulatory facts below reflect general context as of this writing and **must be re-verified by
 > the user for their own jurisdiction and account before any action**. This is an engineering
@@ -96,8 +112,10 @@ the robustness overhaul.
 
 ## 5. Decision checklist (for the user)
 
-- [ ] Confirm Binance USDC-margined perps are offered to my account/region under current rules.
-- [ ] Confirm I accept leverage + liquidation + funding-cost risk on a hedging sleeve.
-- [ ] If both yes → greenlight the Section 3 build (isolated 1×, 1 short slot, BEAR_TREND-only,
-      funding modelled in backtest, default-OFF flag).
-- [ ] If either no → Route 6A (already live) is the final answer; close this out.
+- [x] Confirm Binance USDC-margined perps are offered to my account/region under current rules.
+      → **No** (2026-09-28): Binance derivatives are unavailable to users in Germany.
+- [x] Confirm I accept leverage + liquidation + funding-cost risk on a hedging sleeve.
+      → Moot: the short sleeve was measured on spot margin instead and failed on its merits
+      ([BEAR_SIDE_STUDY.md](BEAR_SIDE_STUDY.md)).
+- [ ] ~~If both yes → greenlight the Section 3 build~~ — not reached.
+- [x] If either no → Route 6A (already live) is the final answer; close this out. → **Closed.**
