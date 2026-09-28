@@ -2,11 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import dashboardState from './dashboardState.js';
-import { MAX_SIGNAL_HISTORY } from './persistence.js';
+import { MAX_SIGNAL_HISTORY, STATE_FILE } from './persistence.js';
 import { loadEquityHistory } from './equityHistory.js';
 import { computeTimeWeightedReturn } from '../utils/timeWeightedReturn.js';
 import { calcEquityFromStatus } from '../risk/portfolioRisk.js';
 import logger from '../utils/logger.js';
+import { runtimeDir } from '../utils/runtimePaths.js';
 import { Backtester } from '../backtester/index.js';
 import {
   ADXStrategy,
@@ -26,7 +27,7 @@ const clients = new Set();
 const HEARTBEAT_MS = 15_000;
 const publicDir = path.resolve(process.cwd(), 'public');
 const indexPath = path.join(publicDir, 'index.html');
-const logsDir   = path.resolve(process.cwd(), 'logs');
+const logsDir   = runtimeDir('logs');
 const packageJsonPath = path.resolve(process.cwd(), 'package.json');
 const packageVersion = fs.existsSync(packageJsonPath)
   ? JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version
@@ -99,10 +100,9 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
 
   const sendTrades = (_req, res) => {
     // Read directly from dashboard_persist.json
-    const persistFile = path.resolve(process.cwd(), 'data', 'dashboard_persist.json');
     try {
-      if (!fs.existsSync(persistFile)) return res.json([]);
-      const data = JSON.parse(fs.readFileSync(persistFile, 'utf8'));
+      if (!fs.existsSync(STATE_FILE)) return res.json([]);
+      const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
       res.json(data.trades ?? []);
     } catch { res.json([]); }
   };
@@ -293,7 +293,7 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   });
 
   // ── Deposit tracking ────────────────────────────────────────────────────────
-  const depositsFile = path.resolve(process.cwd(), 'data', 'deposits.json');
+  const depositsFile = path.join(runtimeDir('data'), 'deposits.json');
 
   function loadDeposits() {
     if (!fs.existsSync(depositsFile)) return [];
@@ -386,13 +386,11 @@ export function startDashboardServer(port = 3001, { runSmokeTest, fetchCandles, 
   });
 
   // ── Daily P&L — computed from dashboard_persist.json trades ─────────────────
-  const persistFile = path.resolve(process.cwd(), 'data', 'dashboard_persist.json');
-
   function computeDailyPnl() {
     let trades = [];
     try {
-      if (fs.existsSync(persistFile)) {
-        const data = JSON.parse(fs.readFileSync(persistFile, 'utf8'));
+      if (fs.existsSync(STATE_FILE)) {
+        const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
         trades = data.trades ?? [];
       }
     } catch { /* empty */ }

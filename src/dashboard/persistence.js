@@ -1,11 +1,10 @@
 import { readFileSync, writeFile, mkdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { runtimeDir } from '../utils/runtimePaths.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR   = join(__dirname, '../../data');
-const LOGS_DIR   = join(__dirname, '../../logs');
-const STATE_FILE = join(DATA_DIR, 'dashboard_persist.json');
+const DATA_DIR   = runtimeDir('data');
+const LOGS_DIR   = runtimeDir('logs');
+export const STATE_FILE = join(DATA_DIR, 'dashboard_persist.json');
 const SIGNAL_HISTORY_FILE = join(DATA_DIR, 'signal_history.json');
 const TRADES_CSV = join(LOGS_DIR, 'trades.csv');
 
