@@ -166,7 +166,9 @@ Every BUY signal must pass a cascade before execution:
    2026-07 soak, every cycle re-deriving an identical confidence. The guard covers the signal cycle,
    the startup seed, and the TSM core sleeve (`src/utils/candleFreshness.js`).
 1. **Bear-regime block** (Phase 6a) — no new entries while regime is `BEAR_TREND`.
-2. **Max positions** — 4 concurrent slots (`maxConcurrentPositions`); excess BUYs are queued.
+2. **Max positions** — 4 concurrent slots (`risk.maxOpenPositions`; core sleeve legs don't count);
+   a BUY that arrives with every slot full is skipped, not queued. The backtester fills free slots
+   from same-bar candidates in confidence order.
 3. **Daily loss limit** — cumulative daily P&L < −5% blocks new trades for the day.
 4. **Weekly DD circuit breaker** (Phase 7) — rolling 7-day P&L ≤ −10% pauses new entries for 72h.
 

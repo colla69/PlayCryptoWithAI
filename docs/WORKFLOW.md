@@ -2,7 +2,8 @@
 
 This project is developed with **Claude Code**. Agents live in `.claude/agents/`, skills in
 `.claude/skills/`, slash commands in `.claude/commands/`, and the shared rule files in
-`.claude/rules/` (imported by `CLAUDE.md`).
+`.claude/rules/` (loaded automatically: `project.md` and `git-commit.md` in every session and
+subagent, `nodejs.md` and `dashboard.md` only when a matching file is read — see `CLAUDE.md`).
 
 > **Single-copy rule.** Until 2026-07-29 every agent, skill and prompt was mirrored into `.github/`
 > for GitHub Copilot. The mirror drifted — its pre-commit reviewer still demanded `MIN_TRADES ≥ 3`
@@ -25,19 +26,23 @@ This project is developed with **Claude Code**. Agents live in `.claude/agents/`
 | `@risk-reviewer` | Reviews risk-management logic only | Any change to SL/TP/sizing/filters |
 | `@security-reviewer` | Reviews API keys, order paths, secrets handling | Any change near `binanceClient.js` or `.env` |
 | `@project-reviewer` | Full holistic audit of the whole codebase | Periodically, or before switching to live trading |
-| `@docs-updater` | Keeps README, `.claude/rules/project.md`, and config comments in sync | After every merged feature |
+| `@tester` | Writes scenario tests that lock in a fix or behaviour change | After a bug fix or behaviour change |
+| `@docs-updater` | Keeps README, `docs/`, `.claude/rules/project.md`, config comments and the factual claims in `.claude/` in sync | After every merged feature |
+| `@backtest-reviewer` | Statistical-integrity guard for backtests and optimizer runs | Before any backtest number drives a decision |
 
 ### Skills
 
-Skills are domain-specific knowledge packs that agents load on demand. They encode conventions, contracts, and checklists so the agent doesn't have to rediscover them.
+Skills are domain-specific knowledge packs. Every session and subagent can auto-invoke one when its
+description matches the task; an agent that always needs one preloads it with `skills:` in its
+frontmatter, so the content is in context from the first turn.
 
-| Skill | Loaded by | Covers |
+| Skill | Preloaded by | Covers |
 |---|---|---|
-| `trading-strategy` | `@strategy-designer`, `@developer` | Strategy contract, no-lookahead rule, aggregator wiring |
-| `risk-management` | `@developer`, `@risk-reviewer` | Stop-loss, take-profit, sizing, daily limits |
-| `security` | `@developer`, `@security-reviewer` | API key handling, order execution safety |
-| `clean-code` | `@developer`, `@reviewer` | Module cohesion, helper extraction, readability |
-| `testing` | `@developer`, `@tester` | `node:test` suite layout, the invariant fixtures, manual validation steps |
+| `trading-strategy` | `@strategy-designer` | Strategy class contract, registration, aggregator voting, per-symbol tuning |
+| `risk-management` | `@risk-reviewer` | Where each risk control lives, the blocking invariants (HWM ladder, $11 floor, mark-to-market, restore attribution) |
+| `security` | `@security-reviewer` | Credentials, the signal bus as an order path, order validation |
+| `clean-code` | — | Ownership rules; one shared module whenever two paths must agree |
+| `testing` | `@tester` | `node:test` suite layout, helpers, the invariant fixtures, manual validation steps |
 
 ---
 
@@ -95,7 +100,7 @@ You  →  @developer  "Live scored TIA 0.18, the backtester entered. Find the di
 You  →  @pre-commit-reviewer → commit
 ```
 
-All three of those have actually happened, each invisible for weeks. See "Live ≡ Backtest"
+All of these have actually happened, each invisible for weeks. See "Live ≡ Backtest"
 in `.claude/rules/project.md`.
 
 ### 4 — Periodic Health Check
@@ -123,14 +128,8 @@ You  →  update .env.live  →  docker compose up -d
 
 There is **no CI in this repo** — `.github/workflows/` does not exist. (Earlier revisions of this
 document described `copilot-setup-steps.yml` and `docs-sync.yml`; neither was ever present.)
-Validation is local and mandatory before every commit:
-
-```bash
-node --check <changed files>
-npm test                                  # ≥421 pass, parity fixtures green
-SMOKE_TEST=false PAPER_MODE=true node src/main.js        # boot, then kill
-PAPER_MODE=true node src/scripts/runBaseline.mjs         # strategy/risk changes only
-```
+Validation is local and mandatory before every commit: the "Validate every change" sequence in
+`CLAUDE.md` (kept there only, so it can't drift).
 
 ---
 
@@ -145,9 +144,12 @@ PAPER_MODE=true node src/scripts/runBaseline.mjs         # strategy/risk changes
             └─▶ @security-reviewer     (if API / order path touched)
 
 @strategy-designer
-    └─▶ @pre-commit-reviewer
+    ├─▶ @backtest-reviewer             (before a number drives a decision)
+    ├─▶ @risk-reviewer
+    ├─▶ @pre-commit-reviewer
     └─▶ @docs-updater
 
+@tester                                (after a fix; hands back to the caller)
 @project-reviewer                      (standalone, no handoffs)
 ```
 
@@ -171,29 +173,48 @@ PAPER_MODE=true node src/scripts/runBaseline.mjs         # strategy/risk changes
    ```yaml
    ---
    name: my-agent
-   description: 'One sentence — when to use this agent.'
-   argument-hint: What context to provide when invoking.
+   description: 'One sentence — when to use this agent.'   # routing text: what it does and when
    tools: Read, Grep, Glob, Bash        # least privilege — omit Edit/Write for reviewers
    model: opus                          # see "Model routing" below
+   effort: high                         # omit to inherit the session's effort
+   skills:                              # optional — preload a skill it always needs
+     - risk-management
    ---
    ```
-2. Write the agent's mission, method, and output contract in the body.
+2. Write the agent's mission, its method (numbered steps only where the order matters), and its
+   output contract in the body. Subagents already load `CLAUDE.md`
+   and `.claude/rules/`, so point at those sections instead of restating them — a restated rule
+   is a second copy that drifts.
 3. Reference it from any agent that should hand off to it.
-4. Add it to the table in this file.
+4. Add it to the tables in this file.
 
 ---
 
 ## Model routing
 
-Agents are cost-routed by `model:` in their frontmatter. The rule is **not** "cheapest that fits" —
-it is *cheapest that fits the blast radius*:
+Agents are cost-routed by `model:` and `effort:` in their frontmatter. The rule is **not**
+"cheapest that fits" — it is *cheapest that fits the blast radius*:
 
-| Model | Use for | Agents |
-|---|---|---|
-| `opus` | Anything guarding capital, credentials or statistical validity — where a miss is expensive and silent | `pre-commit-reviewer`, `risk-reviewer`, `security-reviewer`, `backtest-reviewer`, `project-reviewer`, `strategy-designer` |
-| `sonnet` | Implementation and scoping, where mistakes surface fast in tests | `developer`, `analyst`, `tester`, `reviewer` |
-| `haiku` | Mechanical, verifiable edits | `docs-updater` |
+| Model | Effort | Use for | Agents |
+|---|---|---|---|
+| `opus` | `high` | Anything guarding capital, credentials or statistical validity — where a miss is expensive and silent | `pre-commit-reviewer`, `risk-reviewer`, `security-reviewer`, `backtest-reviewer`, `project-reviewer`, `strategy-designer` |
+| `sonnet` | inherit | Implementation, where mistakes surface fast in tests | `developer`, `tester` |
+| `sonnet` | `medium` | Scoping and quick correctness passes | `analyst`, `reviewer` |
+| `sonnet` | `low` | Verifiable doc and fact edits | `docs-updater` |
+
+Why effort, not just model: on the Claude 5 generation, effort sets how much a model thinks per
+turn, and it matters more than on any earlier generation. Opus 5.5 defaults to `medium` via the API,
+and Claude Code subagents otherwise inherit whatever effort the session runs at — so the gates pin
+`high`: a session running at low effort doesn't lower the last check before the order path.
+Implementers inherit, so `/effort` in the session controls them. `docs-updater` moved off
+`haiku` because it edits `project.md`, the one file every session and subagent loads; Haiku 4.5 has
+no effort control, and the agentic setup's own drift (a skill claiming `MIN_TRADES ≥ 3` while the
+optimizer enforced 8) is the kind of error it has to catch.
 
 `pre-commit-reviewer` was on `haiku` and is the last gate before the order path. The four parity
 breaks found in the 2026-07 audit were all one-sided rules — precisely what a cheap reviewer skims
 past. Upgrading it is the single highest-leverage routing change in this repo.
+
+**Re-audit at every model release.** Prompts are per-model artifacts: pressure language, word caps
+and step-by-step scripts written for one generation make the next one over-trigger or under-deliver.
+Run `/doctor prompt-audit` after a model upgrade and apply what it finds here, in one copy.
