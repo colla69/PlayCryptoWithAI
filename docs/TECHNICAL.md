@@ -57,7 +57,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | Strategy Builder | `utils/strategyBuilder.js` | Per-symbol strategy/risk selection; applies `confidenceThresholdScale` |
 | Market Context | `data/marketContext.js` | BTC.D (CoinGecko) + ETHBTC (Binance) cache, replayable in backtest |
 | Fear & Greed | `data/fearGreed.js` | F&G history loader for the entry-threshold modulator |
-| Risk Manager | `risk/index.js` | Daily loss limit, trade gating |
+| Risk Manager | `risk/riskManager.js` (re-exported by `risk/index.js`) | `canTrade()`: scaled entry threshold, daily loss limit; daily P&L re-seeded from persisted history on restart |
 | Portfolio Risk | `risk/portfolioRisk.js` | Correlation cap, weekly DD breaker, position-aging exit (pure fns, shared live/backtest) |
 | Paper Trader | `executor/paperTrader.js` | Simulated order execution |
 | Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking, position state persistence |
@@ -155,14 +155,14 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
    → series older than maxCandleStalenessPeriods (24h) ⇒ symbol skipped
 
 2. For each symbol:
-   strategies[symbol].computeSignal(candles)
-     → { signal: BUY/SELL/HOLD, confidence: 0-1, reason: string }
+   each strategy instance: strategy.analyze(candles)   (closed candles only)
+     → { name, signal: BUY/SELL/HOLD, value, confidence: 0-1, reason: string }
 
-3. signalAggregator.evaluate(candles)
-     → { decision, confidence, signals[] }
+3. symbolAggregators[symbol].aggregate(candles, symbol, signalConfig)
+     → { decision, confidence, signals[], externalSignals[] }
 
 4. Filter cascade (uses cached 15m/4h data — no extra API calls):
-   bearRegimeBlock? → maxPositions? → dailyLossLimit? → weeklyDDBreaker?
+   bearRegimeBlock? → maxOpenPositions? → dailyLoss (maxDailyLossPct)? → weeklyDDBreaker?
      → correlationCap? → mtf15m? → mtf4h? → BTC.D gate / F&G modulator → minConfidence?
 
 5. Position sizing:
@@ -385,9 +385,9 @@ config
 ├── symbols[]              37 USDC pairs
 ├── strategies[]           Default strategy set
 ├── risk{}                 Global risk parameters
-│   ├── initialBalance, maxPositionPct, stopLossPct, takeProfitPct
-│   ├── breakEvenTriggerPct, maxDailyLossPct, maxConcurrentPositions (4)
-│   ├── minConfidence, confidenceThresholdScale (0.65, Phase-4 → 1.0)
+│   ├── initialBalance, maxPositionPct, stopLossPct, takeProfitPct, trailingStopPct (0 = off)
+│   ├── breakEvenTriggerPct, minSizeMultiplier (0 = off), maxDailyLossPct, maxOpenPositions (4)
+│   ├── minConfidence, confidenceThresholdScale (0.65 — Phase 4 measured 1.0 starving the bot)
 │   ├── atrStops{} (disabled), twoStageExit{} (disabled)
 │   └── weeklyDDBreaker{}, positionAgingExit{}
 ├── perSymbol{}            Per-symbol strategies + SL/TP + minConfidence (optimizer-tuned)

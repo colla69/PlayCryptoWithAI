@@ -38,7 +38,7 @@ Automated tests do **not** replace these — run both:
 | `tests/core/cycleScheduler.test.js` | The cycle drifting off candle close and never re-aligning |
 | `tests/utils/candleFreshness.test.js` | Trading on a frozen series from a delisted/thin pair |
 | `tests/backtester/minNotional.test.js` | The simulator filling orders the exchange would reject |
-| `tests/backtester/liveParityInventory.test.js` | **A live rule shipping without a backtest counterpart** — the shape of all five parity breaks |
+| `tests/backtester/liveParityInventory.test.js` | **A live rule shipping without a backtest counterpart** — the shape of every parity break |
 | `tests/scripts/downloadHistoryMerge.test.js` | The downloader freezing a mid-formation bar into the research data (5th parity break) |
 | `tests/monitor/cycleWatchdog.test.js` | The loop dying silently — July 2026's 18h stall produced zero alerts for 24 days |
 | `tests/signals/webhookAuth.test.js` | The webhook running unauthenticated — external signals VOTE in the live aggregator |
@@ -61,28 +61,24 @@ Add a test when:
 
 ## Test Style
 
-Use Node.js built-in `node:test` (no external package needed):
+Node's built-in `node:test` + `node:assert/strict`; strategies are classes, tested through
+`analyze()`:
 
 ```js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeSignal } from '../src/strategies/rsi.js';
+import { RSIStrategy } from '../../src/strategies/rsi.js';
+import { makeCandles } from '../helpers.js';
 
-test('RSI overbought returns SELL', () => {
-  const candles = Array.from({ length: 20 }, (_, i) => ({
-    timestamp: i * 3600000,
-    open: 100, high: 105, low: 98,
-    close: 100 + i * 0.5, // rising
-    volume: 1000
-  }));
-  const result = computeSignal(candles, { period: 14, overbought: 70, oversold: 30 });
-  assert.equal(result.signal, 'SELL');
-  assert.ok(result.confidence >= 0 && result.confidence <= 1);
-  assert.ok(typeof result.reason === 'string');
+test('RSI holds with zero confidence when history is shorter than its period', () => {
+  const result = new RSIStrategy({ period: 14, overbought: 70, oversold: 30 })
+    .analyze(makeCandles([100, 101, 102]));
+  assert.equal(result.signal, 'HOLD');
+  assert.equal(result.confidence, 0);
 });
 ```
 
-Run with: `node --test tests/strategies/rsi.test.js`
+Run one file with `node --test tests/strategies/<file>.test.js`; report pass counts from `npm test`.
 
 ## What to Test
 
@@ -100,17 +96,11 @@ Run with: `node --test tests/strategies/rsi.test.js`
 - Candle cache **file I/O** — but the in-memory merge in `dashboardState.updateCandles` **is**
   unit-tested and must stay that way; it feeds every strategy
 
-## Candle Fixture Pattern
+## Candle Fixtures
 
-```js
-function makeCandles(closes) {
-  return closes.map((close, i) => ({
-    timestamp: i * 3600000,
-    open: close - 1, high: close + 2, low: close - 2,
-    close, volume: 1000
-  }));
-}
-```
+Use the helpers in `tests/helpers.js` rather than a local copy: `makeCandles(closes, { startTime,
+interval })` (12h bars by default), `makeTrend(start, end, count)`, `makeFlat(price, count, noise)`,
+and `DEFAULT_RISK` for trader config.
 
 ## Checklist
 

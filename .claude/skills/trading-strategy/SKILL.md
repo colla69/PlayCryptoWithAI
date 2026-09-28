@@ -7,114 +7,73 @@ description: >-
 
 # Trading Strategy Skill
 
-## What This Skill Covers
+## Strategy contract
 
-- Adding a new strategy to `src/strategies/`
-- Modifying an existing strategy's signal logic
-- Adjusting aggregator weighting in `src/engine/signalAggregator.js`
-- Tuning per-symbol parameters in `config/default.js`
+A strategy is a class in `src/strategies/<name>.js`, shaped like `rsi.js`:
 
-## Strategy Contract
+- `constructor(config)` receives its parameter block — `config.<key>` in `config/default.js`
+  (e.g. `config.rsi`), overridable per symbol as `config.perSymbol[symbol].<key>`.
+- `analyze(candles)` takes `{ timestamp, open, high, low, close, volume }` objects, oldest first,
+  and returns `{ name, signal: 'BUY'|'SELL'|'HOLD', value, confidence, reason }`.
+- The newest candle is still forming. Compute on `candles.slice(0, -1)` (or read
+  `candles[candles.length - 2]` as the last confirmed close); reading the last bar is lookahead.
+- `confidence` is in [0, 1] — higher means stronger conviction — and becomes the strategy's vote
+  weight. `reason` is shown on the dashboard.
+- Short series return `HOLD` with confidence 0 and a reason — `analyze()` never throws and never
+  returns `null`/`undefined`.
+- Stateless: `analyze()` mutates nothing on the instance.
 
-Every strategy must export a function with this signature:
-
-```js
-/**
- * @param {Array<{timestamp: number, open: number, high: number, low: number, close: number, volume: number}>} candles
- * @param {object} params — strategy-specific parameters from config
- * @returns {{ signal: 'BUY' | 'SELL' | 'HOLD', confidence: number, reason: string }}
- */
-export function computeSignal(candles, params) { … }
-```
-
-- `candles` — array of closed OHLCV candles, newest last. **Never use the last (forming) candle.**
-- `confidence` — float in `[0, 1]`. Higher = stronger conviction.
-- `reason` — human-readable string for dashboard display.
-- Must always return a result; never throw or return null/undefined.
-
-## No Lookahead Rule
-
-**Never use a candle that hasn't closed yet.** For a 4h timeframe, the most recent candle in the array is the current forming candle — use `candles[candles.length - 2]` as the last confirmed close, or slice with `candles.slice(0, -1)`.
-
-## Signal Aggregator Integration
-
-- Strategies are registered in `src/strategies/index.js`.
-- Weights are set per-strategy in `config/default.js` under `strategies`.
-- The aggregator calls each strategy, weights the votes, and returns a final signal if the weighted confidence exceeds `config.entryThreshold`.
-
-## Parameter Naming Conventions
-
-| Name | Meaning |
-|---|---|
-| `period` | Rolling lookback window |
-| `overbought` | Upper threshold (e.g. RSI 70) |
-| `oversold` | Lower threshold (e.g. RSI 30) |
-| `fastPeriod` / `slowPeriod` | For crossover strategies |
-| `weight` | Aggregator vote weight (0–2) |
-
-## Example Minimal Strategy
+Parameter names follow the existing blocks in `config/default.js`: `period` (lookback),
+`oversold` / `overbought` (thresholds, e.g. RSI 30/70, Stoch 20/80), `fast` / `slow` (crossovers —
+EMA, MACD), `signal` / `signalPeriod` (smoothing), `stdDev` (Bollinger width), `threshold`
+(ADX trend strength). There is no per-strategy weight: confidence is the vote weight.
 
 ```js
-// src/strategies/ema.js
-export function computeSignal(candles, { fastPeriod = 9, slowPeriod = 21 } = {}) {
-  const closes = candles.slice(0, -1).map(c => c.close); // exclude forming candle
-  if (closes.length < slowPeriod) return { signal: 'HOLD', confidence: 0, reason: 'Insufficient data' };
+export class ExampleStrategy {
+  constructor(config) { this.config = config; }
 
-  const ema = (data, n) => {
-    const k = 2 / (n + 1);
-    return data.reduce((acc, v, i) => i === 0 ? v : acc * (1 - k) + v * k);
-  };
-
-  const fast = ema(closes.slice(-fastPeriod), fastPeriod);
-  const slow = ema(closes.slice(-slowPeriod), slowPeriod);
-
-  if (fast > slow) return { signal: 'BUY',  confidence: 0.6, reason: `EMA${fastPeriod}>${slow.toFixed(2)}` };
-  if (fast < slow) return { signal: 'SELL', confidence: 0.6, reason: `EMA${fastPeriod}<${slow.toFixed(2)}` };
-  return { signal: 'HOLD', confidence: 0.3, reason: 'EMA crossover flat' };
+  analyze(candles) {
+    const closed = candles.slice(0, -1);   // exclude forming candle
+    if (closed.length < this.config.period + 1) {
+      return { name: 'EX', signal: 'HOLD', value: NaN, confidence: 0, reason: 'EX: insufficient data' };
+    }
+    // …compute the indicator on `closed`, map it to signal + confidence…
+  }
 }
+
+export default ExampleStrategy;
 ```
 
-## Checklist Before Merging a New Strategy
+Registration: follow Strategy Registration in `project.md` — four entries in
+`src/utils/strategyBuilder.js` (a missing one throws `Unknown strategy:` at startup), the export
+in `src/strategies/index.js`, and dashboard metadata in `src/strategies/registry.js`.
 
-- [ ] No lookahead (excludes forming candle)
-- [ ] Returns `{ signal, confidence, reason }` for all inputs
-- [ ] Handles insufficient candle data gracefully
-- [ ] Registered in `src/strategies/index.js`
-- [ ] Enabled and weighted in `config/default.js`
+## How votes become a decision
+
+- A symbol's strategy list is `config.perSymbol[symbol].strategies`, falling back to
+  `config.strategies`.
+- The voting math lives only in `src/engine/aggregatorVoting.js`, shared by the live
+  `signalAggregator.js`, `PortfolioBacktester` and the optimizer's `aggregate()`. HOLD counts in
+  the denominator: `confidence = winner_weight / total_voters`.
+- The entry threshold is the symbol's `minConfidence` (fallback `risk.minConfidence`) scaled by
+  `risk.confidenceThresholdScale` — always read it through `scaleMinConfidence()`.
+- Borderline entries need the previous bar to agree (`signals.multiBarConfirmation`). External
+  signals vote with fixed weights from `config.signals`.
+
+## Tuning per-symbol parameters
+
+`config.perSymbol[symbol]` holds `strategies`, `stopLossPct`, `takeProfitPct`, `minConfidence` and
+indicator overrides. The optimizer is `src/scripts/perSymbolOptimizer.mjs`; its holdout rules
+(`MIN_TRADES ≥ 8`, deflated Sharpe ≥ 0.5, Y2 selection / Y1 validation) are in `project.md` →
+Backtest Integrity, together with the full filter stack every portfolio backtest runs.
+
+## Before merging a strategy
+
+- [ ] Uses closed candles only
+- [ ] Returns the full result shape for every input, including short and flat series
+- [ ] Registered, added to the `strategies` list of each symbol it should run on (or to
+      `config.strategies`), and the boot test passes
 - [ ] `node --check src/strategies/<file>.js` passes
-
----
-
-## Backtest Integrity Rules
-
-These rules apply whenever a strategy change triggers a backtest or optimizer run.
-
-### Fill model (execution lookahead)
-BUY entries in `portfolioBacktester.js` must fill at `d.nextOpen` (next candle's open), not `d.price` (signal candle's close). The signal is generated when candle `i-1` closes — the earliest you can fill is the open of candle `i`.
-
-```js
-// ✅ correct
-entryOpts.fillPrice = d.nextOpen;
-
-// ❌ execution lookahead — fills at a price you couldn't have known
-simulator.execute(sym, 'BUY', d.price, entryOpts);
-```
-
-### Slippage tiers
-Do not apply uniform 0.1% slippage to all coins. A $200 position in ACH or VANRY moves the market; it doesn't in BTC. Use the `SLIPPAGE_TIERS` map in `portfolioBacktest.mjs`:
-- Large cap: 0.10%  |  Mid cap: 0.20%  |  Micro cap: 0.35%
-
-### Optimizer — minimum holdout trades
-`MIN_TRADES` in `perSymbolOptimizer.mjs` must be ≥ 3. Validating an upgrade on 0–2 holdout trades is statistically meaningless — it is coincidence, not evidence.
-
-### Reported results — always two windows
-Never quote a single backtest result as the headline. Always show:
-
-```
-Y2 only  (730 candles, in-sample):    +XX%  Sharpe X.XX  Max DD -X.X%  WR XX%
-Y1+Y2    (1460 candles, OOS included): +XX%  Sharpe X.XX  Max DD -X.X%  WR XX%
-```
-
-Win-rate gap > 10pp between windows = warning (possible overfitting).  
-Win-rate gap > 15pp = blocker.  
-Sharpe < 1.0 on full OOS window = strategy needs more evidence before going live.
+- [ ] Unit test under `tests/strategies/`
+- [ ] Two-window portfolio backtest with the full filter stack; an adopt/keep decision also needs
+      forward-only walk-forward + DSR

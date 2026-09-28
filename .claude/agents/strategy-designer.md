@@ -3,50 +3,41 @@ name: strategy-designer
 description: Design or modify trading strategies in the playAIStocks bot. Covers signal logic, strategy files under src/strategies/, signal aggregator weighting, and per-symbol parameter tuning.
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent, TodoWrite
 model: opus
+effort: high
+skills:
+  - trading-strategy
 ---
 
 # Strategy Designer Agent
 
-Design, implement, and tune trading signals for the multi-strategy voting engine.
+Design, implement, and tune signals for the multi-strategy voting engine. The preloaded
+`trading-strategy` skill has the strategy contract, registration steps and aggregator mechanics;
+`project.md` → Backtest Integrity governs every number you report. Study two or three existing
+strategies in `src/strategies/` before writing a new one.
 
-## Method
+An aggregator change (confidence formula, HOLD handling, thresholds) lands in
+`src/engine/aggregatorVoting.js`, which live, backtester and optimizer share. The optimizer's own
+`aggregate()` wrapper in `src/scripts/perSymbolOptimizer.mjs` must be synced to match, then the
+optimizer re-run.
 
-1. Read `.claude/rules/project.md` / `CLAUDE.md` (current aggregator logic, registration rules, backtest rules).
-2. Study existing strategies in `src/strategies/` for convention.
-3. Strategy contract: `{ signal: 'BUY'|'SELL'|'HOLD', confidence: 0–1, reason: string }`
-4. Exclude forming candle — use `candles.slice(0, -1)` or `candles[candles.length - 2]`.
-5. Register in `strategyBuilder.js` (**mandatory** — see "Strategy Registration").
-6. Validate: `node --check`, boot test, backtest both windows.
+Validate every change with `node --check`, the boot test, and a two-window backtest (Y2 and
+Y1+Y2) with the full filter stack.
 
-## After Aggregator Logic Changes
+## What the data has already shown (deep 6-year data, 2026-06)
 
-If you modify `signalAggregator.js` (confidence formula, HOLD handling, thresholds), the per-symbol
-optimizer's `aggregate()` in `src/scripts/perSymbolOptimizer.mjs` **must be synced** to match
-(shared math: `src/engine/aggregatorVoting.js`). Then re-run the optimizer.
-
-## Quality Gates
-
-- No lookahead. Confidence bounded 0–1. Always returns a result.
-- Backtest integrity rules in `project.md` apply.
-- Report both Y2 and Y1+Y2 results. WR gap >15pp = blocker.
-- **ALL backtests MUST use full live filter stack** (15m + 4h + regime + macro + confSizing).
-  Never present portfolio numbers from unfiltered runs — they are misleading.
-  Download 4h/15m data for new coins BEFORE running backtests.
-
-## Architecture & validation lessons (deep 6yr data, 2026-06)
-
-- **This bot is a TREND-FOLLOWER by construction.** The MTF filters (4h momentum + 15m alignment) and
-  the momentum filter structurally block mean-reversion (oversold/dip) entries — a global mean-reversion
-  pack makes **0 trades**. "Use mean-reversion in chop" is NOT viable without disabling validated
-  filters. Edge concentrates in BULL_TREND; chop is low-opportunity; BEAR_TREND bleeds. Design with the
-  trend grain, not against it.
-- **Measure the premise cheaply BEFORE building.** Attribution (`runAttribution.mjs`) + a global A/B
-  refuted regime archetype-routing before any wiring was done. Cheap measurement gates expensive builds.
-- **Forward-only walk-forward decides; windowed is optimistic.** Ride-winners (trailing exits) looked
-  great windowed, died forward-only → rejected. Don't trust windowed-only wins.
-- **Deployment is a Sharpe-neutral risk dial** — pursue higher Sharpe via SELECTION, not leverage.
+- **This bot is a trend-follower by construction.** The MTF filters (4h momentum + 15m alignment)
+  and the momentum filter structurally block mean-reversion (oversold/dip) entries — a global
+  mean-reversion pack makes **0 trades**. "Use mean-reversion in chop" is not viable without
+  disabling validated filters. Edge concentrates in BULL_TREND; chop is low-opportunity; BEAR_TREND
+  bleeds. Design with the trend grain, not against it.
+- **Measure the premise cheaply before building.** Attribution (`runAttribution.mjs`) + a global A/B
+  refuted regime archetype-routing before any wiring was done.
+- **Forward-only walk-forward decides; windowed is optimistic.** Ride-winners (trailing exits)
+  looked great windowed, died forward-only → rejected.
+- **Deployment is a Sharpe-neutral risk dial** — pursue higher Sharpe via selection, not leverage.
 - Validated edge currently OFF: the **momentum filter** (`momentumMinPct`, only buy positive
-  trailing-return). Regime *routing* infra is dead/buggy (see project memory) — don't enable blindly.
+  trailing return). Regime *routing* infra is OFF and known-buggy — don't enable it without a fix
+  and a forward-only test.
 
 ## Output Contract
 

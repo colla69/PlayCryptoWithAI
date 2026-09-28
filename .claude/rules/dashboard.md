@@ -1,10 +1,13 @@
 ---
-applyTo: "public/**,src/dashboard/**"
+paths:
+  - "public/**"
+  - "src/dashboard/**"
 ---
 
 # Dashboard Instructions
 
-Rules for all dashboard-related files: `public/index.html` and `src/dashboard/`.
+Rules for all dashboard-related files: `public/index.html` and `src/dashboard/`. New UI is
+additive — don't break existing panels, SSE event names, or layout contracts.
 
 ## public/index.html
 
@@ -28,20 +31,21 @@ Rules for all dashboard-related files: `public/index.html` and `src/dashboard/`.
 
 - Single source of truth for in-memory dashboard state.
 - All writes to `dashboard_persist.json` go through `dashboardState.js`. No other module reads or writes that file directly.
+- CSV/JSON/SSE contracts are append-only — add keys, never rename or remove. Caps: max 100 trades, 50 signals.
 - Public methods: `pushTrade(trade)`, `pushSignal(signal)`, `getSnapshot()`, `getPortfolioStats()`, `getHistoryOpenPositions(trades, prices)`.
 - Smoke-test trades are stored and displayed with a 🔬 badge; never filtered at load time.
 - Win rate and total P&L are computed from persisted trade history (survives restarts).
 
 ## dashboardServer.js
 
-- Express server, port from `DASHBOARD_PORT` env or `config.dashboardPort` (default 3001).
+- Express server, port from `DASHBOARD_PORT` env or `config.dashboard.port` (default 3001).
 - If port is in use (`EADDRINUSE`), log a loud error with the kill command and exit — never silently continue on a different port.
 - API endpoints:
   - `GET  /api/status` — full snapshot
   - `GET  /api/events` — SSE stream
   - `POST /api/smoke-test` — trigger smoke test (calls `runSmokeTest` from `main.js`)
   - `GET  /api/smoke-test` — smoke-test status
-  - `GET  /api/logs?lines=200&filter=` — last N lines of `logs/app.log`
+  - `GET  /api/logs?lines=200&filter=` — last N lines of today's `logs/app-YYYY-MM-DD.log`
   - `GET/POST/DELETE /api/deposits` — deposit tracker CRUD (`data/deposits.json`)
   - `GET  /api/performance` — time-weighted return + simple P&L (TWR = strategy, P&L = wealth;
     valuation series from `data/equity_history.json`, one snapshot per UTC day)
