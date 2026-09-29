@@ -196,6 +196,44 @@ describe('PortfolioBacktester time alignment', () => {
     assert.equal(r.filtersApplied.mtf4h, 1);
   });
 
+  describe('correlation cap reads a trailing window as of the signal time', () => {
+    // AAA is a random walk. BBB copies AAA's bar-to-bar moves (r = 1) on the bars where
+    // `lockstep(g)` holds and walks independently elsewhere. AAA is open when BBB signals
+    // at bar 280, so the cap decides BBB's entry. Live rebuilds the matrix every cycle from
+    // the last `correlation.period` bars; the old static matrix used the first half of each
+    // symbol's history instead, i.e. the wrong period for every signal in this test.
+    const pair = (lockstep) => {
+      const a = lcg(7);
+      const b = lcg(8);
+      const aaa = [100];
+      const bbb = [100];
+      for (let g = 1; g < 300; g++) {
+        aaa.push(aaa[g - 1] * Math.exp(0.06 * (a() - 0.5)));
+        bbb.push(lockstep(g) ? bbb[g - 1] * (aaa[g] / aaa[g - 1]) : bbb[g - 1] * Math.exp(0.06 * (b() - 0.5)));
+      }
+      return { 'AAA/USDC': candles(0, 300, (g) => aaa[g]), 'BBB/USDC': candles(0, 300, (g) => bbb[g]) };
+    };
+    const run = (data) => new PortfolioBacktester(
+      strategiesFor({
+        'AAA/USDC': [[270, 'BUY', 1.0], [295, 'SELL', 1.0]],
+        'BBB/USDC': [[280, 'BUY', 0.9], [290, 'SELL', 0.9]],
+      }),
+      { maxOpenPositions: 4, risk: RISK, correlationFilter: true, correlationThreshold: 0.85, correlationPeriod: 60 },
+    ).run(data);
+
+    test('blocks an entry that moves in lockstep with an open position now', () => {
+      const r = run(pair((g) => g >= 200));
+      assert.deepEqual(r.trades.map((t) => t.symbol), ['AAA/USDC']);
+      assert.equal(r.filtersApplied.correlation, 1);
+    });
+
+    test('allows an entry that was correlated only in the distant past', () => {
+      const r = run(pair((g) => g < 150));
+      assert.deepEqual(r.trades.map((t) => t.symbol).sort(), ['AAA/USDC', 'BBB/USDC']);
+      assert.equal(r.filtersApplied.correlation, 0);
+    });
+  });
+
   test('aligned inputs give the same result as index stepping did (golden)', () => {
     // Every symbol shares one grid, so the fix must be an identity here. Expected
     // values were produced by the index-stepping engine (e6d269d) on this scenario,

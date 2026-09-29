@@ -37,6 +37,7 @@ import { calculateADX, isBullTrend } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
 import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
 import { trailingReturn } from '../utils/momentum.js';
+import { buildCorrelationMatrix } from '../utils/correlation.js';
 import signalBus from '../signals/signalBus.js';
 import {
   calcCorrelationCap,
@@ -76,6 +77,9 @@ export class PortfolioBacktester {
     this.atrTPMultiplier = Number(config.atrTPMultiplier ?? 3.0);
     this.correlationFilter = Boolean(config.correlationFilter ?? false);
     this.correlationThreshold = Number(config.correlationThreshold ?? 0.8);
+    // Trailing window of the live matrix (config.correlation.period). The matrix is
+    // rebuilt as of every step, the way main.js rebuilds it every cycle.
+    this.correlationPeriod = Number(config.correlationPeriod ?? 60);
     // Phase 3: BTC dominance gate (block alt entries when BTC.D 7d SMA rising)
     this.btcDominanceGate = Boolean(config.btcDominance?.enabled ?? false);
     this.btcDominanceThresholdPp = Number(config.btcDominance?.blockThresholdPp ?? 1.0);
@@ -233,9 +237,6 @@ export class PortfolioBacktester {
     });
 
     const allData = this.#precomputeData(symbolCandles, symbols);
-    const correlationMatrix = this.correlationFilter
-      ? this.#computeCorrelationMatrix(symbolCandles, symbols)
-      : null;
 
     // Build per-symbol 12h→15m index for MTF alignment filter AND early exit
     const mtfIndex = {};
@@ -283,7 +284,9 @@ export class PortfolioBacktester {
       symbols.map((s) => [s, new Map(allData[s].map((d, i) => [d.timestamp, i]))]),
     );
     const btcCandles = btcKey ? symbolCandles[btcKey] : null;
-    let btcIdx = -1; // latest BTC bar at or before the current step
+    // Latest bar at or before the current step, per symbol: BTC's feeds regime and
+    // macro, every symbol's feeds the as-of correlation window.
+    const asOfIdx = Object.fromEntries(symbols.map((s) => [s, -1]));
     const positionOpenedStep = {};
     const filtersApplied = {
       regime: 0,
@@ -321,9 +324,11 @@ export class PortfolioBacktester {
         rowIdx[sym] = i;
       }
 
-      if (btcCandles) {
-        while (btcIdx + 1 < btcCandles.length && Number(btcCandles[btcIdx + 1].timestamp) <= stepTs) btcIdx++;
+      for (const sym of symbols) {
+        const c = symbolCandles[sym];
+        while (asOfIdx[sym] + 1 < c.length && Number(c[asOfIdx[sym] + 1].timestamp) <= stepTs) asOfIdx[sym]++;
       }
+      const btcIdx = btcKey ? asOfIdx[btcKey] : -1;
 
       // Resolve current regime at this step from the precomputed series, read
       // at the latest BTC bar at or before this step's time.
@@ -559,6 +564,16 @@ export class PortfolioBacktester {
         if (status.positions.some((p) => p.symbol === sym)) continue;
 
         if (this.correlationFilter) {
+          // Live's matrix builder over each symbol's trailing window as of this
+          // step. It used to be one static matrix from the first half of each
+          // symbol's history — future bars for the whole first half of a run,
+          // stale ones for the second, and paired across symbols by array end.
+          const trailing = (s) => symbolCandles[s].slice(Math.max(0, asOfIdx[s] - this.correlationPeriod), asOfIdx[s] + 1);
+          const correlationMatrix = buildCorrelationMatrix(
+            [sym, ...status.positions.map((p) => p.symbol)],
+            trailing,
+            { enabled: true, period: this.correlationPeriod },
+          );
           const cap = calcCorrelationCap({
             candidateSymbol: sym,
             openPositions: status.positions,
@@ -744,6 +759,7 @@ export class PortfolioBacktester {
         atrTPMultiplier: this.atrTPMultiplier,
         correlationFilter: this.correlationFilter,
         correlationThreshold: this.correlationThreshold,
+        correlationPeriod: this.correlationPeriod,
         fearGreedFilter: this.fearGreedFilter,
         fearGreedThreshold: this.fearGreedThreshold,
         symbols: symbols.length,
@@ -848,66 +864,6 @@ export class PortfolioBacktester {
     const avgVolume = previousCandles.reduce((sum, candle) => sum + Number(candle.volume ?? 0), 0) / previousCandles.length;
     const currentVolume = Number(candles.at(-1)?.volume ?? 0);
     return currentVolume >= avgVolume * this.volumeMultiplier;
-  }
-
-  #computeCorrelationMatrix(symbolCandles, symbols) {
-    const returnsBySymbol = Object.fromEntries(
-      symbols.map((sym) => {
-        const candles = symbolCandles[sym] ?? [];
-        const firstHalf = candles.slice(0, Math.max(2, Math.floor(candles.length / 2)));
-        return [sym, this.#computeReturns(firstHalf)];
-      }),
-    );
-
-    const matrix = Object.fromEntries(symbols.map((sym) => [sym, { [sym]: 1 }]));
-    for (let i = 0; i < symbols.length; i++) {
-      for (let j = i + 1; j < symbols.length; j++) {
-        const a = symbols[i];
-        const b = symbols[j];
-        const correlation = this.#pearsonCorrelation(returnsBySymbol[a], returnsBySymbol[b]);
-        matrix[a][b] = correlation;
-        matrix[b] = matrix[b] ?? { [b]: 1 };
-        matrix[b][a] = correlation;
-      }
-    }
-    return matrix;
-  }
-
-  #computeReturns(candles) {
-    const returns = [];
-    for (let i = 1; i < candles.length; i++) {
-      const prevClose = Number(candles[i - 1]?.close);
-      const close = Number(candles[i]?.close);
-      if (prevClose > 0 && close > 0) {
-        returns.push(Math.log(close / prevClose));
-      }
-    }
-    return returns;
-  }
-
-  #pearsonCorrelation(x, y) {
-    const length = Math.min(x.length, y.length);
-    if (length < 2) return 0;
-
-    const xs = x.slice(-length);
-    const ys = y.slice(-length);
-    const xMean = xs.reduce((sum, value) => sum + value, 0) / length;
-    const yMean = ys.reduce((sum, value) => sum + value, 0) / length;
-
-    let numerator = 0;
-    let xVariance = 0;
-    let yVariance = 0;
-
-    for (let i = 0; i < length; i++) {
-      const dx = xs[i] - xMean;
-      const dy = ys[i] - yMean;
-      numerator += dx * dy;
-      xVariance += dx * dx;
-      yVariance += dy * dy;
-    }
-
-    const denominator = Math.sqrt(xVariance * yVariance);
-    return denominator > 0 ? numerator / denominator : 0;
   }
 
   #computePositionPct(d, basePct, medianATR, closedTrades) {

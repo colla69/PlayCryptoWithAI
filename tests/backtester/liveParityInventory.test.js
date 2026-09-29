@@ -86,9 +86,13 @@ const PARITY_INVENTORY = [
     shared: 'src/utils/mtfAlignment.js',
   },
   {
+    // Pinned to the matrix builder, not the word "correlation": the backtester
+    // passed this row for months while using one static matrix built from the
+    // first half of each symbol's history instead of live's trailing window.
     rule: 'Portfolio correlation cap',
-    live: { file: 'src/core/filters.js', symbol: 'correlation' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'correlation' },
+    live: { file: 'src/main.js', symbol: 'buildCorrelationMatrix' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'buildCorrelationMatrix' },
+    shared: 'src/utils/correlation.js',
   },
   {
     rule: 'Weekly drawdown breaker',
