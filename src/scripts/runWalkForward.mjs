@@ -11,6 +11,7 @@
  *   PAPER_MODE=true node src/scripts/runWalkForward.mjs
  *   PAPER_MODE=true node src/scripts/runWalkForward.mjs --train 365 --forward 90
  *   PAPER_MODE=true node src/scripts/runWalkForward.mjs --mc 1000
+ *   PAPER_MODE=true node src/scripts/runWalkForward.mjs --live-sizing --corr-off   # gate A/B at live deployment
  *
  * Outputs:
  *   data/walkForward.json   — full structured results
@@ -52,6 +53,9 @@ let rideTrail = 0;
 let ridePartialPct = 0;
 let ridePartialFrac = 0.5;
 let trailArm = 0;
+let corrOff = false;
+let weeklyDDOff = false;
+let liveSizing = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--train'   && argv[i+1]) { trainBars = Number(argv[++i]); continue; }
@@ -69,6 +73,9 @@ for (let i = 0; i < argv.length; i++) {
   if (a === '--ride-trail'   && argv[i+1]) { rideTrail = Number(argv[++i]); continue; }
   if (a === '--ride-partial' && argv[i+1]) { const [p, f] = argv[++i].split(','); ridePartialPct = Number(p); if (f != null) ridePartialFrac = Number(f); continue; }
   if (a === '--trail-arm'    && argv[i+1]) { trailArm = Number(argv[++i]); continue; }
+  if (a === '--corr-off')               { corrOff = true; continue; }
+  if (a === '--wdd-off')                { weeklyDDOff = true; continue; }
+  if (a === '--live-sizing')            { liveSizing = true; continue; }
 }
 
 // De-overfit check (Workstream 2b): strip the per-symbol curve-fit → global defaults.
@@ -81,6 +88,12 @@ else if (Number.isFinite(mtfScoreOverride)) filterOverrides.mtfMinScore = mtfSco
 // WS: momentum-leader selection (forward-only validation).
 if (Number.isFinite(momMin)) filterOverrides.momentumMinPct = momMin;
 if (momRank) filterOverrides.momentumRank = true;
+// Portfolio-gate A/B (correlation cap, weekly DD breaker). Run these at live sizing: the
+// breaker's threshold is a % of equity, so the research default of ~100% deployment
+// (1/maxOpenPositions per slot) trips it more often than live's 60% would.
+if (corrOff) filterOverrides.correlationFilter = false;
+if (weeklyDDOff) config.risk.weeklyDDBreaker = { ...config.risk.weeklyDDBreaker, enabled: false };
+if (liveSizing) config.risk.basePctOverride = config.risk.maxPositionPct;
 
 // WS4: ride-winners exit (forward-only validation). --ride-trail >0 enables it.
 const rideOpts = rideTrail > 0

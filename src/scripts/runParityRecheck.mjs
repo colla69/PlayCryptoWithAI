@@ -8,8 +8,13 @@
  *                         SELL/timestamp shape calcWeeklyDDBreaker reads
  *
  * Both were shipped ON on the strength of A/B runs made with those bugs. This runs
- * the committed config with each gate switched off on the 2yr + full windows, on
- * the corrected engine. Read-only; writes data/parity_recheck.json.
+ * the committed config with each gate switched off on the Y2, 2yr and full windows,
+ * on the corrected engine, at live deployment (maxPositionPct per slot — the
+ * breaker's threshold is a % of equity, so the research default of ~100%
+ * deployment would trip it more often than live does). Windowed numbers only: a
+ * keep/drop call needs the forward-only runs too —
+ *   runWalkForward.mjs --live-sizing [--corr-off | --wdd-off]
+ * Read-only; writes data/parity_recheck.json.
  *
  * Usage:  PAPER_MODE=true node src/scripts/runParityRecheck.mjs
  */
@@ -34,8 +39,9 @@ const variants = [
   { id: 'correlation cap OFF', filterOverrides: { correlationFilter: false }, riskOverrides: {} },
   { id: 'weekly DD OFF', filterOverrides: {}, riskOverrides: { weeklyDDBreaker: { enabled: false } } },
 ];
-const windows = defineWindows(symbolCandles).filter((w) => ['y1y2_full', 'full_history'].includes(w.id));
-const lines = [`# Correlation cap + weekly DD re-check (${gitMeta().branch} @ ${gitMeta().sha})`];
+const windows = defineWindows(symbolCandles).filter((w) => ['y2_365d', 'y1y2_full', 'full_history'].includes(w.id));
+const basePctOverride = config.risk.maxPositionPct;
+const lines = [`# Correlation cap + weekly DD re-check (${gitMeta().branch} @ ${gitMeta().sha}) — live sizing ${basePctOverride}/slot`];
 const report = { generated_at: new Date().toISOString(), windows: {} };
 
 for (const window of windows) {
@@ -45,7 +51,7 @@ for (const window of windows) {
   for (const v of variants) {
     const r = runWindow({
       window, symbolCandles, mtf15mCandles, mtf4hCandles, fearGreedData,
-      filterOverrides: v.filterOverrides, riskOverrides: v.riskOverrides,
+      filterOverrides: v.filterOverrides, riskOverrides: v.riskOverrides, basePctOverride,
     });
     const m = r.metrics;
     const blocks = { correlation: r.filters_applied?.correlation ?? 0, weeklyDD: r.filters_applied?.weeklyDDBreaker ?? 0 };
@@ -55,4 +61,4 @@ for (const window of windows) {
 }
 writeFileSync('data/parity_recheck.json', JSON.stringify(report, null, 2));
 console.log(lines.join('\n'));
-console.log('\n(Keep a gate ON only if switching it off does not improve Sharpe without worsening maxDD.)');
+console.log('\n(Windowed only. A keep/drop call needs runWalkForward --live-sizing [--corr-off | --wdd-off] and DSR.)');
