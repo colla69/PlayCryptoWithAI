@@ -477,8 +477,12 @@ export class PortfolioBacktester {
             currentPrice: stepSignals[p.symbol]?.price ?? p.entryPrice,
           })),
         });
+        // The breaker sums realised P&L over SELL records keyed by `timestamp` —
+        // the shape of live's trade log. Simulator trades are round trips (side
+        // 'LONG', exitTime), so they are mapped here; passed as-is, every one
+        // was filtered out and the backtest breaker could never fire.
         const breaker = calcWeeklyDDBreaker({
-          recentTrades: simulator.getTrades(),
+          recentTrades: simulator.getTrades().map((t) => ({ side: 'SELL', timestamp: t.exitTime, pnl: t.pnl })),
           referenceEquity: equity > 0 ? equity : initialBalance,
           lossThreshold: this.weeklyDDLossThreshold,
           cooldownHours: this.weeklyDDCooldownHours,

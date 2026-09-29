@@ -10,6 +10,10 @@
  * the equity curve all mixed bars from different times. Live evaluates every
  * symbol at the same candle close; the engine now does too.
  *
+ * Two one-sided rules found alongside it are covered here too: the correlation
+ * cap's matrix (a static first-half-of-history matrix instead of live's trailing
+ * window) and the weekly DD breaker (never fired on simulator trades).
+ *
  * Decisions come from a stub strategy that reads a per-symbol timestamp
  * schedule, so each test controls exactly when a symbol signals.
  */
@@ -232,6 +236,30 @@ describe('PortfolioBacktester time alignment', () => {
       assert.deepEqual(r.trades.map((t) => t.symbol).sort(), ['AAA/USDC', 'BBB/USDC']);
       assert.equal(r.filtersApplied.correlation, 0);
     });
+  });
+
+  test('the weekly DD breaker counts simulator trades', () => {
+    // calcWeeklyDDBreaker reads live's trade log: SELL records keyed by `timestamp`.
+    // Simulator trades are round trips (side 'LONG', exitTime) and were all filtered
+    // out, so the backtest breaker never fired. AAA loses ~10% of the book by bar 112;
+    // BBB's BUY two bars later falls inside the 72h cooldown, its BUY at 130 does not.
+    const data = {
+      'AAA/USDC': candles(0, 200, (g) => (g <= 110 ? 100 : 90)),
+      'BBB/USDC': candles(0, 200, flat),
+    };
+    const strategies = strategiesFor({
+      'AAA/USDC': [[100, 'BUY', 1.0], [112, 'SELL', 1.0]],
+      'BBB/USDC': [[114, 'BUY', 1.0], [130, 'BUY', 1.0], [140, 'SELL', 1.0]],
+    });
+    const r = new PortfolioBacktester(strategies, {
+      maxOpenPositions: 1,
+      risk: { ...RISK, weeklyDDBreaker: { enabled: true, lossThreshold: 0.05, cooldownHours: 72 } },
+    }).run(data);
+    assert.deepEqual(
+      r.trades.map((t) => [t.symbol, t.entryTime, t.exitTime]),
+      [['AAA/USDC', ts(100), ts(112)], ['BBB/USDC', ts(130), ts(140)]],
+    );
+    assert.equal(r.filtersApplied.weeklyDDBreaker, 1);
   });
 
   test('aligned inputs give the same result as index stepping did (golden)', () => {

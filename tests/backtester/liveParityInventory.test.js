@@ -95,6 +95,9 @@ const PARITY_INVENTORY = [
     shared: 'src/utils/correlation.js',
   },
   {
+    // Presence is not behaviour: this row passed while the backtest breaker could
+    // never fire (simulator trades lacked the SELL/timestamp shape it reads).
+    // The behavioural guard is tests/backtester/timeAlignment.test.js.
     rule: 'Weekly drawdown breaker',
     live: { file: 'src/core/filters.js', symbol: 'calcWeeklyDDBreaker' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'weeklyDDBreaker' },
