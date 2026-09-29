@@ -1,0 +1,1 @@
+{"level":"error","message":"DOGE/USDC: cycle failed - binance GET https://api.binance.com/api/v3/klines?interval=12h&limit=200&symbol=DOGEUSDC 500 Internal Server Error <html>\r\n<head><title>500 Internal Server Error</title></head>\r\n<body>\r\n<center><h1>500 Internal Server Error</h1></center>\r\n</body>\r\n</html>\r\n","timestamp":"2026-09-04T12:00:08.583Z"}
