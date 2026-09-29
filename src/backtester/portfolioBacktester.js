@@ -270,7 +270,20 @@ export class PortfolioBacktester {
     const regimeByTs = new Map();
     for (const r of regimeSeries) regimeByTs.set(r.ts, r.regime);
 
-    const maxLen = Math.max(...symbols.map((s) => symbolCandles[s].length));
+    // ── One clock for every symbol ─────────────────────────────────────────
+    // Live evaluates every symbol at the same candle close, so a step is one
+    // wall-clock bar and each symbol's row is looked up by timestamp. Stepping
+    // by array index matched a late-listed or gapped symbol's k-th bar with
+    // BTC's k-th bar — a different date — so slots, regime, macro and the
+    // weekly DD gate all mixed bars from different times (34 of 37 symbols
+    // were misaligned on the 2020 → 2026 deep data).
+    const timeline = [...new Set(symbols.flatMap((s) => allData[s].map((d) => d.timestamp)))]
+      .sort((a, b) => a - b);
+    const rowIndexBySym = Object.fromEntries(
+      symbols.map((s) => [s, new Map(allData[s].map((d, i) => [d.timestamp, i]))]),
+    );
+    const btcCandles = btcKey ? symbolCandles[btcKey] : null;
+    let btcIdx = -1; // latest BTC bar at or before the current step
     const positionOpenedStep = {};
     const filtersApplied = {
       regime: 0,
@@ -292,19 +305,31 @@ export class PortfolioBacktester {
     // detect transitions WITHIN the backtest's evolving timeline.
     let prevRegimeLabel = null;
 
-    for (let step = 0; step < maxLen - MIN_WARMUP; step++) {
+    for (let step = 0; step < timeline.length; step++) {
+      const stepTs = timeline[step];
       const stepSignals = {};
       const buyQueue = [];
 
-      // Resolve current regime at this step from the precomputed series.
-      // The series ts must match the BTC candle ts at this step index.
+      // This step's row per symbol. A symbol with no bar at this time (not yet
+      // listed, delisted, or a hole in its history) has no signal this step.
+      const rows = {};
+      const rowIdx = {};
+      for (const sym of symbols) {
+        const i = rowIndexBySym[sym].get(stepTs);
+        if (i === undefined) continue;
+        rows[sym] = allData[sym][i];
+        rowIdx[sym] = i;
+      }
+
+      if (btcCandles) {
+        while (btcIdx + 1 < btcCandles.length && Number(btcCandles[btcIdx + 1].timestamp) <= stepTs) btcIdx++;
+      }
+
+      // Resolve current regime at this step from the precomputed series, read
+      // at the latest BTC bar at or before this step's time.
       let currentRegimeLabel = null;
-      if (btcKey) {
-        const btcSlice = symbolCandles[btcKey].slice(0, step + MIN_WARMUP + 1);
-        const tsAtStep = btcSlice.at(-1)?.timestamp;
-        if (tsAtStep != null) {
-          currentRegimeLabel = regimeByTs.get(tsAtStep) ?? null;
-        }
+      if (btcIdx >= 0) {
+        currentRegimeLabel = regimeByTs.get(btcCandles[btcIdx].timestamp) ?? null;
       }
       const regimeChanged = currentRegimeLabel != null
         && prevRegimeLabel != null
@@ -323,7 +348,7 @@ export class PortfolioBacktester {
         const openPositions = simulator.getStatus().positions;
         for (const pos of openPositions) {
           const sym = pos.symbol;
-          const d = allData[sym]?.[step];
+          const d = rows[sym];
           if (!d) continue;
           simulator.setTimestamp(d.timestamp);
           simulator.execute(sym, 'SELL', d.price);
@@ -335,15 +360,14 @@ export class PortfolioBacktester {
 
       let medianATR = null;
       if (this.atrPositionSizing) {
-        const vals = symbols.map((s) => allData[s]?.[step]?.atrPct).filter((v) => v > 0);
+        const vals = symbols.map((s) => rows[s]?.atrPct).filter((v) => v > 0);
         if (vals.length) medianATR = this.#median(vals);
       }
 
-      // Macro bear filter: check BTC vs EMA(emaPeriod) using candles up to this step
+      // Macro bear filter: check BTC vs EMA(emaPeriod) using BTC bars up to this step's time
       let macroBull = true;
-      if (this.macroFilter && (symbolCandles['BTC/USDC'] ?? symbolCandles['BTC/USDT'])) {
-        const btcCandles = (symbolCandles['BTC/USDC'] ?? symbolCandles['BTC/USDT']).slice(0, step + MIN_WARMUP + 1);
-        macroBull = isBullTrend(btcCandles, this.macroEMAPeriod);
+      if (this.macroFilter && btcCandles) {
+        macroBull = isBullTrend(btcCandles.slice(0, btcIdx + 1), this.macroEMAPeriod);
       }
 
       // MTF early exit: for each open losing position, check if 15m trend is strongly
@@ -354,16 +378,16 @@ export class PortfolioBacktester {
           const sym = pos.symbol;
           const c15m = this.mtfSymbolCandles[sym];
           if (!c15m?.length || !mtfIndex[sym]) continue;
+          const d = rows[sym];
+          if (!d) continue;
 
-          const candle12hIdx = step + MIN_WARMUP;
+          const candle12hIdx = rowIdx[sym] + MIN_WARMUP;
           const last15mIdx = mtfIndex[sym][candle12hIdx];
           if (last15mIdx < 0) continue;
 
           const score = mtfAlignScore(c15m, last15mIdx, this.mtfAlignBars);
           if (score >= this.mtfEarlyExitScore) continue; // trend ok, hold
 
-          const d = allData[sym]?.[step];
-          if (!d) continue;
           const unrealizedPct = (d.price - pos.entryPrice) / pos.entryPrice;
           if (unrealizedPct > -this.mtfEarlyExitMinLoss) continue; // not losing enough yet
 
@@ -383,7 +407,7 @@ export class PortfolioBacktester {
         const openPositions = simulator.getStatus().positions;
         for (const pos of openPositions) {
           const sym = pos.symbol;
-          const d = allData[sym]?.[step];
+          const d = rows[sym];
           if (!d) continue;
           const positionEntryTs = simulator.positions.get(sym)?.entryTime;
           if (positionEntryTs == null) continue;
@@ -403,7 +427,7 @@ export class PortfolioBacktester {
       }
 
       for (const sym of symbols) {
-        const d = allData[sym]?.[step];
+        const d = rows[sym];
         if (!d) continue;
 
         stepSignals[sym] = d;
@@ -436,7 +460,7 @@ export class PortfolioBacktester {
       // rejected; existing positions are still managed normally.
       let weeklyDDBlock = null;
       if (this.weeklyDDBreaker && buyQueue.length > 0) {
-        const nowTs = buyQueue[0]?.d?.timestamp ?? Date.now();
+        const nowTs = stepTs;
         // Reference equity mirrors live: current simulated equity (cash +
         // open positions at this bar's signal prices), so the % threshold
         // scales with account growth exactly as the live breaker does.
@@ -576,7 +600,7 @@ export class PortfolioBacktester {
 
         // MTF alignment filter: check if last 4h of 15m candles are constructive
         if (this.mtfFilter && mtfIndex[sym]) {
-          const candle12hIdx = step + MIN_WARMUP;
+          const candle12hIdx = rowIdx[sym] + MIN_WARMUP;
           const last15mIdx = mtfIndex[sym][candle12hIdx];
           const score = mtfAlignScore(
             this.mtfSymbolCandles[sym],
@@ -595,7 +619,7 @@ export class PortfolioBacktester {
 
         // 4h momentum filter: EMA crossover + RSI on 4h candles
         if (this.mtf4hFilter && mtf4hIndex[sym]) {
-          const candle12hIdx = step + MIN_WARMUP;
+          const candle12hIdx = rowIdx[sym] + MIN_WARMUP;
           const last4hIdx = mtf4hIndex[sym][candle12hIdx];
           const score = mtf4hMomentumScore(
             this.mtf4hSymbolCandles[sym],
