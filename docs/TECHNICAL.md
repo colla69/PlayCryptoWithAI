@@ -83,7 +83,7 @@ Architecture, data flow, module responsibilities, and deployment.
 
 | Module | Responsibility |
 |--------|----------------|
-| `portfolioBacktester.js` | Multi-symbol shared-balance simulation, full filter + regime + risk-gate stack |
+| `portfolioBacktester.js` | Multi-symbol shared-balance simulation, full filter + regime + risk-gate stack. One clock: steps over the union of all symbols' timestamps; BTC gates and the correlation window read as of the step |
 | `backtestSimulator.js` | Per-trade execution (next-open fills, tiered slippage, ATR/two-stage infra) |
 | `metrics.js` | Sharpe, Sortino, drawdown, profit factor, win rate |
 | `deflatedSharpe.js` | Deflated/Probabilistic Sharpe (Bailey & López de Prado) — multiple-testing correction |

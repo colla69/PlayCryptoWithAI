@@ -99,10 +99,10 @@ fix belongs in the engine.
   order-time $11-floor enforcement lives in the trader AND the simulator.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
-## Live ≡ Backtest (hard invariant — six ways it has actually broken)
+## Live ≡ Backtest (hard invariant — nine ways it has actually broken)
 
 The cardinal rule is that live and backtest produce identical decisions from identical inputs.
-Parity has broken six times in ways that were invisible for weeks. Check these on any change
+Parity has broken nine times in ways that were invisible for weeks. Check these on any change
 touching signals, thresholds, or candle handling:
 
 | Break | Symptom | Guard |
@@ -113,8 +113,11 @@ touching signals, thresholds, or candle handling:
 | **Min notional enforced live only** | The simulator filled orders Binance would reject, so the deployment sweep reported an identical trade count at every position size | Shared `exchangeLimits.js`; `tests/backtester/minNotional.test.js` |
 | **Downloader merge first-wins** | The last cached bar was still forming when written; it froze and the corrected version was discarded on every later run — corrupting the research data itself. BTC's 2026-06-24 04:00 4h bar closed at 62839.11 while the next opened at 62591.50, with ~40% of its true volume | Payload-wins merge + `--repair`; `tests/scripts/downloadHistoryMerge.test.js` |
 | **Startup seed merge first-wins** | `initializeHistoricalData`'s `!seen.has(ts)` filter dropped the exchange's corrected copy of the newest cached bar on every boot — and the seed re-persists what it loads, so each restart re-froze the previous boot's partial bar. 36 of 37 symbols carried frozen 12h bars on the 2026-07-02/07-29/07-30 restart dates | Shared `mergeCandles()`; `tests/utils/mergeCandles.test.js` |
+| **Backtester stepped by array index** | `PortfolioBacktester` read every symbol's row *k* at step *k* while regime/macro read BTC's bar *k*, so a late-listed or gapped symbol traded on a different date from the rest of the book — slots, regime, macro and the equity curve mixed times. 34 of 37 symbols were misaligned on the 2020→2026 deep data (NEAR's 2024-07-13 bar traded at BTC-time 2021-01-01), 6–8 on the baseline's long windows | Step over the union of timestamps, rows looked up by time, BTC read as of the step; `tests/backtester/timeAlignment.test.js` |
+| **Correlation matrix static in backtests** | Live rebuilds the cap's matrix every cycle from the last `correlation.period` (60) bars; the backtester built one matrix from the first half of each symbol's history (future bars for half the run) and ignored the period. The inventory row passed on the word "correlation" | Backtester calls live's `buildCorrelationMatrix` as of each step; inventory row pinned to it; `timeAlignment.test.js` |
+| **Weekly DD breaker inert in backtests** | `calcWeeklyDDBreaker` sums SELL records keyed by `timestamp` (live's trade log); simulator trades are round trips (`side: 'LONG'`, `exitTime`), so every one was filtered out and the breaker never fired in any backtest | Trades mapped to the live shape at the call; `timeAlignment.test.js` |
 
-**Three of the six were merges** — plus a fourth hand-rolled site, `saveCachedCandles`' blind
+**Three of the nine were merges** — plus a fourth hand-rolled site, `saveCachedCandles`' blind
 overwrite, which truncated backfilled disk history without breaking decisions (see the merge rule
 under Architecture Rules). A frozen partial bar is silent: it corrupts every indicator computed
 from it and nothing errors. Repair with `npm run download-history -- --timeframe <tf> --repair`,
@@ -137,7 +140,11 @@ disagree, suspect the in-memory path before suspecting the data.
 - a candle merge that keeps the existing record on a timestamp collision (`seen.has(ts) → skip`, the existing array spread first), or any merge not done by `mergeCandles()`;
 - cycle timing from a fixed `setInterval` instead of re-deriving the next fire time from the clock — started after an awaited run, it bakes in a permanent phase offset;
 - a candle-availability check that tests `length > 0` but not freshness — a fetch can return stale bars forever;
-- a new live-side rejection or sizing rule with no row in `liveParityInventory.test.js`.
+- a new live-side rejection or sizing rule with no row in `liveParityInventory.test.js`;
+- a per-symbol array index used as a clock across symbols — anything cross-sectional steps by timestamp;
+- a series or matrix computed once and consulted at every step, where live rebuilds it each cycle;
+- a shared helper fed records of a different shape than live feeds it — a filter that drops every
+  record fails silently, and a presence check (`liveParityInventory`) cannot see it.
 
 ## Stale / frozen market data
 

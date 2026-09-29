@@ -7,16 +7,21 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
 **Performance (honest baseline — full live filter stack, realistic next-open fills + tiered slippage):**  
-`last 90d (most OOS): +15.3% · Sharpe 3.04 · Max DD −4.4% · WR 53%`  
-`full history (386d): +24.6% · Sharpe 1.32 · Max DD −3.7% · WR 40%`
+`last 90d (most OOS): +0.25% · Sharpe 0.14 · Max DD −3.3% · WR 25%`  
+`full history (2509d): +140.7% · Sharpe 1.08 · Max DD −8.8% · WR 60%`
 
-> These come from the committed baseline runner (`runBaseline.mjs`). The robustness overhaul
+> These come from the committed baseline runner (`runBaseline.mjs`), measured post the 2026-09
+> backtester time-alignment fix (`PortfolioBacktester` now steps over the union of all symbols'
+> timestamps instead of array index — see
+> [Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)). The robustness overhaul
 > deliberately traded the old (non-reproducible) headline figures for honest, low-drawdown numbers
 > the bot can be trusted to run on unattended. See [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
 
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
-📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)
+📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
+📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — open measurement gaps (fill timing, equity marking, gapped positions)  
+📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship
 
 ---
 

@@ -78,6 +78,25 @@ Parity is not just aggregator math. The backtester sizes each position at `1/max
 **Deployment/position-size is a Sharpe-NEUTRAL risk dial**: bigger size scales return *and* drawdown
 ~linearly, Sharpe/DSR flat. More return from sizing ≠ edge — judge Sharpe/DSR, not headline return.
 
+## 9. One Clock, As-Of Gates
+
+The portfolio steps over the union of all symbols' timestamps and looks each row up by time; BTC
+(regime, macro) and the correlation window are read as of the step. Until 2026-09 it stepped by
+array index, so a late-listed or gapped symbol traded on a different date from the rest of the book
+(34 of 37 symbols on the deep data).
+- Blocker: any cross-symbol read by array position (`allData[sym][step]`, `slice(0, step + k)` on
+  another symbol's candles), or a matrix/series computed once and consulted every step where live
+  rebuilds it each cycle.
+- Blocker: a shared helper fed backtest records of a different shape than live feeds it — the
+  weekly DD breaker silently dropped every simulator trade this way. `tests/backtester/timeAlignment.test.js`
+  is the behavioural guard; the presence check in `liveParityInventory` cannot see it.
+- Open, not yet fixed (`docs/plans/2026-09-backtester-parity-followups.md`): fills land one bar after
+  live's, the equity curve marks only one open position at market, and a position in a symbol with
+  no bar at a step is skipped that step (it can survive a bear cash-exit). Flag any conclusion that
+  hinges on fill timing or on max-DD precision.
+- Portfolio-gate A/Bs whose threshold is a % of equity (weekly DD) run at live sizing
+  (`basePctOverride = maxPositionPct`); the ~100% research default trips them more often than live.
+
 ## Output
 
 Per area: ✅ Pass / ⚠️ Warning / 🔴 Blocker. Conclude: `✅ PASS` or `🔴 BLOCKED — [list]`.
