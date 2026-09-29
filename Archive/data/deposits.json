@@ -5,5 +5,19 @@
     "timestamp": "2026-07-02T12:07:13.747Z",
     "amount": 189.43,
     "note": "init bot after fable overhaul"
+  },
+  {
+    "id": 1787120628730,
+    "date": "2026-08-19",
+    "timestamp": "2026-08-19T06:23:48.730Z",
+    "amount": 24.92,
+    "note": "add some money"
+  },
+  {
+    "id": 1790596175524,
+    "date": "2026-09-28",
+    "timestamp": "2026-09-28T11:49:35.524Z",
+    "amount": 61.11,
+    "note": "from stonks, hoping to get over threshold"
   }
 ]
