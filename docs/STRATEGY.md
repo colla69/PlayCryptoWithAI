@@ -334,21 +334,46 @@ Every change is measured honestly before it ships:
 ## Backtested Performance (honest baseline, full filter stack)
 
 Committed baseline, 37 USDC pairs, 12h candles, BUY-at-next-open, tiered slippage
-(large 0.10% / mid 0.20% / micro 0.35%):
+(large 0.10% / mid 0.20% / micro 0.35%). Measured post the 2026-09 backtester time-alignment fix
+(`PortfolioBacktester` now steps over the union of all symbols' timestamps instead of array index,
+with BTC regime/macro, the correlation matrix and the weekly DD breaker all reading as-of that step
+— see [Backtester fix status](plans/2026-09-backtester-fix-status.md)). Data cut to 2026-08-10.
 
-| Window | Return | Sharpe | Sortino | Max DD | Win Rate | PF | DSR | PSR |
-|--------|--------|--------|---------|--------|----------|----|----|----|
-| last_90d (most OOS) | +15.3% | 3.04 | 7.09 | −4.44% | 53% | 2.51 | 0.00 | 0.96 |
-| last_180d | +58.4% | 2.25 | 16.95 | −3.01% | 56% | 6.69 | 0.00 | 1.00 |
-| y2_365d (in-sample) | +23.1% | 1.34 | 8.79 | −3.70% | 45% | 4.28 | 0.00 | 1.00 |
-| full_history (386d) | +24.6% | 1.32 | 8.62 | −3.71% | 40% | 4.14 | 0.00 | 1.00 |
+| Window | Days | Trades | Return | Sharpe | Sortino | Max DD | Win Rate | PF | DSR | PSR |
+|--------|------|--------|--------|--------|---------|--------|----------|----|----|----|
+| last_90d (most OOS) | 90 | 8 | +0.25% | 0.14 | 0.30 | −3.28% | 25% | 1.04 | 0.00 | 0.53 |
+| last_180d | 180 | 19 | +62.43% | 2.37 | 30.92 | −4.20% | 58% | 9.87 | 0.00 | 1.00 |
+| y2_365d (in-sample) | 365 | 23 | +25.09% | 1.36 | 8.86 | −4.37% | 43% | 4.82 | 0.00 | 1.00 |
+| y1_holdout | 365 | 34 | +91.95% | 2.72 | 11.35 | −5.33% | 79% | 6.49 | 0.08 | 1.00 |
+| y1y2_full (full OOS) | 730 | 60 | +137.59% | 2.04 | 8.70 | −8.84% | 63% | 4.77 | 0.17 | 1.00 |
+| full_history | 2509 | 81 | +140.68% | 1.08 | 3.89 | −8.84% | 60% | 3.94 | 0.13 | 1.00 |
 
-**Reading it honestly:** drawdown is now under 5% on every window (the user's top priority), and PSR
-is ~1.0 (true Sharpe almost certainly positive). DSR is still 0.00 — after correcting for the
-optimizer's search burden, the observed Sharpe (~1.3 on the long windows) has not yet cleared the
-significance bar (~3.3 annualised). Lifting DSR is the goal of the remaining phases (walk-forward
-retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr, Sharpe 2.33,
-+1912% over 2y) were not reproducible on the on-disk data and are disregarded.
+**Reading it honestly:** the three most recent windows (`last_90d`, `last_180d`, `y2_365d`) stay
+under 5% max DD; `y1_holdout` is also a 365d window but sits at −5.33%, and `y1y2_full` /
+`full_history` sit at −8.84% because they now include real drawdown periods the old array-index
+stepping mis-scored (see "Engine fix" below). PSR is 1.00 on every window except `last_90d`
+(0.53 — only 8 trades, no statistical confidence there). DSR is still 0.00 on the short windows and
+0.08–0.17 on the long ones — after
+correcting for the optimizer's search burden, the observed Sharpe has not yet cleared the
+significance bar (~3.3 annualised) on any window. Lifting DSR is the goal of the remaining phases
+(walk-forward retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
+Sharpe 2.33, +1912% over 2y) were not reproducible on the on-disk data and are disregarded.
+
+`y1_holdout`'s 79% win rate vs `y2_365d`'s 43% (both 365d windows) is a 36pp gap running in favor
+of the out-of-sample year — the opposite sign from overfitting, so it isn't a curve-fitting red
+flag, but it's regime dependence between two specific years, not a rate to extrapolate forward.
+
+**Engine fix, old vs new (forward-only walk-forward, default sizing, 52 folds, 2021–2026):** the
+old array-index stepping let late-listed symbols read BTC regime/macro state out of chronological
+order. Return and Sharpe barely move (+153.8%→+147.3%, Sharpe 1.23→1.19), but max drawdown drops
+from **−26.11% to −6.56%** — the old figure was a measurement artifact of the misalignment, not a
+real risk difference; the reviewer's ruling on this branch is that a worse-looking recent-window
+number is not a revert trigger when the old number was the wrong one. The *delta* is solid (both
+runs use the same equity-marking code), but the absolute −6.56% is still approximate — the equity
+curve marks only one open position at market and fills one bar after live (see the
+[follow-ups plan](plans/2026-09-backtester-parity-followups.md)). Trade count also drops 81→75,
+and DSR falls 0.26→0.20 — both the smaller sample and the lower Sharpe widen the gap to the
+significance bar.
 
 ---
 
@@ -357,14 +382,14 @@ retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
 | Enhancement | Result | Decision |
 |-------------|--------|----------|
 | Confidence-weighted aggregator + multi-bar gate | DD nearly halved, WR up on most-OOS window | **Shipped** |
-| Portfolio correlation cap (hard entry cap @ 0.85) | Better Sharpe *and* tighter DD with the new aggregator | **Shipped (ON)** — reverses the old "rejected" verdict |
-| Weekly DD breaker + position aging exit | DD cut further, well inside safety margin | **Shipped (ON)** |
+| Portfolio correlation cap (hard entry cap @ 0.85) | Better Sharpe *and* tighter DD with the new aggregator. **Re-checked 2026-09-29 at live sizing, post time-alignment fix:** the cap binds — turning it off adds ~7 trades and lifts DSR 0.22→0.27 on the forward-only walk-forward, at the cost of DD −4.00%→−4.47%. Windowed agrees on trade count but is mixed on return/DSR direction (`y2_365d` prefers the cap ON); decision made on the forward-only run per the windowed-vs-forward-only rule. Both DSR readings (0.22/0.27) are well under the 0.5 significance bar — a status-quo hold, not strong evidence either way. | **Shipped (ON)** — reverses the old "rejected" verdict; re-check did not change the call |
+| Weekly DD breaker + position aging exit | DD cut further, well inside safety margin. **Re-checked 2026-09-29 at live sizing:** 0 blocks in every window (y2_365d, y1y2_full, full_history) and in the forward-only walk-forward — the breaker never actually fires at this account size/risk config, so it is currently inert rather than tested | **Shipped (ON)** — inert-but-harmless; not a revert case since it never binds |
 | Cash-exit on `BEAR_TREND` (not `BEAR_CHOP`) | last_180d DD −5.9% → −2.9%, small return cost | **Shipped (trend_only)** |
 | ATR-based stops | Net-negative vs tuned per-symbol fixed stops on every window | **Infra kept, disabled** |
 | Two-stage exit / chandelier runner | −8pp return, −0.1 Sharpe under current tuning | **Infra kept, disabled** |
 | Regime archetype routing (trend pack in bull, mean-reversion in chop) | **Refuted (2026-06, deep 6yr data):** the trend-alignment filters (4h+15m MTF) structurally block mean-reversion entries (0 trades), and MR isn't range-specialized anyway. Routing infra also has latent bugs (dead code, unregistered strategy keys). | **Not viable as-is; infra stays OFF** |
 | Logistic-regression meta-overlay (P(win) gate) | Held-out gate-admitted WR 12.5% vs 39.5% base (−27pp) — does not beat baseline on 376 samples | **Trainer + gate shipped, default OFF** |
-| **15m MTF relaxation 0.50 → 0.30** (deep 6yr data) | Full 15m coverage made the filter portfolio-wide; 0.50 too tight. Forward-only WF Sharpe 1.01→1.50, DSR 0.01→0.11 | **Shipped (ON)** |
+| **15m MTF relaxation 0.50 → 0.30** (deep 6yr data) | Full 15m coverage made the filter portfolio-wide; 0.50 too tight. Forward-only WF Sharpe 1.01→1.50, DSR 0.01→0.11. **Re-checked 2026-09-29 post time-alignment fix** (`runMtfSweep.mjs`, windowed; the script's `mtf_0.50 (baseline)` label is stale — its `overrides:{}` case resolves to the current shipped 0.30, not 0.50): current 0.30 gets DSR 0.17/Sharpe 2.04/DD −8.84% on `y1y2_full` and DSR 0.13/Sharpe 1.08/DD −8.84% on `full_history`. Loosening to 0.20 gets DSR 0.34/Sharpe 2.23/DD −7.29% (better) on `y1y2_full` and DSR 0.21/Sharpe 1.14/DD −10.10% (worse) on `full_history` — but `mtf_OFF` (filter fully disabled) ties `mtf_0.20` on DSR in both windows (0.34 and 0.21), so at ≤0.20 the filter is statistically indistinguishable from being off. Both DSR readings (0.34/0.21) are still under the project's 0.5 significance bar even if confirmed. | **Shipped (ON) at 0.30** — re-check flags 0.20/OFF as a possible further relaxation; not acted on in this PR, needs a forward-only + Monte Carlo check first |
 | **Momentum filter** (buy only positive 10-day trailing return — no falling knives) | Forward-only WF Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%, PF 4.7→6.6 | **Shipped (ON)** — live + backtest via shared `utils/momentum.js` (2026-06-25) |
 | "Ride winners" (kill fixed TP + lift aging, trail the stop) | Looked great windowed (+167%/6yr) but **failed forward-only** (DSR 0.02 < relaxed-MTF baseline) | **Infra kept, disabled** |
 | Deployment / position-size sweep | Pure **Sharpe-neutral risk dial** — scales return *and* DD ~linearly; not an edge | **No change (informational)** |
