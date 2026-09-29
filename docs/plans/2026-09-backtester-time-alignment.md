@@ -1,7 +1,11 @@
 # Plan: fix PortfolioBacktester's time alignment (found 2026-09-28)
 
-**Status: open — not fixed.** Found by `backtest-reviewer` while reviewing
-[`docs/BEAR_SIDE_STUDY.md`](../BEAR_SIDE_STUDY.md); verified in the code and on the live checkout's caches.
+**Status (2026-09-29): fixed in code, not yet measured or merged.** Branch
+`fix/backtester-time-alignment` fixes it (and two more one-sided rules found on the way: a static
+correlation matrix and a weekly DD breaker that never fired); its status and the remaining runs are
+in `docs/plans/2026-09-backtester-fix-status.md` on that branch. Found by `backtest-reviewer` while
+reviewing [`docs/BEAR_SIDE_STUDY.md`](../BEAR_SIDE_STUDY.md); verified in the code and on the live
+checkout's caches.
 
 ## The bug
 
