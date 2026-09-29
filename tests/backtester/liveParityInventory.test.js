@@ -3,9 +3,10 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * Parity has broken four times, and every single break was a rule that existed
- * on ONE side only. Reviewing a diff never caught them, because nothing in the
- * diff looked wrong — the omission was invisible:
+ * Parity has broken nine times (the table in .claude/rules/project.md), and every
+ * single break was a rule that existed on ONE side only. Reviewing a diff never
+ * caught them, because nothing in the diff looked wrong — the omission was
+ * invisible:
  *
  *   · min notional      — enforced in liveTrader, absent from the simulator, so
  *                         backtests filled orders Binance would have rejected
@@ -14,10 +15,16 @@
  *   · cycle alignment   — backtest evaluates at candle close, live drifted 6h
  *   · downloader merge  — first-wins in downloadHistory, so a bar frozen
  *                         mid-formation corrupted the research data permanently
+ *   · backtest clock    — symbols stepped by array index, so a late-listed coin
+ *                         traded on a different date from BTC's regime and macro
+ *   · correlation cap   — live's trailing matrix vs one static first-half matrix
+ *   · weekly DD breaker — never fired on simulator trades (wrong record shape);
+ *                         the row below passed throughout — presence is not
+ *                         behaviour, see tests/backtester/timeAlignment.test.js
  *
- * Note the pattern in the last two: "merge" appears three times. Any place two
- * sources of the same record combine, assert which one wins — the exchange
- * payload, always. See tests/dashboard/candleMerge.test.js and
+ * Note the merges: two above, and a third (the startup seed) in the project.md
+ * table. Any place two sources of the same record combine, assert which one
+ * wins — the exchange payload, always. See tests/dashboard/candleMerge.test.js and
  * tests/scripts/downloadHistoryMerge.test.js.
  *
  * So this fixture inverts the burden of proof. Every rule that can reject or

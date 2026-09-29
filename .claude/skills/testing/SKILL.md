@@ -40,6 +40,7 @@ Automated tests do **not** replace these — run both:
 | `tests/utils/candleFreshness.test.js` | Trading on a frozen series from a delisted/thin pair |
 | `tests/backtester/minNotional.test.js` | The simulator filling orders the exchange would reject |
 | `tests/backtester/liveParityInventory.test.js` | **A live rule shipping without a backtest counterpart** — the shape of every parity break |
+| `tests/backtester/timeAlignment.test.js` | The portfolio backtester stepping symbols by array index (a late-listed coin traded on the wrong date), a correlation matrix built once instead of as of each step, and a weekly DD breaker that never fired on simulator trades |
 | `tests/scripts/downloadHistoryMerge.test.js` | The downloader freezing a mid-formation bar into the research data (5th parity break) |
 | `tests/monitor/cycleWatchdog.test.js` | The loop dying silently — July 2026's 18h stall produced zero alerts for 24 days |
 | `tests/signals/webhookAuth.test.js` | The webhook running unauthenticated — external signals VOTE in the live aggregator |

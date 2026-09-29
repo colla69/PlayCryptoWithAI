@@ -16,7 +16,8 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
-📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)
+📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
+📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — open measurement gaps (fill timing, equity marking, gapped positions)
 
 ---
 
