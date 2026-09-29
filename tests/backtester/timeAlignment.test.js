@@ -200,6 +200,33 @@ describe('PortfolioBacktester time alignment', () => {
     assert.equal(r.filtersApplied.mtf4h, 1);
   });
 
+  test("the 15m filter and early exit read the symbol's own 15m bars at the signal time", () => {
+    // LATE's 15m candles are green except through 12h bars 200 and 240. The BUY at 200 must
+    // be filtered, the BUY at 210 must fill, and the 5%-losing position must exit early at
+    // 240. On an aligned run step === row index, so only a late-listed symbol shows a
+    // leftover `step + MIN_WARMUP` in either 15m path.
+    const late12h = candles(100, 400, (g) => (g < 230 ? 100 : 95));
+    const red = (t) => (t >= ts(200) && t < ts(201)) || (t >= ts(240) && t < ts(241));
+    let level = 100;
+    const late15m = subCandles(late12h, M15, (t) => (level += red(t) ? -0.01 : 0.01));
+
+    const data = { 'BTC/USDC': candles(0, 400, flat), 'LATE/USDC': late12h };
+    const strategies = strategiesFor({
+      'BTC/USDC': [],
+      'LATE/USDC': [[200, 'BUY', 1.0], [210, 'BUY', 1.0], [280, 'SELL', 1.0]],
+    });
+    const r = new PortfolioBacktester(strategies, {
+      maxOpenPositions: 4,
+      risk: RISK,
+      mtfFilter: true,
+      mtfEarlyExit: true,
+      mtfSymbolCandles: { 'LATE/USDC': late15m },
+    }).run(data);
+    assert.deepEqual(r.trades.map((t) => [t.symbol, t.entryTime, t.exitTime]), [['LATE/USDC', ts(210), ts(240)]]);
+    assert.equal(r.filtersApplied.mtf, 1);
+    assert.equal(r.filtersApplied.mtfEarlyExit, 1);
+  });
+
   describe('correlation cap reads a trailing window as of the signal time', () => {
     // AAA is a random walk. BBB copies AAA's bar-to-bar moves (r = 1) on the bars where
     // `lockstep(g)` holds and walks independently elsewhere. AAA is open when BBB signals
