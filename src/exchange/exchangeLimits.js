@@ -29,3 +29,26 @@ export const FALLBACK_MIN_NOTIONAL = 11;
 export function resolveMinNotional(limits) {
   return Math.max(Number(limits?.minNotional ?? 0), FALLBACK_MIN_NOTIONAL);
 }
+
+/**
+ * Raises an order the exchange would reject to its floor, when that is a modest
+ * stretch of what the sizing asked for. On a small account the brake chain (macro,
+ * ADX, confidence, ATR) often sizes a signal at $6–10 and the order is turned away
+ * (7% of signals in 2026-09/10 live sizing, 14% when free cash was under $150). The
+ * bump buys the floor instead, but only when the computed order was at least
+ * `minRatio` of it — so it never more than doubles a position — and the free
+ * balance covers it. Off unless `risk.minNotionalBump.enabled`. Live, paper and the
+ * simulator all call this, so the rule exists once.
+ *
+ * @param {number} notional — the order value the sizing produced
+ * @param {{freeBalance: number, minNotional?: number, bump?: {enabled?: boolean, minRatio?: number}}} p
+ * @returns {number} the order value to place
+ */
+export function bumpToMinNotional(notional, { freeBalance, minNotional = FALLBACK_MIN_NOTIONAL, bump } = {}) {
+  if (!bump?.enabled || !(notional > 0) || notional >= minNotional) return notional;
+  // 0.5% above the floor, so step-size rounding of the quantity cannot land it under again.
+  const target = minNotional * 1.005;
+  if (notional < minNotional * Number(bump.minRatio ?? 0.5)) return notional;
+  if (!(Number(freeBalance) >= target)) return notional;
+  return target;
+}

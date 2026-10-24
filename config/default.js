@@ -72,6 +72,10 @@ export default {
     // shows uniform size scaling is Sharpe-neutral at best. Requires a baseline
     // run before enabling. Applied identically in live and backtest.
     minSizeMultiplier: 0,
+    // Order under Binance's floor ($11, exchangeLimits.js) but at least minRatio of it:
+    // buy the floor instead of skipping. A small account loses 7–14% of signals to the
+    // floor (2026-09/10 live sizing). Off until the 2026-10 recalibration measures it.
+    minNotionalBump: { enabled: false, minRatio: 0.5 },
     maxDailyLossPct: 0.05,
     maxOpenPositions: 4,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
                               //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%

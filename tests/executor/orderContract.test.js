@@ -119,3 +119,25 @@ describe('order contract: live ≡ paper ≡ simulator', () => {
     assert.deepEqual(r, { opened: null, reason: null, exitPrice: null, pnl: null });
   });
 });
+
+describe('order contract: the min-notional bump', () => {
+  const bumpRisk = { ...RISK, minNotionalBump: { enabled: true, minRatio: 0.5 } };
+
+  test('an order under the floor but over half of it is bought at the floor, on every handler', async () => {
+    // 15% of $70 = $10.50 < $11 → bumped to $11 × 1.005 = $11.055 → 0.11055 at 100.
+    const r = sameEverywhere(await play({ open: 100, ticks: [94] }, 70, bumpRisk));
+    assert.equal(r.opened, 0.11055);
+    assert.equal(r.reason, 'stop_loss');
+  });
+
+  test('an order under half the floor is still refused', async () => {
+    // 15% of $30 = $4.50 < $5.50.
+    const r = sameEverywhere(await play({ open: 100, ticks: [94] }, 30, bumpRisk));
+    assert.equal(r.opened, null);
+  });
+
+  test('off by default', async () => {
+    const r = sameEverywhere(await play({ open: 100, ticks: [94] }, 70));
+    assert.equal(r.opened, null);
+  });
+});

@@ -5,7 +5,7 @@ const roundQty = (value) => Number(value.toFixed(8));
 import {
   calcPartialExit, calcATRStopPrices, calcTrailingStop, calcBreakEven, calcExitSignal,
 } from '../executor/traderUtils.js';
-import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
+import { FALLBACK_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
 
 export class BacktestSimulator {
   constructor(riskConfig = {}) {
@@ -376,8 +376,15 @@ export class BacktestSimulator {
 
     const slip = opts.slippagePct != null ? Number(opts.slippagePct) : this.slippagePct;
     const fillPrice = roundPrice(price * (1 + this.feePct + slip));
-    const qty = roundQty(allocation / fillPrice);
-    const cost = roundMoney(qty * fillPrice);
+    let qty = roundQty(allocation / fillPrice);
+    let cost = roundMoney(qty * fillPrice);
+    // Under the floor but close to it: buy the floor (shared rule, off by default).
+    const bumped = bumpToMinNotional(cost, { freeBalance: this.balance, minNotional: this.minNotional, bump: this.config.minNotionalBump });
+    if (bumped > cost) {
+      qty = roundQty(bumped / fillPrice);
+      cost = roundMoney(qty * fillPrice);
+      this.minNotionalBumps = (this.minNotionalBumps ?? 0) + 1;
+    }
 
     // Exchange minimum notional — the same floor liveTrader enforces. Without it
     // the simulator fills orders Binance would reject outright, which silently

@@ -56,6 +56,14 @@ const PARITY_INVENTORY = [
     shared: 'src/exchange/exchangeLimits.js',
   },
   {
+    // A rule about the exchange floor must exist on every order path at once —
+    // the floor itself was live-only for months (follow-ups history).
+    rule: 'Min-notional bump (buy the floor when an order is close to it)',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'bumpToMinNotional' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'bumpToMinNotional' },
+    shared: 'src/exchange/exchangeLimits.js',
+  },
+  {
     rule: 'minConfidence threshold scaling',
     live: { file: 'src/utils/strategyBuilder.js', symbol: 'scaleMinConfidence' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'confidenceThresholdScale' },

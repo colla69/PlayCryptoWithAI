@@ -4,7 +4,7 @@ import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
 
 const BINANCE = { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits };
-import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
+import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { runtimeDir } from '../utils/runtimePaths.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit, calcCoreClaims } from './traderUtils.js';
@@ -637,8 +637,8 @@ export class LiveTrader {
 
       // Apply exchange lot-size step precision before any checks
       const rawQty = allocation / referencePrice;
-      const qty = await this.exchange.amountToPrecision(symbol, rawQty).catch(() => roundQty(rawQty));
-      const notional = roundMoney(qty * referencePrice);
+      let qty = await this.exchange.amountToPrecision(symbol, rawQty).catch(() => roundQty(rawQty));
+      let notional = roundMoney(qty * referencePrice);
 
       // Fetch exchange-enforced limits (minQty, minNotional) — fall back to safe defaults
       let minQty = 0;
@@ -652,6 +652,15 @@ export class LiveTrader {
       }
 
       logger.debug(`[LIVE] ${symbol}: sizing balance=${freeQuote.toFixed(2)} maxPositionPct=${risk.maxPositionPct.toFixed(4)} allocation=${allocation.toFixed(2)} rawQty=${rawQty.toFixed(8)} qty=${qty} notional=${notional.toFixed(2)} minNotional=${minNotional} minQty=${minQty}`);
+
+      // Under the floor but close to it: buy the floor (shared rule, off by default).
+      const bumped = bumpToMinNotional(notional, { freeBalance: freeQuote, minNotional, bump: risk.minNotionalBump });
+      if (bumped > notional) {
+        const bumpedQty = bumped / referencePrice;
+        qty = await this.exchange.amountToPrecision(symbol, bumpedQty).catch(() => roundQty(bumpedQty));
+        logger.info(`[LIVE] ${symbol}: order ${notional.toFixed(2)} under the ${minNotional} floor — bumped to ${roundMoney(qty * referencePrice).toFixed(2)}`);
+        notional = roundMoney(qty * referencePrice);
+      }
 
       if (qty <= 0 || qty < minQty) {
         logger.warn(`[LIVE] ${symbol}: BUY skipped, qty ${qty} below exchange minQty ${minQty}`);

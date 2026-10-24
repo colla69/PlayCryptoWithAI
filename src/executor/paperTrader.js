@@ -1,7 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
-import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
+import { FALLBACK_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
@@ -208,8 +208,15 @@ export class PaperTrader {
       return null;
     }
 
-    const qty = roundQty(allocation / price);
-    const cost = roundMoney(qty * price);
+    let qty = roundQty(allocation / price);
+    let cost = roundMoney(qty * price);
+    // Under the floor but close to it: buy the floor (shared rule, off by default).
+    const bumped = bumpToMinNotional(cost, { freeBalance: this.balance, minNotional: FALLBACK_MIN_NOTIONAL, bump: risk.minNotionalBump });
+    if (bumped > cost) {
+      qty = roundQty(bumped / price);
+      logger.info(`[PAPER] ${symbol}: order ${cost.toFixed(2)} under the $${FALLBACK_MIN_NOTIONAL} floor — bumped to ${roundMoney(qty * price).toFixed(2)}`);
+      cost = roundMoney(qty * price);
+    }
 
     if (qty <= 0 || cost > this.balance) {
       logger.warn(`[PAPER] ${symbol}: BUY skipped, position sizing invalid`);
