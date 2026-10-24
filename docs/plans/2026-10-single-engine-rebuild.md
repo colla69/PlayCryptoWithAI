@@ -319,3 +319,25 @@ functions, and `tests/core/decisionCore.test.js` pins their behaviour.
   reconciliation's three layers are identical; only the replay's filter counters move to live's
   order (momentum 18 → 4, MTF 5 → 9, 4h 1 → 11, same 24 blocks), and `positionPct` differs in the
   16th digit from the multiplication order. Deep baseline (`runBaseline.mjs`): every window identical to the step-2 engine.
+
+## Stop retune, first sweep (2026-10-24)
+
+`src/scripts/runStopSweep.mjs` — pre-registered 27-cell grid (stop-loss scale × {0.75, 1, 1.5},
+take-profit scale × {0.75, 1, 1.5}, break-even ∈ {off, 5%, 10%}), forward-only walk-forward at
+live sizing on the deep set, 52 folds, DSR charged for 16,280 + 27 trials. Signal rows are computed
+once per fold and reused by every cell (`runFold({ rowsOnly })`, `run(candles, { rows })`); the
+script checks on the first two folds that reuse equals a plain run. The current cell reproduces the
+earlier walk-forward exactly (+23.33%, Sharpe 0.80, DD −4.56%, 73 trades).
+
+| Cell | Return | Sharpe | Max DD | WR | DSR | Accept |
+|---|---|---|---|---|---|---|
+| SL ×1.5 TP ×1.5 BE off | +66.03% | 1.38 | −4.28% | 72% | 0.53 | yes |
+| SL ×1.5 TP ×1.5 BE 10% | +65.40% | 1.38 | −4.28% | 69% | 0.53 | yes |
+| SL ×1.5 TP ×1.5 BE 5% | +55.32% | 1.33 | −2.54% | 56% | 0.45 | no |
+| SL ×1.5 TP ×1 BE off | +44.36% | 1.24 | −4.28% | 72% | 0.34 | no |
+| SL ×1 TP ×1 BE 5% (current) | +23.33% | 0.80 | −4.56% | 49% | 0.04 | no |
+
+Full table in `data/stop_sweep.log`. Reading: the +5% break-even costs in almost every pair (under
+real stop timing it closes winners at zero), and wider stops with wider targets help together.
+**The winner is a corner of the grid**, so it is not accepted yet: a plateau check past 1.5 and the
+two-window baseline (Y2 and Y1+Y2, WR gap) come first.

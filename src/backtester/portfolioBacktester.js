@@ -224,7 +224,13 @@ export class PortfolioBacktester {
     );
   }
 
-  run(symbolCandles) {
+  /**
+   * @param {object} symbolCandles
+   * @param {{rows?: object}} [opts] — rows from computeSignalRows() on the same
+   *   candles and signal config. Stop, target and sizing settings do not change the
+   *   rows, so a sweep over them computes the signals once (runStopSweep.mjs).
+   */
+  run(symbolCandles, { rows: precomputed = null } = {}) {
     const symbols = Object.keys(symbolCandles);
     if (!symbols.length) throw new Error('No candles provided');
 
@@ -279,7 +285,7 @@ export class PortfolioBacktester {
       recordEquityOnExecute: false,
     });
 
-    const allData = this.#precomputeData(symbolCandles, symbols);
+    const allData = precomputed ?? this.#precomputeData(symbolCandles, symbols);
 
     // Build per-symbol 12h→15m index for MTF alignment filter AND early exit
     const mtfIndex = {};

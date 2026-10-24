@@ -128,6 +128,11 @@ export function runFold({
   rideWinnersTrail = 0,
   ridePartial = null,
   trailArmPct = 0,
+  // Research sweeps (runStopSweep.mjs): scale every stop / target, and reuse the
+  // fold's signal rows across cells. Both off by default.
+  riskScale = null,
+  rows = null,
+  rowsOnly = false,
 }) {
   // Slice candles to train+forward span. Symbols without enough overlap drop out.
   const sliced = sliceWindow(symbolCandles, fold.trainStart, fold.forwardEnd);
@@ -142,6 +147,21 @@ export function runFold({
   );
   const slMedian = median(symbols.map((s) => config.perSymbol?.[s]?.stopLossPct ?? config.risk?.stopLossPct ?? 0.05));
   let tpMedian = median(symbols.map((s) => config.perSymbol?.[s]?.takeProfitPct ?? config.risk?.takeProfitPct ?? 0.12));
+  let slMedianScaled = slMedian;
+  if (riskScale) {
+    const sl = Number(riskScale.stopLoss ?? 1);
+    const tp = Number(riskScale.takeProfit ?? 1);
+    slMedianScaled = slMedian * sl;
+    tpMedian *= tp;
+    for (const s of Object.keys(symbolRisk)) {
+      const r = symbolRisk[s];
+      symbolRisk[s] = {
+        ...r,
+        ...(r.stopLossPct != null && { stopLossPct: r.stopLossPct * sl }),
+        ...(r.takeProfitPct != null && { takeProfitPct: r.takeProfitPct * tp }),
+      };
+    }
+  }
 
   // WS4 ride-winners (mirror of runWindow): disable fixed TP + lift aging, trail instead.
   const riding = rideWinnersTrail > 0;
@@ -156,7 +176,7 @@ export function runFold({
     risk: {
       ...(config.risk ?? {}),
       initialBalance:      budget,
-      stopLossPct:         slMedian,
+      stopLossPct:         slMedianScaled,
       takeProfitPct:       tpMedian,
       trailingStopPct:     riding ? rideWinnersTrail : 0,
       feePct:              0.001,
@@ -182,7 +202,10 @@ export function runFold({
     ...filterOverrides,
   });
 
-  const result = backtester.run(sliced);
+  // The fold's signal rows, from this same construction, for a sweep to reuse.
+  if (rowsOnly) return { fold, skipped: false, rows: backtester.computeSignalRows(sliced) };
+
+  const result = backtester.run(sliced, { rows });
 
   // Filter to only the forward window: trades EXIT after forwardStart count.
   // (A trade opened during train but exited during forward still counts as
