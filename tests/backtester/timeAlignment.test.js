@@ -201,12 +201,14 @@ describe('PortfolioBacktester time alignment', () => {
   });
 
   test("the 15m filter and early exit read the symbol's own 15m bars at the signal time", () => {
-    // LATE's 15m candles are green except through 12h bars 200 and 240. The BUY at 200 must
-    // be filtered, the BUY at 210 must fill, and the 5%-losing position must exit early at
-    // 240. On an aligned run step === row index, so only a late-listed symbol shows a
-    // leftover `step + MIN_WARMUP` in either 15m path.
+    // LATE's 15m candles are green except through 12h bars 199 and 239 — the periods that
+    // CLOSE at the cycles on 200 and 240, which is all live has then (follow-ups item 1;
+    // the 15m bars inside bar 200 are still in the future at that cycle). The BUY at 200
+    // must be filtered, the BUY at 210 must fill, and the 5%-losing position must exit
+    // early at 240. On an aligned run step === row index, so only a late-listed symbol
+    // shows a leftover `step + MIN_WARMUP` in either 15m path.
     const late12h = candles(100, 400, (g) => (g < 230 ? 100 : 95));
-    const red = (t) => (t >= ts(200) && t < ts(201)) || (t >= ts(240) && t < ts(241));
+    const red = (t) => (t >= ts(199) && t < ts(200)) || (t >= ts(239) && t < ts(240));
     let level = 100;
     const late15m = subCandles(late12h, M15, (t) => (level += red(t) ? -0.01 : 0.01));
 
@@ -289,12 +291,17 @@ describe('PortfolioBacktester time alignment', () => {
     assert.equal(r.filtersApplied.weeklyDDBreaker, 1);
   });
 
-  test('aligned inputs give the same result as index stepping did (golden)', () => {
-    // Every symbol shares one grid, so the fix must be an identity here. Expected
-    // values were produced by the index-stepping engine (e6d269d) on this scenario,
-    // which exercises the per-step gates: slots, swap, macro, regime + bear policy
-    // (block and cash exit), aging, MTF 15m/4h filters and early exit, and
-    // ATR/Kelly/confidence/ADX sizing.
+  test('the full per-step gate stack on an aligned scenario (golden)', () => {
+    // Exercises the per-step gates: slots, swap, macro, regime + bear policy (block
+    // and cash exit), aging, MTF 15m/4h filters and early exit, and ATR/Kelly/
+    // confidence/ADX sizing. History of the expected values:
+    //   - e6d269d (index stepping) → c3: identical; the clock fix was an identity here.
+    //   - 2026-10-24 (live reconciliation): re-pinned on purpose. Fills moved to the
+    //     cycle's open, gates to bars closed by T, stops to an intrabar replay,
+    //     equity to one marked point per step (follow-ups items 1, 2, 4, 8). Each of
+    //     those rules has its own test in liveTiming.test.js; this golden only guards
+    //     against unintended drift from here on. The break-even and trailing rules
+    //     measure from the fill without the fee, as live's entryPrice does.
     const symbols = ['BTC/USDC', 'AAA/USDC', 'BBB/USDC', 'CCC/USDC'];
     const data = {};
     const mtf15m = {};
@@ -365,16 +372,16 @@ describe('PortfolioBacktester time alignment', () => {
   });
 });
 
-// Index-stepping engine at e6d269d on the aligned scenario above.
+// Live-timing engine (2026-10-24) on the aligned scenario above.
 const GOLDEN = {
-  trades: 40,
-  finalBalance: 1273.14,
-  equityPoints: 2273,
+  trades: 50,
+  finalBalance: 1299.82,
+  equityPoints: 550,
   filtersApplied: {
-    regime: 0, volume: 0, fearGreed: 0, correlation: 0, mtfEarlyExit: 7, positionAging: 19,
-    weeklyDDBreaker: 0, btcDominance: 0, bearPolicy: 67, bearCashExit: 1, minNotional: 0,
-    mtf: 79, mtf4h: 23,
+    regime: 0, volume: 0, fearGreed: 0, correlation: 0, mtfEarlyExit: 11, positionAging: 17,
+    weeklyDDBreaker: 0, btcDominance: 0, bearPolicy: 66, bearCashExit: 2, minNotional: 0,
+    mtf: 60, mtf4h: 24,
   },
-  tradesSha: 'a655d531bffb373e',
-  equitySha: '2a27a8313787fa0b',
+  tradesSha: '5e9a18476affa80f',
+  equitySha: '33fc170a49f5cacc',
 };

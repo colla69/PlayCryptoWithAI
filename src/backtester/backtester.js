@@ -26,7 +26,10 @@ export class Backtester {
       const slice = candles.slice(0, index + 1);
       const currentCandle = slice.at(-1);
       const result = this.aggregator.aggregate(slice, symbol, this.config.signals);
-      const currentPrice = Number(currentCandle.close);
+      // Live's order: stops over the bar that just closed, then the cycle on this
+      // bar's open, where the decision fills (follow-ups items 1 and 4).
+      simulator.replayBar(symbol, candles[index - 1]);
+      const currentPrice = Number(currentCandle.open);
 
       simulator.setTimestamp(currentCandle.timestamp);
       simulator.execute(symbol, result.decision, currentPrice);

@@ -122,6 +122,16 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'macroSizeReduceFactor' },
   },
   {
+    // Live applied it to every entry while FULL_LIVE_FILTERS left it off, so every
+    // baseline was sized without it — found by the 2026-10 live reconciliation
+    // (BTC 2026-09-19: live 0.27 of free balance, backtest 0.14). Pinned to the
+    // flag the framework sets, not the backtester's option name alone.
+    rule: 'ATR inverse-volatility sizing',
+    live: { file: 'src/core/positionSizing.js', symbol: 'applyATRSizing' },
+    backtest: { file: 'src/backtester/baselineFramework.js', symbol: 'atrPositionSizing:   config.atr?.enabled' },
+    shared: 'src/utils/indicators.js',
+  },
+  {
     rule: 'ADX regime sizing',
     live: { file: 'src/core/positionSizing.js', symbol: 'applyRegimeSizing' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'regimeBoostFactor' },
@@ -132,9 +142,62 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'confSizing' },
   },
   {
+    // The strategies drop the last bar as the forming one. The backtester's row for
+    // bar i always includes bar i; live adds a placeholder when a thin pair has not
+    // printed the new bar yet. Found by the 2026-10 live reconciliation (36 signals).
+    // The behavioural guard is tests/utils/formingBar.test.js.
+    rule: 'Decision series ends with the forming bar',
+    live: { file: 'src/main.js', symbol: 'withFormingBar' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'candles.slice(start, i + 1)' },
+  },
+  {
+    // Both sides used to read a different bar: live the previous cycle's series (the
+    // gates ran before the fetch), the backtest bar T's close, 12 h ahead (follow-ups
+    // items 1 and 12). Both now read bars closed by the cycle time.
+    rule: 'Regime, macro and correlation read bars closed by the cycle time',
+    live: { file: 'src/main.js', symbol: 'closedCandles(' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'closedIdx(' },
+  },
+  {
+    // Live's 15m/4h caches refreshed on a boot-time timer and fed part-formed bars;
+    // the backtest read the bars inside the period starting at T (items 1 and 9).
+    rule: '15m / 4h filters read bars closed by the cycle time',
+    live: { file: 'src/main.js', symbol: 'closedNow(' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'MIN_WARMUP - 1; // closed by T' },
+  },
+  {
+    // The decision fills seconds after the cycle; the backtest waited for bar T + 1.
+    rule: 'Entry and exit fill at the cycle-time price',
+    live: { file: 'src/main.js', symbol: 'trader.execute(symbol' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'fillPrice: d.price' },
+  },
+  {
+    // Pinned to the shared helper: the row used to pass on the substring
+    // "breakEven" while the simulator ran its own copy (follow-ups item 4).
     rule: 'Break-even stop',
-    live: { file: 'src/executor/liveTrader.js', symbol: 'breakEven' },
-    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'breakEven' },
+    live: { file: 'src/executor/liveTrader.js', symbol: 'calcBreakEven' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'calcBreakEven' },
+    shared: 'src/executor/traderUtils.js',
+  },
+  {
+    rule: 'Trailing stop',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'calcTrailingStop' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'calcTrailingStop' },
+    shared: 'src/executor/traderUtils.js',
+  },
+  {
+    // Live meets every price through its 2-minute risk loop; the backtester replays
+    // each period's 15m bars through the same exit rule (behaviour: liveTiming.test.js).
+    rule: 'Stop / target exit decision, inside the bar',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'calcExitSignal' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'calcExitSignal' },
+    shared: 'src/executor/traderUtils.js',
+  },
+  {
+    // Live-only until the 2026-10 reconciliation (follow-ups item 8).
+    rule: 'Asymmetric exit (0.7× threshold on a SELL majority while held)',
+    live: { file: 'src/main.js', symbol: 'sellMajority' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'sellMajority' },
   },
 ];
 

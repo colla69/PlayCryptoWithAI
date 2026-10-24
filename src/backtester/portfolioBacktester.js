@@ -33,7 +33,7 @@ import SignalAggregator from '../engine/signalAggregator.js';
 import { applySizeFloor } from '../core/positionSizing.js';
 import { BacktestSimulator } from './backtestSimulator.js';
 import { calculateMetrics } from './metrics.js';
-import { calculateADX, isBullTrend } from '../utils/indicators.js';
+import { calculateADX, isBullTrend, computeATRPct } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
 import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
 import { trailingReturn } from '../utils/momentum.js';
@@ -95,6 +95,16 @@ export class PortfolioBacktester {
     this.positionAgingExit = Boolean(config.risk?.positionAgingExit?.enabled ?? false);
     this.positionAgingMaxBars = Number(config.risk?.positionAgingExit?.maxAgeBars ?? 14);
     this.candleIntervalMs = Number(config.candleIntervalMs ?? 12 * 60 * 60 * 1000);
+    // Live replay (runReconciliation.mjs): steps before tradeFromTs only warm up
+    // the indicators, the regime series and the aggregator's multi-bar memory, the
+    // way live had years of history behind its first cycle; slicing the candles
+    // instead would restart every indicator. deposits: [{ ts, amount }] adds cash
+    // on its date. Both off by default.
+    this.tradeFromTs = Number.isFinite(config.tradeFromTs) ? config.tradeFromTs : -Infinity;
+    // A deposit before tradeFromTs is already part of the starting balance.
+    this.deposits = (Array.isArray(config.deposits) ? config.deposits : [])
+      .filter((d) => d.ts >= this.tradeFromTs)
+      .sort((a, b) => a.ts - b.ts);
     // Phase 6a: bear policy — block new entries + cash-exit on regime transition
     this.bearPolicyEnabled = Boolean(config.bearPolicy?.enabled ?? false);
     this.skipBearTrendEntries = Boolean(config.skipBearTrendEntries ?? false); // loss-avoidance: block steady-state BEAR_TREND entries
@@ -234,6 +244,7 @@ export class PortfolioBacktester {
       initialBalance,
       maxPositionPct: basePct,
       breakEvenTriggerPct: this.breakEvenTriggerPct,
+      recordEquityOnExecute: false,
     });
 
     const allData = this.#precomputeData(symbolCandles, symbols);
@@ -287,6 +298,17 @@ export class PortfolioBacktester {
     // Latest bar at or before the current step, per symbol: BTC's feeds regime and
     // macro, every symbol's feeds the as-of correlation window.
     const asOfIdx = Object.fromEntries(symbols.map((s) => [s, -1]));
+    // Live decides at the cycle on T from bars CLOSED by T (follow-ups item 1): the
+    // regime, macro, correlation and MTF gates read those, not bar T's close.
+    const closedIdx = (s, ts) => {
+      const k = asOfIdx[s];
+      if (k < 0) return -1;
+      return Number(symbolCandles[s][k].timestamp) + this.candleIntervalMs <= ts ? k : k - 1;
+    };
+    // Intrabar stops (item 4): before each cycle, every open position meets the
+    // 15m bars of the period that just ended, as live's 2-minute risk loop did.
+    const replayPtr = Object.fromEntries(symbols.map((s) => [s, 0]));
+    const lastPrice = {};
     const positionOpenedStep = {};
     const filtersApplied = {
       regime: 0,
@@ -307,6 +329,7 @@ export class PortfolioBacktester {
     // Phase 6a: track the regime label as of the previous step so we can
     // detect transitions WITHIN the backtest's evolving timeline.
     let prevRegimeLabel = null;
+    let nextDeposit = 0;
 
     for (let step = 0; step < timeline.length; step++) {
       const stepTs = timeline[step];
@@ -328,7 +351,26 @@ export class PortfolioBacktester {
         const c = symbolCandles[sym];
         while (asOfIdx[sym] + 1 < c.length && Number(c[asOfIdx[sym] + 1].timestamp) <= stepTs) asOfIdx[sym]++;
       }
-      const btcIdx = btcKey ? asOfIdx[btcKey] : -1;
+
+      // Stops between the previous cycle and this one, on 15m bars (or the 12h bar
+      // itself when a symbol has no 15m data). A held symbol with no bar at this
+      // step still gets its stops (item 3).
+      for (const pos of simulator.getStatus().positions) {
+        const sym = pos.symbol;
+        const entryTs = simulator.positions.get(sym)?.entryTime ?? -Infinity;
+        const fine = this.mtfSymbolCandles[sym];
+        const bars = fine?.length ? fine : symbolCandles[sym];
+        let k = replayPtr[sym];
+        while (k < bars.length && Number(bars[k].timestamp) < entryTs) k++;
+        const span = fine?.length ? 15 * 60 * 1000 : this.candleIntervalMs;
+        while (k < bars.length && Number(bars[k].timestamp) + span <= stepTs) {
+          lastPrice[sym] = Number(bars[k].close);
+          if (simulator.replayBar(sym, bars[k])) { delete positionOpenedStep[sym]; k++; break; }
+          k++;
+        }
+        replayPtr[sym] = k;
+      }
+      const btcIdx = btcKey ? closedIdx(btcKey, stepTs) : -1;
 
       // Resolve current regime at this step from the precomputed series, read
       // at the latest BTC bar at or before this step's time.
@@ -353,15 +395,22 @@ export class PortfolioBacktester {
         const openPositions = simulator.getStatus().positions;
         for (const pos of openPositions) {
           const sym = pos.symbol;
-          const d = rows[sym];
-          if (!d) continue;
-          simulator.setTimestamp(d.timestamp);
-          simulator.execute(sym, 'SELL', d.price);
+          // Live closes every scalper position on the transition, bar or no bar
+          // (item 3): a gapped symbol exits at its last known price.
+          const price = rows[sym]?.price ?? lastPrice[sym] ?? pos.entryPrice;
+          simulator.setTimestamp(stepTs);
+          simulator.execute(sym, 'SELL', price);
           delete positionOpenedStep[sym];
           filtersApplied.bearCashExit += 1;
         }
       }
       prevRegimeLabel = currentRegimeLabel;
+
+      if (stepTs < this.tradeFromTs) continue;
+      while (nextDeposit < this.deposits.length && this.deposits[nextDeposit].ts <= stepTs) {
+        simulator.deposit(this.deposits[nextDeposit].amount);
+        nextDeposit++;
+      }
 
       let medianATR = null;
       if (this.atrPositionSizing) {
@@ -386,8 +435,9 @@ export class PortfolioBacktester {
           const d = rows[sym];
           if (!d) continue;
 
-          const candle12hIdx = rowIdx[sym] + MIN_WARMUP;
-          const last15mIdx = mtfIndex[sym][candle12hIdx];
+          // The last 15m bar inside the period that closed at T (closed by T).
+          const candle12hIdx = rowIdx[sym] + MIN_WARMUP - 1;
+          const last15mIdx = candle12hIdx >= 0 ? mtfIndex[sym][candle12hIdx] : -1;
           if (last15mIdx < 0) continue;
 
           const score = mtfAlignScore(c15m, last15mIdx, this.mtfAlignBars);
@@ -438,11 +488,22 @@ export class PortfolioBacktester {
         stepSignals[sym] = d;
         simulator.setTimestamp(d.timestamp);
 
-        if (d.decision === 'BUY') {
+        // Asymmetric exit (main.js, "Easier SELL for open positions"): a held
+        // symbol with a SELL majority exits at 0.7× its entry threshold (item 8).
+        let decision = d.decision;
+        if (decision === 'HOLD' && d.sellMajority && simulator.positions.has(sym)) {
+          const minConf = this.symbolMinConfidence[sym] ?? this.config.signals?.minConfidence ?? 0.7;
+          if (d.confidence >= minConf * 0.7) {
+            decision = 'SELL';
+            filtersApplied.asymmetricExit = (filtersApplied.asymmetricExit ?? 0) + 1;
+          }
+        }
+
+        if (decision === 'BUY') {
           simulator.execute(sym, 'HOLD', d.price);
           buyQueue.push({ sym, d });
         } else {
-          simulator.execute(sym, d.decision, d.price);
+          simulator.execute(sym, decision, d.price);
         }
       }
 
@@ -572,7 +633,10 @@ export class PortfolioBacktester {
           // step. It used to be one static matrix from the first half of each
           // symbol's history — future bars for the whole first half of a run,
           // stale ones for the second, and paired across symbols by array end.
-          const trailing = (s) => symbolCandles[s].slice(Math.max(0, asOfIdx[s] - this.correlationPeriod), asOfIdx[s] + 1);
+          const trailing = (s) => {
+            const k = closedIdx(s, stepTs);
+            return symbolCandles[s].slice(Math.max(0, k - this.correlationPeriod), k + 1);
+          };
           const correlationMatrix = buildCorrelationMatrix(
             [sym, ...status.positions.map((p) => p.symbol)],
             trailing,
@@ -619,8 +683,8 @@ export class PortfolioBacktester {
 
         // MTF alignment filter: check if last 4h of 15m candles are constructive
         if (this.mtfFilter && mtfIndex[sym]) {
-          const candle12hIdx = rowIdx[sym] + MIN_WARMUP;
-          const last15mIdx = mtfIndex[sym][candle12hIdx];
+          const candle12hIdx = rowIdx[sym] + MIN_WARMUP - 1; // closed by T
+          const last15mIdx = candle12hIdx >= 0 ? mtfIndex[sym][candle12hIdx] : -1;
           const score = mtfAlignScore(
             this.mtfSymbolCandles[sym],
             last15mIdx,
@@ -638,8 +702,8 @@ export class PortfolioBacktester {
 
         // 4h momentum filter: EMA crossover + RSI on 4h candles
         if (this.mtf4hFilter && mtf4hIndex[sym]) {
-          const candle12hIdx = rowIdx[sym] + MIN_WARMUP;
-          const last4hIdx = mtf4hIndex[sym][candle12hIdx];
+          const candle12hIdx = rowIdx[sym] + MIN_WARMUP - 1; // closed by T
+          const last4hIdx = candle12hIdx >= 0 ? mtf4hIndex[sym][candle12hIdx] : -1;
           const score = mtf4hMomentumScore(
             this.mtf4hSymbolCandles[sym],
             last4hIdx,
@@ -654,9 +718,9 @@ export class PortfolioBacktester {
         // (src/core/positionSizing.js). Default 0 = disabled.
         const entryOpts = {
           positionPct: applySizeFloor(positionPct, basePct, this.minSizeMultiplier),
-          // Fill new BUY orders at the next candle's open (not the signal close)
-          // to eliminate execution lookahead.
-          fillPrice: d.nextOpen,
+          // Live fills the market order seconds after the cycle on T: at the open
+          // of bar T (follow-ups item 1; it used to wait for bar T + 1).
+          fillPrice: d.price,
           // Per-symbol slippage: higher for low-liquidity alts.
           slippagePct: this.symbolSlippage[sym],
           // Pass atrPct so the simulator's ATR-stop path can compute SL/TP
@@ -671,16 +735,16 @@ export class PortfolioBacktester {
         const atrStopsActive = this.config.risk?.atrStops?.enabled
           && Number.isFinite(d.atrPct) && d.atrPct > 0;
         if (!atrStopsActive && symRisk?.stopLossPct != null) {
-          entryOpts.stopLossPrice = d.nextOpen * (1 - Number(symRisk.stopLossPct));
+          entryOpts.stopLossPrice = d.price * (1 - Number(symRisk.stopLossPct));
         }
         if (!atrStopsActive && symRisk?.takeProfitPct != null) {
-          entryOpts.takeProfitPrice = d.nextOpen * (1 + Number(symRisk.takeProfitPct));
+          entryOpts.takeProfitPrice = d.price * (1 + Number(symRisk.takeProfitPct));
         }
 
         if (this.atrSLTP && d.atrPct > 0) {
-          const atrValue = d.atrPct * d.nextOpen;
-          entryOpts.stopLossPrice = d.nextOpen - this.atrSLMultiplier * atrValue;
-          entryOpts.takeProfitPrice = d.nextOpen + this.atrTPMultiplier * atrValue;
+          const atrValue = d.atrPct * d.price;
+          entryOpts.stopLossPrice = d.price - this.atrSLMultiplier * atrValue;
+          entryOpts.takeProfitPrice = d.price + this.atrTPMultiplier * atrValue;
         }
 
         simulator.setTimestamp(d.timestamp);
@@ -707,6 +771,12 @@ export class PortfolioBacktester {
           }
         }
       }
+
+      // One equity point per step, every position marked (item 2): at this bar's
+      // price, or its last known price when the symbol has no bar now.
+      for (const sym of symbols) if (rows[sym]) lastPrice[sym] = rows[sym].price;
+      simulator.setTimestamp(stepTs);
+      simulator.markEquity(lastPrice);
     }
 
     const trades = simulator.getTrades();
@@ -771,6 +841,17 @@ export class PortfolioBacktester {
     };
   }
 
+  /**
+   * The per-bar decision rows `run()` steps over, without running the portfolio.
+   * A symbol's row for bar `t` is what live decides at the cycle on `t`'s open
+   * (the strategies drop the forming bar), so a live signal compares against it
+   * directly. Used by the live reconciliation; `run()` builds its rows with the
+   * same private routine, so the two cannot drift.
+   */
+  computeSignalRows(symbolCandles) {
+    return this.#precomputeData(symbolCandles, Object.keys(symbolCandles));
+  }
+
   #precomputeData(symbolCandles, symbols) {
     const allData = {};
 
@@ -789,20 +870,30 @@ export class PortfolioBacktester {
           ...(this.symbolMinConfidence[sym] != null && { minConfidence: this.symbolMinConfidence[sym] }),
         };
         const result = this.aggregators[sym].aggregate(slice, sym, symSignals);
+        // The series live's gates and sizing read at the cycle on bar i's open:
+        // the closed bars plus a forming bar seconds old — flat at the open. The
+        // strategies drop the last bar either way, so the decision is unchanged.
+        const open = Number(candle.open);
+        const atCycle = [...slice.slice(0, -1), {
+          timestamp: Number(candle.timestamp), open, high: open, low: open, close: open, volume: 0,
+        }];
+        const sellVotes = (result.signals ?? []).filter((x) => x.signal === 'SELL').length;
 
         allData[sym].push({
           decision: result.decision,
           confidence: result.confidence,
-          price: Number(candle.close),
-          // nextOpen: realistic entry fill — next candle's open price.
-          // If we're at the last candle, fall back to the current close.
-          nextOpen: candles[i + 1] != null ? Number(candles[i + 1].open) : Number(candle.close),
+          // The price at the cycle: live decides and fills seconds after bar i
+          // opens (follow-ups item 1). `close` is bar i's close, 12 h later.
+          price: open,
+          close: Number(candle.close),
+          // main.js's asymmetric exit reads the raw votes: SELL majority.
+          sellMajority: sellVotes > (result.signals?.length ?? 0) / 2,
           timestamp: Number(candle.timestamp),
-          atrPct: this.#computeATRpct(slice),
-          isTrending: this.#computeIsTrending(slice),
-          adxValue: this.#computeADX(slice),
-          volumeOk: this.#computeVolumeOk(slice),
-          mom: this.#computeMomentum(slice), // trailing-return relative strength (no lookahead)
+          atrPct: this.#computeATRpct(atCycle),
+          isTrending: this.#computeIsTrending(atCycle),
+          adxValue: this.#computeADX(atCycle),
+          volumeOk: this.#computeVolumeOk(atCycle),
+          mom: this.#computeMomentum(atCycle), // trailing-return relative strength (no lookahead)
         });
       }
     }
@@ -816,23 +907,9 @@ export class PortfolioBacktester {
     return trailingReturn(candles, this.momentumLookback);
   }
 
+  // Live's own ATR% (positionSizing.js sizes with it), so the two cannot drift.
   #computeATRpct(candles) {
-    const period = this.atrPeriod;
-    if (candles.length < period + 2) return null;
-
-    const recent = candles.slice(-(period + 1));
-    let sum = 0;
-    let count = 0;
-    for (let i = 1; i < recent.length; i++) {
-      const h = Number(recent[i].high);
-      const l = Number(recent[i].low);
-      const pc = Number(recent[i - 1].close);
-      sum += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
-      count++;
-    }
-    if (!count) return null;
-    const close = Number(candles.at(-1).close);
-    return close > 0 ? (sum / count) / close : null;
+    return computeATRPct(candles, this.atrPeriod);
   }
 
   #computeIsTrending(candles) {

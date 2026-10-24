@@ -38,43 +38,12 @@ import {
   SLIPPAGE_TIERS,
   sliceWindow,
 } from './baselineFramework.js';
-import {
-  RSIStrategy, BollingerBandsStrategy, CCIStrategy, StochasticStrategy,
-  EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
-  MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
-  StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
-} from '../strategies/index.js';
+// Live's own builder (follow-ups item 7): a private copy here knew 15 of the 20
+// strategies and defaulted a symbol without a list to ['RSI'] where live uses all.
+import { buildStrategiesForSymbol as buildStrategies } from '../utils/strategyBuilder.js';
 
-const STRATEGY_BUILDERS = {
-  RSI:        (s) => new RSIStrategy(symCfg(s, 'rsi', config.rsi)),
-  EMA:        (s) => new EMAStrategy(symCfg(s, 'ema', config.ema)),
-  MACD:       (s) => new MACDStrategy(symCfg(s, 'macd', config.macd)),
-  BB:         (s) => new BollingerBandsStrategy(symCfg(s, 'bollinger', config.bollinger)),
-  Stoch:      (s) => new StochasticStrategy(symCfg(s, 'stochastic', config.stochastic)),
-  ADX:        (s) => new ADXStrategy(symCfg(s, 'adx', config.adx)),
-  CCI:        (s) => new CCIStrategy(symCfg(s, 'cci', config.cci)),
-  Supertrend: (s) => new SupertrendStrategy(symCfg(s, 'supertrend', config.supertrend)),
-  MFI:        (s) => new MFIStrategy(symCfg(s, 'mfi', config.mfi)),
-  OBV:        (s) => new OBVStrategy(symCfg(s, 'obv', config.obv)),
-  PSAR:       (s) => new PSARStrategy(symCfg(s, 'psar', config.psar)),
-  WilliamsR:  (s) => new WilliamsRStrategy(symCfg(s, 'williamsR', config.williamsR)),
-  StochRSI:   (s) => new StochRSIStrategy(symCfg(s, 'stochRsi', config.stochRsi ?? {})),
-  HeikinAshi: (s) => new HeikinAshiStrategy(symCfg(s, 'heikinAshi', config.heikinAshi ?? {})),
-  SR:         (s) => new SupportResistanceStrategy(symCfg(s, 'supportResistance', config.supportResistance ?? {})),
-};
 
-function symCfg(symbol, key, defaults) {
-  return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
-}
 
-function buildStrategies(symbol) {
-  const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];
-  return names.map((n) => {
-    const b = STRATEGY_BUILDERS[n];
-    if (!b) throw new Error(`Unknown strategy '${n}' for ${symbol}`);
-    return b(symbol);
-  });
-}
 
 function median(arr) {
   const sorted = [...arr].filter(Number.isFinite).sort((a, b) => a - b);

@@ -2,7 +2,9 @@ const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
 const roundQty = (value) => Number(value.toFixed(8));
 
-import { calcPartialExit, calcATRStopPrices } from '../executor/traderUtils.js';
+import {
+  calcPartialExit, calcATRStopPrices, calcTrailingStop, calcBreakEven, calcExitSignal,
+} from '../executor/traderUtils.js';
 import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 
 export class BacktestSimulator {
@@ -24,10 +26,25 @@ export class BacktestSimulator {
       ? Number(riskConfig.minNotional)
       : FALLBACK_MIN_NOTIONAL;
     this.minNotionalRejections = 0;
+    // The portfolio backtester records one equity point per step with every
+    // position marked (markEquity); the per-execute points it used to read
+    // valued all but one position at entry. Single-symbol callers keep them.
+    this.recordEquityOnExecute = riskConfig.recordEquityOnExecute !== false;
   }
 
   setTimestamp(timestamp) {
     this.currentTimestamp = Number(timestamp ?? Date.now());
+  }
+
+  /**
+   * Adds cash, as a deposit to the live account does. Live sizes off its free
+   * balance, so a replay of a live period needs the deposits on their dates. The
+   * return metrics are not adjusted for deposits; read trades, not returns.
+   */
+  deposit(amount) {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) return;
+    this.balance = roundMoney(this.balance + value);
   }
 
   execute(symbol, decision, price, opts = {}) {
@@ -62,26 +79,61 @@ export class BacktestSimulator {
       return null;
     }
 
-    if (currentPrice <= position.entryPrice || currentPrice <= position.highWaterMark) {
-      return null;
-    }
-
     // Arm-after-profit: don't start trailing until the position is up by trailArmPct,
-    // so early noise doesn't shake the rider out before the trend develops.
+    // so early noise doesn't shake the rider out before the trend develops. A
+    // research knob (default 0) kept here, around live's shared rule.
+    const ref = this.#stopView(position);
     const armPct = Number(this.config.trailArmPct ?? 0);
-    if (armPct > 0 && currentPrice < position.entryPrice * (1 + armPct)) {
+    if (armPct > 0 && currentPrice < ref.entryPrice * (1 + armPct)) {
       return null;
     }
 
-    position.highWaterMark = roundPrice(currentPrice);
-    const nextStopLoss = roundPrice(currentPrice * (1 - position.trailingStopPct));
-
-    if (nextStopLoss > position.stopLoss) {
-      position.stopLoss = nextStopLoss;
+    const trailing = calcTrailingStop(ref, currentPrice);
+    if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
+    if (trailing.shouldUpdate) {
+      position.stopLoss = trailing.newStopLoss;
       return position;
     }
-
     return null;
+  }
+
+  /**
+   * Replays one bar's price path through the stop logic, the way live's 2-minute
+   * risk loop meets it: open, low, high, close (the stop before the target when a
+   * bar touches both). A stop crossed inside the bar fills at the stop, a gap
+   * through it fills at the open; a target fills at the target, or at the open on
+   * a gap up. Returns the closing trade, or null.
+   *
+   * @param {string} symbol
+   * @param {{timestamp:number, open:number, high:number, low:number, close:number}} bar
+   */
+  replayBar(symbol, bar) {
+    const ticks = [Number(bar.open), Number(bar.low), Number(bar.high), Number(bar.close)];
+    this.setTimestamp(Number(bar.timestamp));
+    for (let k = 0; k < ticks.length; k++) {
+      if (!this.positions.has(symbol)) return null;
+      const price = roundPrice(ticks[k]);
+      const exitFill = k === 0
+        ? null
+        : (reason, position) => (reason === 'take_profit' ? position.takeProfit : position.stopLoss);
+      const result = this.#checkRisk(symbol, price, exitFill);
+      if (result) return result;
+    }
+    return null;
+  }
+
+  /**
+   * One equity point with every open position marked at its latest price.
+   * @param {Record<string, number>} [prices] — symbol → price at this time
+   */
+  markEquity(prices = {}) {
+    let open = 0;
+    for (const [symbol, position] of this.positions) {
+      const mark = Number(prices[symbol]);
+      if (Number.isFinite(mark) && mark > 0) position.lastPrice = mark;
+      open += position.qty * (position.lastPrice ?? position.entryPrice);
+    }
+    this.equityCurve.push({ timestamp: this.currentTimestamp, balance: roundMoney(this.balance + open) });
   }
 
   getTrades() {
@@ -108,24 +160,22 @@ export class BacktestSimulator {
     };
   }
 
-  #checkRisk(symbol, currentPrice) {
+  // Live's order on every price tick (liveTrader.checkRisk): trailing, break-even,
+  // partial exit, then the exit decision — through the same shared helpers.
+  // exitFill: null = fill at the tick price; a function = the level the price
+  // crossed on its way (replayBar), given the exit reason and the position.
+  #checkRisk(symbol, currentPrice, exitFill = null) {
     const position = this.positions.get(symbol);
 
     if (!position) {
       return null;
     }
+    position.lastPrice = currentPrice;
 
     this.checkAndUpdateTrailingStop(symbol, currentPrice);
 
-    const breakEvenTriggerPct = Number(this.config.breakEvenTriggerPct ?? 0);
-    if (
-      breakEvenTriggerPct > 0
-      && position.stopLoss < position.entryPrice
-      && currentPrice >= position.entryPrice * (1 + breakEvenTriggerPct)
-    ) {
-      // Cover round-trip fees (~0.2%) so break-even is truly net-zero
-      position.stopLoss = roundPrice(position.entryPrice * 1.002);
-    }
+    const be = calcBreakEven(this.#stopView(position), currentPrice, this.config.breakEvenTriggerPct);
+    if (be.shouldTrigger) position.stopLoss = be.newStopLoss;
 
     // ── Two-stage exit (Phase 1) ────────────────────────────────────────────
     // When enabled and the position has reached `firstStagePctOfTp` of the way
@@ -162,18 +212,21 @@ export class BacktestSimulator {
       }
     }
 
-    if (currentPrice <= position.stopLoss) {
-      const reason = position.trailingStopPct && position.stopLoss > position.initialStopLoss
-        ? 'trailing_stop'
-        : 'stop_loss';
-      return this.#closePosition(symbol, currentPrice, reason);
-    }
-
-    if (currentPrice >= position.takeProfit) {
-      return this.#closePosition(symbol, currentPrice, 'take_profit');
+    const exit = calcExitSignal(position, currentPrice);
+    if (exit.shouldExit) {
+      const fill = exitFill ? exitFill(exit.reason, position) : currentPrice;
+      return this.#closePosition(symbol, fill, exit.reason);
     }
 
     return null;
+  }
+
+  // Live's stop rules measure from its entryPrice, the market fill; the exchange
+  // charges the fee separately. The simulator's entryPrice carries the fee too, which
+  // put the break-even 0.3% above live's (LDO 2026-09-25 stopped at break-even in the
+  // replay and took +12.7% live). The stop rules see the fill without the fee.
+  #stopView(position) {
+    return position.stopRefPrice != null ? { ...position, entryPrice: position.stopRefPrice } : position;
   }
 
   #partialClose(symbol, price, reason, fraction) {
@@ -299,6 +352,7 @@ export class BacktestSimulator {
       entryPrice: fillPrice,
       entryFillPrice: fillPrice,
       entrySignalPrice: price,
+      stopRefPrice: roundPrice(price * (1 + slip)),
       entryFee: feeAmount,
       costBasis: cost,
       initialStopLoss,
@@ -311,6 +365,7 @@ export class BacktestSimulator {
       trailingStopPct: Number.isFinite(trailingStopPct) && trailingStopPct > 0 ? trailingStopPct : undefined,
       highWaterMark: fillPrice,
       entryTime: this.currentTimestamp,
+      positionPct: pct,
       partialExitDone: false,
       // Ride-winners partial scale-out: lock a fraction at an absolute profit %,
       // ride the remainder on the trailing stop. Independent of the TP-relative
@@ -364,6 +419,7 @@ export class BacktestSimulator {
       reason,
       entryTime: position.entryTime,
       exitTime: this.currentTimestamp,
+      positionPct: position.positionPct,
     };
 
     this.trades.push(trade);
@@ -371,6 +427,7 @@ export class BacktestSimulator {
   }
 
   #recordEquitySnapshot(symbol, currentPrice) {
+    if (!this.recordEquityOnExecute) return;
     const openPositionValue = Array.from(this.positions.entries()).reduce((total, [positionSymbol, position]) => {
       const markPrice = positionSymbol === symbol ? currentPrice : position.entryPrice;
       return total + position.qty * markPrice;

@@ -178,8 +178,12 @@ function runWindow(candles, signalCache, comboNames, minConf, riskConfig) {
     const candle   = candles[i];
     const globalI  = i + globalOffset;
     const decision = aggregate(comboNames, signalCache, globalI, minConf);
+    // Live's order: stops over the bar that just closed (its OHLC — coarser than
+    // the portfolio backtester's 15m replay, cheap enough for every combo), then
+    // the cycle on this bar's open, where the decision fills (items 1 and 4).
+    sim.replayBar('SYM', candles[i - 1]);
     sim.setTimestamp(candle.timestamp);
-    sim.execute('SYM', decision, Number(candle.close));
+    sim.execute('SYM', decision, Number(candle.open));
   }
 
   const trades = sim.getTrades();
