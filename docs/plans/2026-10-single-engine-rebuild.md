@@ -690,3 +690,39 @@ which one was not isolated. Reading:
 2. *Live conditions*, `runRecalibration.mjs --stage 3`: the two best cells (TP kept, trail 10% from
    +5%; TP off, trail 7% from +5%) with the committed sizing and sleeve, against L0 and L1, same
    windows and rule as stage 2 (beat both on TWR and Sharpe in both windows, DD ≤ 10% in both).
+
+**Plateau check** (`data/trail_plateau.log`, 13 cells, DSR charged for 16,363 + 13). The winner holds:
+every trail of 10–12% from entry-to-+7.5% beats the reference (Sharpe 1.37–1.46), except 10% from
+entry (1.33, already a loss in the first grid); 10% from +3% equals the winner (1.46, DD −3.30%).
+At 15% the result fades to the reference (1.32–1.34): a smooth edge, no collapse.
+
+**Live conditions, stage 3** (`data/recalibration_stage3.log`):
+
+| Cell | In-sample TWR / Sharpe / DD | Holdout TWR / Sharpe / DD | Result |
+|---|---|---|---|
+| L0 live as deployed | +68.8% / 1.18 / 9.2% | +9.9% / 0.60 / 11.3% | (benchmark) |
+| L1 committed | +81.9% / 1.28 / 9.2% | +24.5% / 1.24 / 9.7% | (benchmark) |
+| trail 10% from +5% | +83.5% / 1.31 / 9.2% | +25.0% / 1.28 / 9.7% | passes, by a small margin |
+| TP off, trail 7% from +5% | +76.0% / 1.23 / 9.2% | +30.1% / 1.42 / 10.0% | fails (in-sample) |
+
+The script's accept column still applied stage 1's DSR ≥ 0.5 and printed "no" for both; from stage 2
+the rule written here has no account-level DSR condition, and the column now follows it.
+
+**Two-window baseline** (`runBaseline.mjs`, deep set, the candidate by an in-memory preload):
+
+| Window | Reference | Trail 10% from +5% |
+|---|---|---|
+| last_90d | +0.32%, Sh 0.20, DD −1.40%, 8 t | −1.77%, Sh −1.21, DD −2.42%, 10 t |
+| last_180d | +14.36%, Sh 2.11, DD −2.11% | +12.34%, Sh 1.87, DD −2.81% |
+| y2_365d (in-sample) | +17.75%, Sh 1.51, DD −3.91%, WR 62% | +15.67%, Sh 1.37, DD −3.91%, WR 61% |
+| y1_holdout | +67.83%, Sh 2.73, DD −6.88%, WR 74% | +72.93%, Sh 3.15, DD −3.56%, WR 74% |
+| y1y2_full (OOS) | +97.63%, Sh 2.20, DD −6.88% | +100.02%, Sh 2.40, DD −3.91% |
+| full_history | +105.23%, Sh 1.17, DD −7.47%, DSR 0.31 | +107.72%, Sh 1.26, DD −7.47%, DSR 0.42 |
+
+WR gap Y1 vs Y2: 13pp for the candidate, 12pp for the reference (both a warning, not a blocker).
+
+**Verdict: not applied.** The candidate is better over the long windows and the walk-forward, but
+worse in every window of the most recent year (90 d, 180 d, Y2: Sharpe 1.51 → 1.37). Its gain comes
+from one year (y1_holdout, 2024-08 → 2025-08). Under "revert, don't patch" a change that worsens the
+in-sample window does not go live on a small long-window gain. The shared arm level stays in the
+code, off (`trailArmPct: 0`, `trailingStopPct: 0`); rerun this check when the live data has grown.

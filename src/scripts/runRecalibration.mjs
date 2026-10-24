@@ -205,7 +205,9 @@ async function driver() {
     if (!a || !b || a.error || b.error) { console.log(`| ${cell.id} | error | | | | | | | | | |`); continue; }
     const beats = (x, w) => [L0(w), L1(w)].every((ref) => ref && x.twr > ref.twr && x.sharpe > ref.sharpe);
     const accept = cell.id.startsWith('L') ? '(benchmark)'
-      : beats(a, 'in-sample') && beats(b, 'holdout') && a.maxDD <= 0.10 && b.maxDD <= 0.10 && b.dsr >= 0.5 ? 'yes' : 'no';
+      : beats(a, 'in-sample') && beats(b, 'holdout') && a.maxDD <= 0.10 && b.maxDD <= 0.10
+        // Stage 1 also asked DSR ≥ 0.5 here; from stage 2 the walk-forward DSR is the statistical check.
+        && (STAGE > 1 || b.dsr >= 0.5) ? 'yes' : 'no';
     console.log(`| ${cell.id} | ${pct(a.twr)} | ${a.sharpe.toFixed(2)} | ${pct(a.maxDD)} | ${pct(b.twr)} | ${b.sharpe.toFixed(2)} | ${pct(b.maxDD)} | `
       + `${b.dsr.toFixed(2)} | ${a.floorRejections + b.floorRejections} | ${a.bumps + b.bumps} | ${accept} |`);
   }
