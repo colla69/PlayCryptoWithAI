@@ -445,3 +445,20 @@ trades only from the window's start (`tradeFromTs`), as the reconciliation does.
 The walk-forward moves least: its folds already had 365 bars of training as warm-up. Its DSR is now
 exactly on the 0.5 acceptance line — a point for the fine-tuning to come. Lookahead check: trades
 closed before three cuts are identical with or without later data.
+
+## Release plan (live PC)
+
+The live container runs `833c393`. Two releases, one change each, the previous image kept for a
+rollback (`docker tag` before rebuilding):
+
+1. **`a6ddef7` — live parity fixes + decision core, old exits.** `withFormingBar`, fetch-first cycle,
+   per-cycle 15m/4h refresh on closed bars, aging from the opening bar, one klines retry, shared
+   gates and asymmetric exit. Watch for: `[MTF-CACHE] … refresh complete` once per cycle, no
+   `cycle failed` without a `retrying once` before it, the same number of `decision=` lines per
+   cycle as before. After a week, rerun the reconciliation on a fresh snapshot — layer 1 should show
+   no stale-bar mismatches.
+2. **`HEAD` — the new exits** (`4b2f365`: SL/TP × 1.5, break-even trigger +10%), plus the paper
+   risk loop and backtester-only changes. Watch the first stops and targets against the replay.
+
+Both need `TSM_CORE` and `.env` unchanged. Fine-tuning (exits that loosen with profit, per-symbol
+retune, PBO / CPCV) comes after the rebuild, per the user.
