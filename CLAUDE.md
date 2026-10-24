@@ -17,12 +17,18 @@ in the trading code.
 - **Aggregator parity:** `src/engine/signalAggregator.js` ≡ `PortfolioBacktester` ≡
   `perSymbolOptimizer.aggregate()`. Change all three together; the shared math lives in
   `src/engine/aggregatorVoting.js`. `tests/engine/aggregatorParity.test.js` must stay green.
-- **Parity is more than the voting math.** It has broken nine times *outside* the aggregator — a
+- **Parity is more than the voting math.** It has broken fifteen times *outside* the aggregator — a
   threshold read raw instead of scaled, three separate first-wins candle merges (in-memory,
   downloader, startup seed — hand-rolled merges are banned, call `mergeCandles()`), a cycle
   drifting off candle close, the exchange min-notional enforced live-only, and three in the
   portfolio backtester (symbols stepped by array index instead of timestamp, a static correlation
-  matrix, a weekly DD breaker that never fired). Every one was a rule that existed on ONE side; a
+  matrix, a weekly DD breaker that never fired), live deciding on a stale bar when a thin pair
+  had not printed the new bar yet (every decision series goes through `withFormingBar()`), and
+  five found by the 2026-10 live reconciliation (`runReconciliation.mjs`): ATR sizing never
+  applied in backtests, fills one bar late, gates reading different bars on each side (both now
+  read bars closed by the cycle time), stops checked only at the 12h close (now a 15m replay
+  through live's shared helpers), and the asymmetric exit live-only. Every
+  one was a rule that existed on ONE side; a
   diff review cannot catch that, so
   `tests/backtester/liveParityInventory.test.js` enumerates them instead. **Any new live-side
   rejection or sizing rule must be added there with its backtest counterpart.** Rules of thumb:

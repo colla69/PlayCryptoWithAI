@@ -13,11 +13,17 @@ decide anything. Stay on the areas below; general code quality belongs to the ot
 
 ## 1. Fill Model
 
-BUY fills at **next candle's open** (`d.nextOpen`), not signal candle close. The signal is known
-only once candle `i-1` has closed, so the earliest real fill is the open of candle `i` — a fill at
-`d.price` is execution lookahead at a price nobody could have traded.
-- Check: `portfolioBacktester.js` → `entryOpts.fillPrice` = `d.nextOpen`
-- Blocker if BUY fills at `d.price`
+Row `i` is the live cycle on candle `i`'s open: the strategies drop candle `i`, so the decision
+uses candles through `i-1`, and live fills seconds after that open. So BUY and SELL fill at the
+**open of candle `i`** — `d.price`, which `#precomputeData` sets to `candle.open` (it was the close
+until 2026-10-24, and fills waited for candle `i+1`: follow-ups item 1).
+- Check: `#precomputeData` → `price: open`; `entryOpts.fillPrice` = `d.price`
+- Blocker if any fill, gate or sizing input reads candle `i`'s high, low or close (`d.close`,
+  `candle.close`, a slice through `i` that is not `atCycle`) — that is 12 h of lookahead
+- Gates read bars closed by the cycle time: `closedIdx()` for regime, macro and correlation,
+  `MIN_WARMUP - 1` for the 15m/4h index
+- Stops: each period's 15m bars are replayed through `replayBar` (shared `calcTrailingStop`,
+  `calcBreakEven`, `calcExitSignal`); a stop checked only at the 12h close is a blocker
 
 ## 2. Slippage Tiers
 

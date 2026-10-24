@@ -1,7 +1,8 @@
 # Plan: one engine for backtest and live — handoff (2026-10-24)
 
-**Status: not started.** Prepared on the live PC on 2026-10-24; the work continues on the research
-machine. Background: [EXTERNAL_BOTS_REVIEW.md](../EXTERNAL_BOTS_REVIEW.md) (NautilusTrader section)
+**Status: step 0 done; step 1 in progress — layer 1 (per-cycle signals) done 2026-10-24, layers 2–3
+open.** Prepared on the live PC on 2026-10-24; the work continues on the research machine.
+Background: [EXTERNAL_BOTS_REVIEW.md](../EXTERNAL_BOTS_REVIEW.md) (NautilusTrader section)
 and item 4 of [the backtester follow-ups](2026-09-backtester-parity-followups.md).
 
 ## Decisions already made
@@ -76,6 +77,32 @@ npm test                                      # must be green before anything el
 Freeze the extended candles and record their fingerprint here, so every later run uses the same
 inputs.
 
+**Step 0 result (research Mac, 2026-10-24).** Done with two changes to the commands above:
+
+- **Do not `cp -r` over `data/candles`.** The research machine's `data/candles` already held the deep
+  2019+ set (BTC 12h: 4,689 bars) that the old-engine baseline was measured on. The snapshot's 12h
+  files are the live bot's shallower copy (from 2024-08-05). The two sets now live side by side:
+  `data/candles` = the live set, extended and frozen; `data/candles_deep_2026-08-10/` = the
+  baseline set, untouched (fingerprint `126 36a73a13…`, as in the fix-status doc). The code reads
+  only `data/candles` (`candleCache.js` has no override), so **swap the two directories by
+  renaming before any run that must match the old baseline**, and swap back.
+- **Extend to the cut, not to now.** The downloader also fetches the still-forming bar. Every file
+  was trimmed to bars closed by `2026-10-24T12:00Z` (the last logged cycle), so no partial bar is
+  frozen into the set:
+
+  ```bash
+  node -e "const fs=require('fs');const CUT=Date.parse('2026-10-24T12:00:00Z');const TF={'12h':43200000,'4h':14400000,'15m':900000};for(const f of fs.readdirSync('data/candles')){const m=f.match(/_USDC_(12h|4h|15m)\.json\$/);if(!m)continue;const p='data/candles/'+f;const a=JSON.parse(fs.readFileSync(p));const k=a.filter(c=>c.timestamp+TF[m[1]]<=CUT);if(k.length!==a.length)fs.writeFileSync(p,JSON.stringify(k))}"
+  ```
+
+- **Frozen fingerprint** (same one-liner as the fix-status doc): `126
+  56c35002f40f1f220be1558bc65d5757a7764ddd53ad06d03df643164ece8596`. 12h still starts
+  2024-08-05 and ends 2026-10-24 00:00; 4h ends 08:00; 15m ends 11:45. A protected copy is at
+  `~/Sandbox/frozen-candles-2026-10-24/` — a paper boot of `src/main.js` rewrites `data/candles`,
+  so restore from it after any boot test and re-check the fingerprint.
+- **Integrity check against the snapshot.** No bar was lost or changed except at each file's tail.
+  The 33 changed 12h bars are one per active symbol: the live bot's 2026-10-17 12:00 bar, persisted
+  at its boot while still forming, now corrected payload-wins. `npm test`: 443 pass, 0 fail.
+
 **1. Reconciliation (new script, backtester side only).** Replay 2026-08-03 → the cut with the live
 config, `TSM_CORE=true`, live sizing (the deposits in `deposits.json` added on their dates) and the
 live starting balance. Then compare:
@@ -95,6 +122,118 @@ its cause. An unexplained mismatch is a new parity gap: add it to the follow-ups
 
 Rerun the reconciliation on a schedule (for example with the weekly review job) on fresh live
 history. Each new live period checks more of the code.
+
+**Layer 1 result — per-cycle signals (2026-10-24).** `src/scripts/runReconciliation.mjs --snapshot
+<dir>` (about 40 s). It builds strategies and thresholds with live's own functions
+(`buildStrategiesForSymbol`, `getSignalConfigForSymbol`) and asserts the backtester's effective
+threshold equals live's for every symbol (it does). 132 cycles, 2026-08-20 → 10-24, 33 symbols:
+
+| | Signals |
+|---|---|
+| Compared (live record with a backtest row) | 4,307 |
+| Exact match (decision, and confidence within live's 4-decimal rounding) | 4,270 (99.14%) |
+| Live decided on a series that ended one bar early | 36 |
+| Same cause, carried through the aggregator's multi-bar memory | 1 |
+| **Unexplained** | **0** |
+
+- **Live parity gap, found: the cycle can run on a stale bar.** The cycle fires 3–5 s after the
+  close. A thin pair may not have printed its first trade yet, so the exchange returns no bar for
+  the new period and the series ends at the bar that just closed. Every strategy then drops its
+  last bar (`slice(0, -1)`) — the one that just closed — and decides one bar older than the
+  backtester, which always has the bar. Log evidence: `[CYCLE] ENS/USDC: starting cycle,
+  candles=1588 … lastTs=2026-10-07T12:00:00.000Z` at `2026-10-08T00:00:04Z`. Over the 1,974 cycles in
+  the logs, the 1,943 whose series included the forming bar had **0** mismatches; of the 31 that
+  did not, 23 mismatch (the rest agree by chance). All 37 mismatches are in five thin pairs: ENS 15,
+  JUP 10, THETA 9, MANTA 2, BNB 1. Proof without logs: each live value equals the backtester's
+  *previous* row (36 of 37). The 37th (MANTA 09-21 12:00: same confidence 0.5167, SELL live vs HOLD
+  backtest) is borderline (threshold 0.455, so the ceiling is 0.555) and the previous cycle was a stale-bar SELL, which
+  the multi-bar gate (`lastDecisions`) then confirmed on live only. That last link is consistent with
+  the numbers, and the item-5 replay confirms it.
+  **Exposure:** no order was affected in this window (34 HOLD/HOLD, 3 SELL/HOLD, none held, no BUY
+  on either side), but a BUY on a thin pair would be. The fix is on the live side (decide on bars
+  closed by timestamp, or wait for or synthesise the new bar) and is a behaviour change, so it is its
+  own release. Item 5 of [the follow-ups](2026-09-backtester-parity-followups.md) — fixed the same day with `withFormingBar()`; a replay on the frozen candles turns all 37 mismatches into matches.
+- **Asymmetric exit (live-only 0.7× SELL rule): not tested by this data.** It never fired — 0 log
+  lines in `app-*.log`, 0 live SELL records inside a held interval. `main.js` implements it; nothing
+  in `src/backtester/` does, and `liveParityInventory.test.js` has no row for it. Left as a
+  hypothesis until live has a period where it fires.
+- **Skipped cycles (16 backtest rows with no live record):** 5 are the first cycle (the 5000-record
+  cap cut it to 28 of 33 symbols); 6 are `klines` calls that failed at the close (HTTP 500 or
+  `-1001`, 8–10 s after the boundary) — the symbol's cycle is lost and not retried for 12 h; 1 is the
+  position-aging exit, which returns before logging a signal; 4 predate the retained logs.
+- **Trade exit reasons are mostly missing** in `dashboard_persist.json` (12 of 13 closed scalper
+  trades have `reason` undefined), so layer 3 reads reasons from `logs/trades.csv` and the app log.
+
+**Layer 2 result — entry filters on each live BUY (2026-10-24).** Same script. Live logs the value
+that blocked a BUY (`blockReason`). For each of the 32 live BUYs (31 blocked by MTF 15m, 4h or
+momentum, or passed; 1 blocked by BTC.D, not modelled) the script computes each filter three ways:
+
+| Method | Same pass/block as live | Same reason | Same logged value |
+|---|---|---|---|
+| Backtester as coded — last 15m/4h bar inside `[T, T+12h)`, momentum to bar `T`'s close | 28/31 | 22/31 | 2/25 |
+| Bars closed by the cycle time `T` | **31/31** | 29/31 | 12/25 |
+| Live's cache rebuilt from the logged refresh times (log window only) | 10/10 | 8/10 | 6/9 |
+
+- **The backtester's gates look up to 12 h ahead.** This is follow-ups item 1 ("the gates must
+  move with it"), now measured. Example: PEPE 2026-08-20 — live saw a −0.7% 20-bar return and
+  blocked; the backtester reads the close 12 h later (+8.6%) and passes.
+- **Bars closed by `T` reproduce live.** Momentum and the 15m score match live's logged numbers
+  exactly (4/4 and 8/9). The two "same reason" misses block on both sides; only the first filter
+  to report differs.
+- **The 4h values are close but not exact** (live 25 vs 24, 33 vs 32, 43 vs 47). Live reads 15m and
+  4h from caches that a `setInterval` counted from boot refreshes (`refreshMtfCache`: 15 min,
+  4 h). At a 00:00 cycle, the 4h cache was last fetched at 23:43 (before the 10-17 boot) or 23:06
+  (after it), so its newest bar is the 20:00 bar, part-formed. That part-formed bar cannot be
+  rebuilt from disk, which is why no method matches the 4h values exactly. Follow-ups item 9.
+
+**Layer 3 result — scalper trades (2026-10-24).** Same script. It runs the real `PortfolioBacktester`
+with live's filter stack and sizing (`maxPositionPct` 0.15) over the whole history. It trades only
+from the first logged cycle (`tradeFromTs`, so the indicators and the multi-bar memory start warm,
+as live's did), from live's free balance then ($118.40), with the 2026-09-28 deposit added on its
+date (`deposits`). Both options are new and off by default. Live made 6 round trips in the window:
+
+| Live trade | Backtest | Cause |
+|---|---|---|
+| DOGE, INJ, LDO, BTC, PEPE | same entry cycle; fill 0.4–5.3% worse | fill at the next bar's open, 12 h after live (item 1) |
+| CRV 09-09 entered | no trade | gates read 12 h ahead (item 1; layer 2) |
+| — (live blocked) | PEPE 08-20, LDO 09-04 entered | same cause: momentum −0.7% vs +8.6%, MTF 29 vs 53 |
+| INJ stop 09-15 07:35 at −0.1% (break-even) | stop at the 12:00 close, −13.7% | stops at the bar close only (item 4) |
+| LDO take-profit 09-25 18:51 (+12.7%) | no take-profit; stopped 09-28 | item 4, plus the later, higher fill |
+| BTC aging exit 09-26 **12:00** | aging exit 09-26 **00:00** | live counts age from the fill, 15 s after the cycle (item 10) |
+| Sizes LDO 0.169, PEPE 0.135, BTC 0.273 | 0.175, 0.142, **0.141** | backtests never applied ATR sizing (item 11) |
+
+- **Item 11 is a parity break, now fixed in the backtester.** Live applies ATR inverse-volatility
+  sizing to every entry (`config.atr.enabled: true`, `applyATRSizing` first in
+  `computePositionSize`). `FULL_LIVE_FILTERS` never turned the backtester's `atrPositionSizing`
+  on, and the inventory had no row, so every baseline was sized without it. With it on, the
+  replay's sizes move to live's: INJ 0.117 vs 0.121, BTC 0.282 vs 0.273, LDO 0.160 vs 0.169,
+  PEPE 0.140 vs 0.135 (mean error 0.047 → 0.007 without DOGE). The backtester's private ATR copy now
+  calls the shared `computeATRPct`; the golden in `timeAlignment.test.js` proves that is an
+  identity. **Unverified:** DOGE 08-20 (live 0.146, backtest 0.287 — about one ADX ×0.5 step;
+  the logs from that day rotated out).
+- **The ETH position opened 2026-08-03 has no recorded exit.** No SELL in `trades.csv` or the
+  persisted trades, and it is not in `position_state.json` at the cut. The replay treats it as
+  closed before 08-20. Unverified.
+
+**TSM sleeve.** `runTrendCore.mjs` is a separate research copy of the vote logic (it imports
+none of `src/engine/tsmCore.js`), so the sleeve was replayed with live's own `computeTsmVote` on
+the frozen candles instead: **118 of 118** logged `[TSM-CORE] … votes p/t` cycles match (a
+one-bar-older replay matches only 102, so the test can tell). Sleeve sizes and resizes were not
+compared.
+
+**Step 1 is complete.** Every difference in all three layers and the sleeve has a named cause. The
+causes, largest first, with where each is fixed:
+
+| Gap | Side | Status |
+|---|---|---|
+| Fills and gates one bar ahead (follow-ups 1) | backtester | open — the largest: 3 of 6 trades and 3 of 31 BUY outcomes differ |
+| Stops at bar close only (4) | backtester | open — INJ −13.7% vs live −0.1%, LDO TP missed |
+| ATR sizing never applied (11) | backtester | **fixed** — BTC size 0.14 → 0.28 (live 0.27) |
+| Cycle-level gates on the previous cycle's candles (12) | live | open — regime/macro 24 h from the backtester |
+| Stale bar on thin pairs (5) | live | **fixed** — 37 → 0 mismatches in the replay |
+| 15m/4h cache on a boot-time timer (9) | live | open |
+| Aging exit one cycle late (10) | live | open |
+| klines failure loses the cycle (6) | live | open |
 
 **2. Fix the gaps, largest mismatch first.** One PR per follow-ups item, in the order the
 reconciliation ranks them. Each PR reruns the reconciliation, `runBaseline.mjs` and the walk-forward.
@@ -123,3 +262,38 @@ live and stable.
   the fix-status doc).
 - Validation for every code change: `node --check`, `npm test`, boot test; backtests for anything
   touching strategy, risk or sizing (`CLAUDE.md`).
+
+## Step 2 result (2026-10-24)
+
+All twelve follow-up items are fixed (table in
+[the follow-ups](2026-09-backtester-parity-followups.md)). The reconciliation on the new engine:
+layer 3 matches **6 of 6** live trades (before: 5, plus 2 the live bot never made), entry fills
+within 0–0.3% of live, and the DOGE target, CRV stop and LDO target within 6–9 minutes of live.
+The remaining exit differences are calibration (the slippage tier also moves the break-even
+reference) and live's old aging timing (item 10, fixed on live).
+
+Baseline on the deep set (`126 36a73a13…`), research context, `runBaseline.mjs`:
+
+| full_history | Return | Sharpe | DD | WR | DSR |
+|---|---|---|---|---|---|
+| c3 (committed engine) | +140.7% | 1.08 | −8.8% | 60% | 0.13 |
+| + ATR sizing (item 11) | +115.4% | 1.03 | −8.5% | 60% | 0.10 |
+| + fills and gates at the cycle time, stops still at the close (attribution run) | +103.3% | 1.19 | −5.8% | 65% | 0.33 |
+| + stops inside the bar (item 4) = the live-timing engine | **+37.3%** | **0.69** | −8.1% | 49% | 0.02 |
+
+| Window | live-timing engine |
+|---|---|
+| y2_365d (in-sample) | −1.15%, Sharpe −0.09, DD −7.46% |
+| y1y2_full (OOS) | +31.24%, Sharpe 1.22, DD −8.11% |
+| walk-forward, live sizing | +23.33%, Sharpe 0.80, DD −4.56%, DSR 0.04 (was +68.69% / 1.21 / −3.81% / 0.23) |
+
+**Reading.** The fill and gate fixes alone improve the risk-adjusted numbers. Almost all of the drop
+is item 4. Close-only stops flattered the strategy twice: a target was booked at the 12 h close,
+past the target (take-profit P&L $1,272 → $584), and the break-even exits that live takes inside the
+bar never happened (stops 17 → 36, most near zero). Layer 3 shows the intrabar replay is what live
+does. Per this plan, that is the measurement getting honest, not a regression to revert — but it
+means the edge the bot was deployed on is much smaller than every earlier baseline said.
+
+**Next (step 2, as planned):** re-run the optimizer. The per-symbol SL/TP and the +5% break-even were
+chosen under close-only exits, and the optimizer now replays stops (on 12h OHLC). Any new config is a
+strategy change: walk-forward, MIN_TRADES ≥ 8, DSR, then one change at a time to live.

@@ -27,8 +27,8 @@ with the fix.
   `public/index.html`.
 - **Strategy registration** (`project.md`) when a strategy or a config strategy name changed — the
   boot test must pass without an `Unknown strategy:` crash.
-- **Backtest integrity** (`project.md`) when backtest or optimizer files changed — `d.nextOpen`
-  fills, tiered slippage, `MIN_TRADES ≥ 8`, deflated Sharpe ≥ 0.5, both windows reported.
+- **Backtest integrity** (`project.md`) when backtest or optimizer files changed — fills at the
+  cycle-time open (`d.price`), gates on bars closed by the cycle time, intrabar stops, tiered slippage, `MIN_TRADES ≥ 8`, deflated Sharpe ≥ 0.5, both windows reported.
 - **Risk parameters** — for each changed value, name old → new and whether a baseline run covers it.
 
 ## Output

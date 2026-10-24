@@ -99,10 +99,10 @@ fix belongs in the engine.
   order-time $11-floor enforcement lives in the trader AND the simulator.
 - **Disabled infra**: ATR-based stops and two-stage exit shipped but OFF (A/B net-negative vs tuned per-symbol fixed stops).
 
-## Live ≡ Backtest (hard invariant — nine ways it has actually broken)
+## Live ≡ Backtest (hard invariant — fifteen ways it has actually broken)
 
 The cardinal rule is that live and backtest produce identical decisions from identical inputs.
-Parity has broken nine times in ways that were invisible for weeks. Check these on any change
+Parity has broken fifteen times in ways that were invisible for weeks. Check these on any change
 touching signals, thresholds, or candle handling:
 
 | Break | Symptom | Guard |
@@ -116,8 +116,14 @@ touching signals, thresholds, or candle handling:
 | **Backtester stepped by array index** | `PortfolioBacktester` read every symbol's row *k* at step *k* while regime/macro read BTC's bar *k*, so a late-listed or gapped symbol traded on a different date from the rest of the book — slots, regime, macro and the equity curve mixed times. 34 of 37 symbols were misaligned on the 2020→2026 deep data (NEAR's 2024-07-13 bar traded at BTC-time 2021-01-01), 6–8 on the baseline's long windows | Step over the union of timestamps, rows looked up by time, BTC read as of the step; `tests/backtester/timeAlignment.test.js` |
 | **Correlation matrix static in backtests** | Live rebuilds the cap's matrix every cycle from the last `correlation.period` (60) bars; the backtester built one matrix from the first half of each symbol's history (future bars for half the run) and ignored the period. The inventory row passed on the word "correlation" | Backtester calls live's `buildCorrelationMatrix` as of each step; inventory row pinned to it; `timeAlignment.test.js` |
 | **Weekly DD breaker inert in backtests** | `calcWeeklyDDBreaker` sums SELL records keyed by `timestamp` (live's trade log); simulator trades are round trips (`side: 'LONG'`, `exitTime`), so every one was filtered out and the breaker never fired in any backtest | Trades mapped to the live shape at the call; `timeAlignment.test.js` |
+| **Live decided on a stale bar** | The cycle fires 3–5 s after the close; a thin pair with no trade yet has no new bar, so the series ends at the bar that just closed and every strategy drops it as "forming" — live decided one bar late. Found by the live reconciliation (`runReconciliation.mjs`): 37 of 4,307 signals, ENS/JUP/THETA/MANTA/BNB, 2026-08 → 10 | `withFormingBar()` adds a placeholder for the current period; `tests/utils/formingBar.test.js` |
+| **ATR sizing never applied in backtests** | Live sizes every entry by `applyATRSizing` (`config.atr.enabled`); `FULL_LIVE_FILTERS` never turned the backtester's `atrPositionSizing` on — every baseline was sized without it (BTC 2026-09-19: live 0.27 of free balance, backtest 0.14) | `FULL_LIVE_FILTERS` reads `config.atr`; inventory row "ATR inverse-volatility sizing" |
+| **Fills one bar late in backtests** | Row `i` decided on bars through `i-1` but filled at the open of `i+1` — 12 h after live; entries 0.4–5.3% worse in the reconciliation | Fills at `d.price` = candle `i`'s open; `liveTiming.test.js` |
+| **Gates read different bars on each side** | The backtester's MTF/4h/momentum/regime/macro/correlation read candle `i`'s close (12 h ahead); live's regime/macro/correlation ran before the fetch (one bar behind) and its 15m/4h caches refreshed on a boot-time timer (part-formed bars). PEPE 2026-08-20: live −0.7% momentum blocked, backtest +8.6% traded | Both read bars closed by the cycle time: `closedIdx()` / `closedCandles()` / `closedNow()`; inventory rows |
+| **Stops checked at the 12h close only** | Live's 2-minute risk loop meets every price; the backtester checked the close. INJ: live break-even −0.1%, backtest −13.7%; LDO: live +12.7% target, never in the backtest. The simulator also had its own copy of the trailing and break-even rules | 15m replay through the shared `calcTrailingStop` / `calcBreakEven` / `calcExitSignal` (`replayBar`); `liveTiming.test.js` |
+| **Asymmetric exit live-only** | `main.js` sells a held symbol at 0.7× its threshold on a SELL majority; the backtester never did, and the inventory had no row | `sellMajority` in the backtester; inventory row |
 
-**Three of the nine were merges** — plus a fourth hand-rolled site, `saveCachedCandles`' blind
+**Three of the fifteen were merges** — plus a fourth hand-rolled site, `saveCachedCandles`' blind
 overwrite, which truncated backfilled disk history without breaking decisions (see the merge rule
 under Architecture Rules). A frozen partial bar is silent: it corrupts every indicator computed
 from it and nothing errors. Repair with `npm run download-history -- --timeframe <tf> --repair`,
@@ -140,6 +146,7 @@ disagree, suspect the in-memory path before suspecting the data.
 - a candle merge that keeps the existing record on a timestamp collision (`seen.has(ts) → skip`, the existing array spread first), or any merge not done by `mergeCandles()`;
 - cycle timing from a fixed `setInterval` instead of re-deriving the next fire time from the clock — started after an awaited run, it bakes in a permanent phase offset;
 - a candle-availability check that tests `length > 0` but not freshness — a fetch can return stale bars forever;
+- a live series handed to the aggregator, the entry filters or sizing without `withFormingBar()` — when the new bar has not printed, the strategies drop the bar that just closed;
 - a new live-side rejection or sizing rule with no row in `liveParityInventory.test.js`;
 - a per-symbol array index used as a clock across symbols — anything cross-sectional steps by timestamp;
 - a series or matrix computed once and consulted at every step, where live rebuilds it each cycle;
@@ -166,7 +173,9 @@ crashes on startup. Also export it from `src/strategies/index.js` and describe i
 
 These apply whenever backtest/optimizer code is touched:
 
-- **Fill model**: BUY fills at next candle's open (`d.nextOpen`), not signal close
+- **Fill model**: row `i` = the live cycle on candle `i`'s open; BUY and SELL fill at that open
+  (`d.price`); gates read bars closed by the cycle time; stops replay each period's 15m bars through
+  live's shared helpers (`replayBar`). Never read candle `i`'s high/low/close — 12 h of lookahead
 - **Slippage tiers**: Large 0.10%, Mid 0.20%, Micro 0.35% — never flat
 - **Exchange minimum notional is enforced** (`exchangeLimits.js`, shared with liveTrader). Rejections
   are reported as `filtersApplied.minNotional` — a run showing rejections is a run whose trade count
