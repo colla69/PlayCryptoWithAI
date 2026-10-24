@@ -37,7 +37,8 @@ fix belongs in the engine.
 
 | File | Role |
 |---|---|
-| `src/main.js` | Entry point, trading loop, filters, position restore |
+| `src/main.js` | Entry point: wiring, scheduler, risk loop, TSM sleeve, position restore |
+| `src/core/engine.js` | The bar-close cycle (`runAllSymbols`): fetch, gates, decisions, entries by confidence — all I/O and the clock injected |
 | `src/engine/signalAggregator.js` | Confidence-weighted voting engine (consumes `aggregatorVoting.js`) |
 | `src/engine/aggregatorVoting.js` | Pure voting math — **parity-locked** across live/backtester/optimizer |
 | `src/engine/regimeClassifier.js` | BTC regime (EMA200×ADX, hysteresis); `regimeRouter.js` = bear policy + bundles |

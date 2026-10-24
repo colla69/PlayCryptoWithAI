@@ -61,7 +61,7 @@ export function calcFearGreedAdjustedThreshold(originalMinConf, fearGreedValue, 
  * @param {object} params.config - Full app config
  * @returns {Promise<{blockReason: string|null, mtfSizeFactor: number}>}
  */
-export async function runEntryFilters({ symbol, candles, openPositions, correlationMatrix, fetchOHLCV, config, recentTrades = [], referenceEquity = 0 }) {
+export async function runEntryFilters({ symbol, candles, openPositions, correlationMatrix, fetchOHLCV, config, recentTrades = [], referenceEquity = 0, nowMs, btcDominance }) {
   const fetchBars = async (timeframe, limit) => {
     try {
       return await fetchOHLCV(symbol, timeframe, limit);
@@ -80,8 +80,9 @@ export async function runEntryFilters({ symbol, candles, openPositions, correlat
   const result = evaluateEntryGates({
     symbol,
     config,
-    weeklyDD: { recentTrades, referenceEquity },
-    btcDominance: config.btcDominance?.enabled ? getBtcDominanceTrend() : null,
+    weeklyDD: { recentTrades, referenceEquity, ...(nowMs != null && { nowMs }) },
+    // A replay passes the as-of sample; live reads the refreshed cache.
+    btcDominance: config.btcDominance?.enabled ? (btcDominance !== undefined ? btcDominance : getBtcDominanceTrend()) : null,
     candles,
     correlation: { openPositions, matrix: correlationMatrix },
     bars15m,

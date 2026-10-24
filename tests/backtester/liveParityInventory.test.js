@@ -76,7 +76,7 @@ const PARITY_INVENTORY = [
   },
   {
     rule: 'Bear-regime policy (cash exit + entry block)',
-    live: { file: 'src/main.js', symbol: 'computeBearPolicy' },
+    live: { file: 'src/core/engine.js', symbol: 'computeBearPolicy' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'computeBearPolicy' },
     shared: 'src/engine/regimeRouter.js',
   },
@@ -97,7 +97,7 @@ const PARITY_INVENTORY = [
     // passed this row for months while using one static matrix built from the
     // first half of each symbol's history instead of live's trailing window.
     rule: 'Portfolio correlation cap',
-    live: { file: 'src/main.js', symbol: 'buildCorrelationMatrix' },
+    live: { file: 'src/core/engine.js', symbol: 'buildCorrelationMatrix' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'buildCorrelationMatrix' },
     shared: 'src/utils/correlation.js',
   },
@@ -112,7 +112,7 @@ const PARITY_INVENTORY = [
   },
   {
     rule: 'Position aging exit',
-    live: { file: 'src/main.js', symbol: 'calcPositionAgingExit' },
+    live: { file: 'src/core/engine.js', symbol: 'calcPositionAgingExit' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'positionAging' },
     shared: 'src/risk/portfolioRisk.js',
   },
@@ -147,7 +147,7 @@ const PARITY_INVENTORY = [
     // printed the new bar yet. Found by the 2026-10 live reconciliation (36 signals).
     // The behavioural guard is tests/utils/formingBar.test.js.
     rule: 'Decision series ends with the forming bar',
-    live: { file: 'src/main.js', symbol: 'withFormingBar' },
+    live: { file: 'src/core/engine.js', symbol: 'withFormingBar' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'candles.slice(start, i + 1)' },
   },
   {
@@ -155,20 +155,20 @@ const PARITY_INVENTORY = [
     // gates ran before the fetch), the backtest bar T's close, 12 h ahead (follow-ups
     // items 1 and 12). Both now read bars closed by the cycle time.
     rule: 'Regime, macro and correlation read bars closed by the cycle time',
-    live: { file: 'src/main.js', symbol: 'closedCandles(' },
+    live: { file: 'src/core/engine.js', symbol: 'closedCandles(' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'closedIdx(' },
   },
   {
     // Live's 15m/4h caches refreshed on a boot-time timer and fed part-formed bars;
     // the backtest read the bars inside the period starting at T (items 1 and 9).
     rule: '15m / 4h filters read bars closed by the cycle time',
-    live: { file: 'src/main.js', symbol: 'closedNow(' },
+    live: { file: 'src/core/engine.js', symbol: 'closedNow(' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtfIndex[sym][i12 - 1]' },
   },
   {
     // The decision fills seconds after the cycle; the backtest waited for bar T + 1.
     rule: 'Entry and exit fill at the cycle-time price',
-    live: { file: 'src/main.js', symbol: 'trader.execute(symbol' },
+    live: { file: 'src/core/engine.js', symbol: 'trader.execute(symbol' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'fillPrice: d.price' },
   },
   {
@@ -177,7 +177,7 @@ const PARITY_INVENTORY = [
     // whichever fetch returned first. Both sides now fill slots one at a time, by
     // confidence, from fresh status (plan step 4, slice 2).
     rule: 'Entry slots filled one at a time, highest confidence first',
-    live: { file: 'src/main.js', symbol: 'byEntryPriority' },
+    live: { file: 'src/core/engine.js', symbol: 'byEntryPriority' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'byEntryPriority' },
     shared: 'src/core/decisionCore.js',
   },
@@ -206,7 +206,7 @@ const PARITY_INVENTORY = [
   {
     // Live-only until the 2026-10 reconciliation (follow-ups item 8).
     rule: 'Asymmetric exit (0.7× threshold on a SELL majority while held)',
-    live: { file: 'src/main.js', symbol: 'resolveDecision' },
+    live: { file: 'src/core/engine.js', symbol: 'resolveDecision' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'resolveDecision' },
     shared: 'src/core/decisionCore.js',
   },

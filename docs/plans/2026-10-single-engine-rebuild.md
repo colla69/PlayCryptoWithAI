@@ -494,3 +494,14 @@ previous entry is visible to the next. The backtester sorts its queue with the s
 golden is unchanged: same order as its stable sort). Inventory row: "Entry slots filled one at a
 time, highest confidence first". The boot cycle had no BUY, so phase B is first exercised by the
 engine tests in slice 3.
+
+**Slice 3a — the cycle is an engine.** `src/core/engine.js` (`createTradingEngine(deps)`) holds the
+bar-close cycle that was `main.js`'s `runAllSymbols` / `runCycle` / `completeCycle` /
+`refreshSymbolCandles` / `refreshMtfCache`, moved verbatim: the cycle state became `state.*`, every
+`Date.now()` and default-clock argument (freshness, `withFormingBar`, the weekly DD) goes through the
+injected `now()`, and BTC dominance comes in through `deps.marketContext`. `main.js` builds the
+engine with the live dependencies and its scheduler calls `engine.runAllSymbols()`. Proof of no
+change: a boot on the same 12h bar gives the same decision and confidence for all 33 symbols as the
+boot before the move. `tests/core/engine.test.js` drives the real engine with PaperTrader and stub
+aggregators — the first run of phase B: one free slot and three BUYs open one position, the highest
+confidence; a tie goes to the earlier symbol; the others log the slot limit.
