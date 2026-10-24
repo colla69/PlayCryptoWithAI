@@ -609,3 +609,36 @@ script before its first run): slots × size ∈ {4×15%, 3×20%, 2×30%} × slee
 0% (off)}; same windows, benchmarks and acceptance (beat L0 and L1 on TWR and Sharpe in both windows,
 DD ≤ 10% in both); DSR reported, charged for every stage-1 and stage-2 cell, with the scalper's
 walk-forward DSR as the statistical check for a winner.
+
+| Cell | In-sample TWR / Sharpe / DD | Holdout TWR / Sharpe / DD | Fails on |
+|---|---|---|---|
+| L0 live as deployed | +68.8% / 1.18 / 9.2% | +9.9% / 0.60 / 11.3% | (benchmark) |
+| L1 committed (4×15%, sleeve 50%) | +81.9% / 1.28 / 9.2% | +24.5% / 1.24 / 9.7% | (benchmark) |
+| 4×15%, sleeve 25% | +63.0% / 1.21 / 9.2% | +27.7% / 1.42 / 9.7% | in-sample TWR, Sharpe |
+| 4×15%, sleeve 0% | +22.4% / 1.02 / 4.5% | +29.4% / 1.96 / 2.4% | in-sample TWR, Sharpe |
+| 3×20%, sleeve 50% | +88.5% / 1.30 / 9.2% | +33.3% / 1.44 / 10.4% | holdout DD (by 0.4 points) |
+| 3×20%, sleeve 25% | +70.2% / 1.24 / 9.2% | +36.3% / 1.58 / 10.3% | in-sample TWR, Sharpe; holdout DD |
+| 3×20%, sleeve 0% | +28.1% / 0.99 / 6.0% | +39.0% / 1.95 / 3.3% | in-sample TWR, Sharpe |
+| 2×30%, sleeve 50% | +101.7% / 1.31 / 9.3% | +42.4% / 1.52 / 11.6% | holdout DD |
+| 2×30%, sleeve 25% | +82.1% / 1.24 / 9.3% | +43.2% / 1.58 / 11.6% | in-sample Sharpe; holdout DD |
+| 2×30%, sleeve 0% | +38.9% / 0.95 / 8.9% | +49.6% / 1.84 / 4.9% | in-sample TWR, Sharpe |
+
+0 floor rejections and 0 bumps in every cell and window. DSR (holdout) 0.00–0.09 for every cell.
+Full output in `data/recalibration_stage2.log` and `.json`. Findings:
+
+- **No cell passes.** The nearest, 3×20% with the sleeve at 50%, beats both benchmarks on all four
+  return metrics and misses the holdout DD limit by 0.4 points. The rule was set before the run, so
+  it is not relaxed after it.
+- **The sleeve is a bull-market engine.** In 2021–2024 it gives most of the return: 4×15% makes
+  +81.9% with it and +22.4% without. In 2025–2026 it costs 5–10 points of return and adds 5–7 points
+  of DD. No sleeve share wins in both windows; choosing one is a bet on the next regime, which the
+  data cannot settle.
+- **Concentration buys return with holdout DD**, with the sleeve on or off.
+- **The result: L1, the committed config, stays.** It is the setup that beats the live system under
+  live conditions in both windows, and its exit change carries the walk-forward DSR of 0.53 from
+  the stop sweep (cell SL ×1.5, TP ×1.5, break-even 10%).
+
+Possible next research (not started, each needs a pre-registered grid): a sleeve that limits its own
+drawdown (for example, a share cut when the sleeve's equity falls from its peak, or the sleeve on
+only in a BTC bull regime). That would attack the one trade-off stage 2 found, instead of trading
+one window against the other.
