@@ -726,3 +726,25 @@ worse in every window of the most recent year (90 d, 180 d, Y2: Sharpe 1.51 → 
 from one year (y1_holdout, 2024-08 → 2025-08). Under "revert, don't patch" a change that worsens the
 in-sample window does not go live on a small long-window gain. The shared arm level stays in the
 code, off (`trailArmPct: 0`, `trailingStopPct: 0`); rerun this check when the live data has grown.
+
+**Live window** (`runRecalibration.mjs --live <snapshot>`, live candle set): live's own period
+2026-08-03 → 2026-10-24 12:00, its start equity ($189.43), its real deposits ($24.92, $61.11) and
+its Fear & Greed, Nasdaq and equity-history files, sleeve on.
+
+| Run | Final equity | Profit | TWR | Sharpe | Max DD (daily) | Scalper P&L |
+|---|---|---|---|---|---|---|
+| live (real) | $311.08 | $35.62 | 18.2% | 2.73 | 4.1% | $5.59 |
+| replay: L0 live as deployed | $306.78 | $31.32 | 15.3% | 2.27 | 4.3% | $9.08 |
+| replay: L1 committed | $306.22 | $30.76 | 15.1% | 2.13 | 4.9% | $8.47 |
+| replay: trail 10% from +5% | $308.05 | $32.59 | 15.9% | 2.25 | 4.7% | $10.35 |
+
+All three replays take the same six scalper entries as live. Between the setups the difference is
+in three exits: INJ (L0 −0.02 at its +5% break-even, L1 −1.80 at the stop, trail −0.77), LDO (L0
++1.86 at its old target, L1 −0.02 at break-even, trail +0.58) and PEPE (trail +0.24, others 0).
+DOGE takes the wider target in L1 and the trail (+10.30 vs +6.81).
+
+The replay of the deployed config is $4.30 under live's real result, more than the spread between
+the setups ($1.83). Its scalper made more than live (DOGE sized larger, the known 08-20 sizing
+gap); its sleeve made less (resizes follow equity, which a replay only approximates). Two exits land
+on other cycles than live's (BTC 12 h earlier, PEPE 45 h earlier, both near zero P&L). Twelve
+weeks and six trades cannot rank the setups; the trail leads the replays by $1.27.
