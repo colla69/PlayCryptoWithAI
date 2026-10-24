@@ -41,6 +41,7 @@ import {
   IchimokuStrategy, PinBarStrategy,
 } from '../strategies/index.js';
 import { aggregateVotes } from '../engine/aggregatorVoting.js';
+import { scaleMinConfidence } from '../utils/strategyBuilder.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -164,7 +165,10 @@ function aggregate(comboNames, signalCache, idx, minConf) {
     return cached ?? { signal: 'HOLD', confidence: 0 };
   });
   const { winner, confidence, tie } = aggregateVotes({ strategySignals });
-  if (tie || winner === 'HOLD' || confidence < minConf) return 'HOLD';
+  // Gate at the threshold live trades at: minConf is the raw config value the
+  // optimizer writes; live and the backtester scale it (0.65×). Compared raw, every
+  // combo was picked under a stricter gate than it trades at (follow-ups item 13).
+  if (tie || winner === 'HOLD' || confidence < scaleMinConfidence(minConf)) return 'HOLD';
   return winner;
 }
 
