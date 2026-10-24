@@ -520,3 +520,14 @@ entry and exit time, reason, fills and size — and the same realised P&L ($8.61
 a real bug in slice 3a: the move had shadowed the clock inside the 15m/4h fetch, the filters failed
 open, and the replay took the four entries live's MTF/4h filters had blocked. Fixed, with a test
 that fails on the bug.
+
+**A year of history, trade for trade.** Deep set, 2025-08-10 → 2026-08-10, $1,000: the first run gave
+the same 26 trades on both engines (symbols, times, reasons, fills) with sizes drifting from
+2025-12-10 on. Two causes, both fixed: (1) `PortfolioBacktester`'s median ATR ran only over symbols
+with a decision row, so a symbol inside its first 50 bars (LSK, listed 2025-11-18) was in live's
+median and not the backtester's — BTC's 2025-12-10 size differed by 1.8% and every later balance
+followed; (2) the engine's bear cash-exit passed the last risk-loop mark as the price (up to 2 min
+old); it now passes the price this cycle fetched — paper and the replay fill at the price they are
+given, live's market order was unaffected. After both: **26 of 26 identical, same realised P&L
+($111.84)**; the live window stays 6 of 6. The backtester and the engine live runs now trade the
+same, trade for trade.

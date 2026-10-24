@@ -86,5 +86,11 @@ console.log(`\nEngine replay vs PortfolioBacktester — ${iso(fromTs)} → ${iso
 console.log(`  PortfolioBacktester trades: ${pbTrades.length}   live-engine replay trades: ${rpTrades.length}   identical: ${identical}`);
 for (const t of onlyPb.slice(0, show)) console.log(`    backtester only: ${fmt(t)}`);
 for (const t of onlyRp.slice(0, show)) console.log(`    replay only    : ${fmt(t)}`);
+// Same trade, different size: is it the sizing chain (positionPct) or the balance?
+const sameButSize = onlyPb.map((a) => [a, onlyRp.find((b) => b.symbol === a.symbol && b.entryTime === a.entryTime)]).filter(([, b]) => b);
+for (const [a, b] of sameButSize.slice(0, show)) {
+  console.log(`    size: ${a.symbol.padEnd(10)} ${iso(a.entryTime)}  positionPct backtester ${a.positionPct?.toFixed(6)} replay ${b.positionPct?.toFixed(6)}  `
+    + `cost backtester ${a.costBasis} replay ${b.costBasis}`);
+}
 const pnl = (ts) => ts.reduce((s, t) => s + Number(t.pnl), 0).toFixed(2);
 console.log(`  realised P&L: backtester ${pnl(pbTrades)}   replay ${pnl(rpTrades)}`);

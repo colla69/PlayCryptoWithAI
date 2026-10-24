@@ -452,7 +452,11 @@ export class PortfolioBacktester {
 
       let medianATR = null;
       if (this.atrPositionSizing) {
-        const vals = symbols.map((s) => rows[s]?.atrPct).filter((v) => v > 0);
+        // Live's median runs over every fresh symbol, including one listed fewer
+        // than MIN_WARMUP bars ago (it has no row yet): LSK, listed 2025-11-18, moved
+        // BTC's 2025-12-10 size by 1.8% (engine replay vs this backtester).
+        const vals = symbols.map((s) => rows[s]?.atrPct ?? this.#atrBeforeWarmup(symbolCandles[s], asOfIdx[s], stepTs))
+          .filter((v) => v > 0);
         if (vals.length) medianATR = this.#median(vals);
       }
 
@@ -905,6 +909,14 @@ export class PortfolioBacktester {
   // shared helper so live (`core/filters.js`) and backtest compute it identically.
   #computeMomentum(candles) {
     return trailingReturn(candles, this.momentumLookback);
+  }
+
+  // ATR% of a symbol with a bar at the step but no row yet (inside its first
+  // MIN_WARMUP bars), on the series live holds then: closed bars + a flat forming bar.
+  #atrBeforeWarmup(candles, k, stepTs) {
+    if (k < 0 || k >= MIN_WARMUP || Number(candles[k].timestamp) !== stepTs) return null;
+    const open = Number(candles[k].open);
+    return this.#computeATRpct([...candles.slice(0, k), { timestamp: stepTs, open, high: open, low: open, close: open, volume: 0 }]);
   }
 
   // Live's own ATR% (positionSizing.js sizes with it), so the two cannot drift.

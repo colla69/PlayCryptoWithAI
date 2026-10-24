@@ -555,7 +555,10 @@ export function createTradingEngine(deps) {
           logger.warn(`[PHASE6A] BEAR regime entered — closing ${open.length} open position(s): ${open.map((p) => p.symbol).join(', ')}`);
           for (const pos of open) {
             try {
-              const exitResult = await trader.execute(pos.symbol, 'SELL', pos.currentPrice ?? pos.entryPrice, getRiskForSymbol(pos.symbol));
+              // The price this cycle just fetched, not the last risk-loop mark (up to
+              // 2 min old): paper and the replay fill at the price they are given.
+              const price = Number(dashboardState.getCandles(pos.symbol).at(-1)?.close) || pos.currentPrice || pos.entryPrice;
+              const exitResult = await trader.execute(pos.symbol, 'SELL', price, getRiskForSymbol(pos.symbol));
               if (exitResult) {
                 dashboardState.pushTrade(exitResult);
                 if (typeof exitResult.pnl === 'number') riskManager.recordTrade(exitResult.pnl);
