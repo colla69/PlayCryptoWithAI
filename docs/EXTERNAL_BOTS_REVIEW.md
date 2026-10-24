@@ -103,7 +103,9 @@ The two-engine layout dates from the first commit (`c3529a5`, 2026-05-20), which
 
 ### Moving towards one engine without a rewrite
 
-A rewrite of a bot that trades real money is the riskiest option. A path in steps:
+A rewrite of a bot that trades real money is the riskiest option. A path in steps is below. The
+agreed order of work, which starts with a reconciliation against live, is in
+[plans/2026-10-single-engine-rebuild.md](plans/2026-10-single-engine-rebuild.md).
 
 1. **One decision core.** Move every per-cycle decision (aggregate, gate, size, exit check) into
    pure functions that take candles, positions and account state and return actions. Live and the

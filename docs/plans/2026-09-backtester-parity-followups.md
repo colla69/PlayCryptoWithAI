@@ -115,8 +115,9 @@ substring `breakEven` on both sides, so it cannot see either difference.
 **Fix shape:** replay each 12h bar's exits on its 15m bars (every tested symbol already needs
 `{COIN}_USDC_15m.json`), in time order. When one 15m bar touches both the stop and the target,
 count the stop first. Fill a stop at `min(stop, bar open)` so a gap down fills at the open. Make
-the simulator call `calcTrailingStop` and `calcBreakEven` instead of its own copies, and keep
-`trailArmPct` as a parameter of the shared helper. Pin the inventory row to the shared helpers.
+the simulator call `calcTrailingStop` and `calcBreakEven` instead of its own copies. Keep the
+`trailArmPct` check in the simulator, around the shared call, so `traderUtils.js` and live do not
+change. Pin the inventory row to the shared helpers.
 Re-baseline: if the metrics get worse, that is the measurement getting honest, not a regression to
 revert. Then re-run the optimizer, since its per-symbol stops were chosen under close-only exits.
 Check `perSymbolOptimizer` — this item was read on the portfolio backtester path only.
