@@ -41,7 +41,8 @@ import {
   scaleMinConfidence,
 } from './utils/strategyBuilder.js';
 import { buildCorrelationMatrix } from './utils/correlation.js';
-import { checkCandleFreshness, formatAge } from './utils/candleFreshness.js';
+import { checkCandleFreshness, formatAge, timeframeMs } from './utils/candleFreshness.js';
+import { withFormingBar } from './utils/formingBar.js';
 import { createAlignedScheduler } from './core/cycleScheduler.js';
 
 const signalConfig = config.signals;
@@ -153,19 +154,46 @@ function initializeExternalSignalSources() {
 
 }
 
+/**
+ * Fetches a symbol's newest candles and merges them into the historical cache, so
+ * indicators use the full history, not just the last 200 bars from the exchange.
+ * One retry after a short pause: a 500 or -1001 right after the close, when the
+ * exchange is busiest, lost the symbol's whole 12h cycle six times in 30 days
+ * (follow-ups item 6). Returns false when there is nothing new to decide on.
+ */
+async function refreshSymbolCandles(symbol) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const freshCandles = await fetchOHLCV(symbol, config.timeframe, config.candleLimit);
+      if (!freshCandles.length) {
+        logger.warn(`${symbol}: no candles returned`);
+        return false;
+      }
+      dashboardState.updateCandles(symbol, freshCandles);
+      return true;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (attempt === 2) {
+        const message = `${symbol}: cycle failed - ${errorMessage}`;
+        logger.error(message);
+        dashboardState.pushError(message);
+        pushEvent('error', { message, timestamp: Date.now() });
+        return false;
+      }
+      logger.warn(`${symbol}: candle fetch failed (${errorMessage}) — retrying once`);
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+  return false;
+}
+
+/** Bars closed by now: the decision series without its forming bar. */
+function closedCandles(symbol) {
+  return withFormingBar(dashboardState.getCandles(symbol), config.timeframe).slice(0, -1);
+}
+
 async function runCycle(symbol) {
   try {
-    const freshCandles = await fetchOHLCV(symbol, config.timeframe, config.candleLimit);
-
-    if (!freshCandles.length) {
-      logger.warn(`${symbol}: no candles returned`);
-      return;
-    }
-
-    // Merge fresh candles into the historical cache so indicators always use
-    // the full history (730 candles), not just the last 200 from the exchange.
-    // This keeps signal values consistent with runInitialSignals().
-    dashboardState.updateCandles(symbol, freshCandles);
     const candles = dashboardState.getCandles(symbol);
 
     // ── Stale-series guard ───────────────────────────────────────────────────
@@ -187,9 +215,13 @@ async function runCycle(symbol) {
 
     logger.debug(`[CYCLE] ${symbol}: starting cycle, candles=${candles.length} lastClose=${Number(candles.at(-1).close).toFixed(8)} lastTs=${new Date(candles.at(-1).timestamp).toISOString()}`);
 
+    // The strategies drop the last bar as the forming one. If a thin pair has not
+    // printed the new bar yet, add a placeholder, or they drop the bar that just
+    // closed and decide one bar late (follow-ups plan, item 5).
+    const decisionCandles = withFormingBar(candles, config.timeframe);
     const aggregator = symbolAggregators[symbol];
     const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
-    const result = aggregator.aggregate(candles, symbol, symSignalConfig);
+    const result = aggregator.aggregate(decisionCandles, symbol, symSignalConfig);
     const currentPrice = Number(candles.at(-1).close);
     const currentStatus = await trader.getStatus();
     const symRisk = getRiskForSymbol(symbol);
@@ -203,8 +235,13 @@ async function runCycle(symbol) {
     if (agingCfg?.enabled && hasPosition) {
       const myPos = currentStatus.positions.find((p) => p.symbol === symbol);
       if (myPos && myPos.openedAt) {
+        // Age from the start of the bar the position opened in, as the backtester
+        // counts. From the fill time (~15 s after the cycle) the 14-bar exit came one
+        // cycle late (follow-ups item 10).
+        const periodMs = Number(config.pollIntervalMs ?? 12 * 60 * 60 * 1000);
+        const openedMs = new Date(myPos.openedAt).getTime();
         const aging = calcPositionAgingExit({
-          entryTs: new Date(myPos.openedAt).getTime(),
+          entryTs: Math.floor(openedMs / periodMs) * periodMs,
           nowTs: Date.now(),
           candleIntervalMs: Number(config.pollIntervalMs ?? 12 * 60 * 60 * 1000),
           maxAgeBars: Number(agingCfg.maxAgeBars ?? 14),
@@ -249,20 +286,27 @@ async function runCycle(symbol) {
         logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
       } else {
         // Use cached MTF candles — falls back to live fetch and warms cache
+        // Only bars closed by now, as the backtester reads them (follow-ups item 9):
+        // the newest bar in a fresh fetch is seconds old and still forming.
+        const closedNow = (bars, tf) => {
+          const ms = timeframeMs(tf) ?? 0;
+          const now = Date.now();
+          return bars.filter((c) => Number(c.timestamp) + ms <= now);
+        };
         const cachedFetchOHLCV = async (sym, tf, limit) => {
-          if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
-          if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
-          const fresh = await fetchOHLCV(sym, tf, limit);
+          if (tf === '15m' && mtf15mCache.has(sym)) return closedNow(mtf15mCache.get(sym), tf).slice(-(limit ?? 20));
+          if (tf === '4h' && mtf4hCache.has(sym)) return closedNow(mtf4hCache.get(sym), tf).slice(-(limit ?? 30));
+          const fresh = await fetchOHLCV(sym, tf, (limit ?? 20) + 1);
           if (fresh.length) {
             const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
             cache.set(sym, fresh);
           }
-          return fresh;
+          return closedNow(fresh, tf).slice(-(limit ?? 20));
         };
         // Core sleeve positions are excluded so the beta sleeve doesn't trip
         // the scalper's correlation cap or distort its risk gates.
         const filterResult = await runEntryFilters({
-          symbol, candles, openPositions: currentStatus.positions.filter((p) => !p.isCore),
+          symbol, candles: decisionCandles, openPositions: currentStatus.positions.filter((p) => !p.isCore),
           correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
           recentTrades: dashboardState.getTrades?.() ?? [],
           // Live equity so the weekly DD breaker scales with the account;
@@ -300,7 +344,7 @@ async function runCycle(symbol) {
     // ── Position sizing chain (extracted to src/core/positionSizing.js) ──────
     const positionPct = computePositionSize({
       basePct: symRisk.maxPositionPct,
-      candles, medianATRPct, btcMacroBull,
+      candles: decisionCandles, medianATRPct, btcMacroBull,
       confidence: result.confidence,
       mtfSizeFactor, config,
     });
@@ -309,7 +353,7 @@ async function runCycle(symbol) {
 
     // Compute the symbol's current ATR% so the trader's ATR-stops path can use it.
     // No-op when risk.atrStops.enabled is false.
-    const symbolATRPct = computeATRPct(candles, config.atr?.period ?? 14);
+    const symbolATRPct = computeATRPct(decisionCandles, config.atr?.period ?? 14);
     const effectiveRisk = {
       ...symRisk,
       maxPositionPct: positionPct,
@@ -385,8 +429,22 @@ async function runAllSymbols() {
   cycleInProgress = true;
 
   try {
-    // Refresh correlation matrix each cycle — new candles may have arrived
-    correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation);
+    // Fetch first (follow-ups item 12). The correlation matrix, the median ATR, the
+    // macro filter and the regime below all read these candles; they used to run
+    // before the fetch, on the previous cycle's series — one bar behind.
+    const fetched = new Map(await Promise.all(
+      config.symbols.map(async (symbol) => [symbol, await refreshSymbolCandles(symbol)]),
+    ));
+    // The 15m / 4h filter caches refresh right after the close too (item 9). On a
+    // timer counted from boot, the 4h cache's newest bar was fetched up to 4 h
+    // before the cycle, part-formed, and what the filter saw depended on boot time.
+    await Promise.all([
+      config.mtfFilter?.enabled ? refreshMtfCache('15m', mtf15mCache, 24) : null,
+      config.mtf4hFilter?.enabled ? refreshMtfCache('4h', mtf4hCache, 30) : null,
+    ]);
+
+    // Refresh correlation matrix each cycle, from bars closed by the cycle time
+    correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => closedCandles(sym), config.correlation);
 
     // Log correlation pairs above threshold
     if (config.correlation?.enabled) {
@@ -404,17 +462,25 @@ async function runAllSymbols() {
 
     // ATR sizing: compute portfolio median ATR% so each symbol can be scaled relative to it
     if (config.atr?.enabled) {
+      // The same series each symbol is sized on (runCycle's decision series), and
+      // only symbols that trade this cycle: a frozen pair's old bars are not the market.
       const atrPcts = config.symbols
-        .map((sym) => computeATRPct(dashboardState.getCandles(sym), config.atr.period))
+        .filter((sym) => fetched.get(sym) && !checkCandleFreshness(
+          dashboardState.getCandles(sym), config.timeframe, config.maxCandleStalenessPeriods,
+        ).stale)
+        .map((sym) => computeATRPct(withFormingBar(dashboardState.getCandles(sym), config.timeframe), config.atr.period))
         .filter((v) => v != null && v > 0);
       medianATRPct = atrPcts.length ? medianOfArray(atrPcts) : null;
       logger.debug(`[CYCLE] ATR sizing: medianATRPct=${medianATRPct != null ? (medianATRPct * 100).toFixed(2) + '%' : 'n/a'} (${atrPcts.length} symbols)`);
     }
 
     // Macro filter: check BTC vs EMA(200) to determine portfolio-level bear phase
-    if (config.macroFilter?.enabled) {
+    // Without this cycle's BTC bars the newest one is the previous cycle's partial
+    // bar; macro and regime keep their last state rather than read it as closed.
+    const btcFresh = fetched.get('BTC/USDC') === true;
+    if (config.macroFilter?.enabled && btcFresh) {
       const prevBull = btcMacroBull;
-      btcMacroBull = isBullTrend(dashboardState.getCandles('BTC/USDC'), config.macroFilter.emaPeriod ?? 200);
+      btcMacroBull = isBullTrend(closedCandles('BTC/USDC'), config.macroFilter.emaPeriod ?? 200);
       logger.debug(`[CYCLE] BTC macro: bull=${btcMacroBull} EMA${config.macroFilter.emaPeriod ?? 200}`);
       if (btcMacroBull !== prevBull) {
         const factor = (config.macroFilter.sizeReduceFactor ?? 0.5) * 100;
@@ -432,8 +498,8 @@ async function runAllSymbols() {
     let regimeChanged = false;
     {
       const btc = dashboardState.getCandles('BTC/USDC');
-      if (btc.length > 0) {
-        const closed = btc.slice(0, -1);
+      if (btc.length > 0 && btcFresh) {
+        const closed = closedCandles('BTC/USDC');
         const snap = regimeTracker.update(closed, Date.now());
         const prev = currentRegime;
         currentRegime = snap.regime;
@@ -552,7 +618,7 @@ async function runAllSymbols() {
       }
     }
 
-    await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
+    await Promise.all(config.symbols.filter((symbol) => fetched.get(symbol)).map((symbol) => runCycle(symbol)));
 
     // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
     // candles that runCycle just refreshed in dashboardState.
@@ -686,8 +752,9 @@ async function runTsmCoreCycle() {
         dashboardState.pushError(message);
         continue;
       }
-      // Closed bars only — the forming candle is sliced off (no lookahead).
-      const closed = candles.slice(0, -1);
+      // Closed bars only — the forming candle is sliced off (no lookahead). Through
+      // withFormingBar, or a series that has no new bar yet loses its closed one.
+      const closed = withFormingBar(candles, config.timeframe).slice(0, -1);
       const vote = computeTsmVote(closed, coreCfg.lookbackBars ?? [60, 90, 120]);
       const realizedVol = computeRealizedVolAnnual(closed, { windowBars: coreCfg.volWindowBars ?? 60 });
       const fraction = computeTargetFraction({
@@ -1113,7 +1180,7 @@ async function runInitialSignals() {
 
       const aggregator      = symbolAggregators[symbol];
       const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
-      const result          = aggregator.aggregate(candles, symbol, symSignalConfig);
+      const result          = aggregator.aggregate(withFormingBar(candles, config.timeframe), symbol, symSignalConfig);
       const currentPrice    = Number(candles.at(-1).close);
 
       dashboardState.updatePrice(symbol, currentPrice);
@@ -1371,10 +1438,6 @@ if (!paperMode) {
 // ── MTF candle cache refresh ────────────────────────────────────────────────
 // Pre-fetch 15m and 4h candles for all symbols on timers matching their period.
 // This eliminates per-BUY API calls and keeps filter data fresh.
-const MTF_15M_REFRESH_MS = 15 * 60_000;
-const MTF_4H_REFRESH_MS  = 4 * 3_600_000;
-let mtf15mRefreshId = null;
-let mtf4hRefreshId  = null;
 
 async function refreshMtfCache(timeframe, cache, bars) {
   const label = timeframe;
@@ -1395,16 +1458,13 @@ async function refreshMtfCache(timeframe, cache, bars) {
 
 // Initial warm-up + periodic refresh
 if (config.mtfFilter?.enabled) {
-  void refreshMtfCache('15m', mtf15mCache, 24).then(() => {
-    mtf15mRefreshId = setInterval(() => void refreshMtfCache('15m', mtf15mCache, 24), MTF_15M_REFRESH_MS);
-  });
-  logger.info(`MTF 15m cache: refresh every ${MTF_15M_REFRESH_MS / 60_000} min`);
+  // Warm-up only; every cycle refreshes it right after the close (follow-ups item 9).
+  void refreshMtfCache('15m', mtf15mCache, 24);
+  logger.info('MTF 15m cache: refreshed at each cycle');
 }
 if (config.mtf4hFilter?.enabled) {
-  void refreshMtfCache('4h', mtf4hCache, 30).then(() => {
-    mtf4hRefreshId = setInterval(() => void refreshMtfCache('4h', mtf4hCache, 30), MTF_4H_REFRESH_MS);
-  });
-  logger.info(`MTF 4h cache: refresh every ${MTF_4H_REFRESH_MS / 3_600_000}h`);
+  void refreshMtfCache('4h', mtf4hCache, 30);
+  logger.info('MTF 4h cache: refreshed at each cycle');
 }
 
 // ── Market context cache (Phase 3) — BTC.D + ETHBTC ────────────────────────
@@ -1508,8 +1568,6 @@ process.on('SIGINT', () => {
   clearInterval(pricePollId);
   clearInterval(balancePollId);
   clearInterval(riskCheckId);
-  clearInterval(mtf15mRefreshId);
-  clearInterval(mtf4hRefreshId);
   clearInterval(marketContextRefreshId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
