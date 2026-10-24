@@ -369,3 +369,24 @@ OK, as one change, with the previous config kept for a rollback.
 open: mean +1.0 bps worse, versus a mean tier of 11.7 bps. The tiers are about 10× conservative; the
 exception is PEPE (+22 bps = one 1e-8 price tick). Kept as they are (the rule says never flat);
 re-measure once live has more fills.
+
+**Sleeve sizing inputs (2026-10-24).** Live's own `computeRealizedVolAnnual` and
+`computeTargetFraction` on the frozen candles, with the logged macro state: realized vol and size
+fraction match the logged `[TSM-CORE] … vol X% → ×F` line on **118 of 118** cycles. With the votes
+(118 / 118) the sleeve's decision and sizing inputs reproduce live; order fills and resizes were not
+replayed.
+
+**Applied 2026-10-24** (user decision): every `stopLossPct` / `takeProfitPct` × 1.5 (112 values,
+checked against the committed config: 0 wrong, the rest identical) and `breakEvenTriggerPct`
+0.05 → 0.10 — the user kept the break-even protection; the lock is still entry × 1.002, fees covered.
+A baseline from the edited file reproduces the preload run exactly. Final config, deep set:
+
+| Window | Return | Sharpe | DD | WR | DSR |
+|---|---|---|---|---|---|
+| y2_365d (in-sample) | +12.88% | 1.27 | −2.71% | 64% | 0.00 |
+| y1y2_full (OOS) | +94.86% | 2.20 | −6.88% | 68% | 0.36 |
+| y1_holdout | +65.21% | 2.77 | −6.88% | 72% | 0.18 |
+| full_history | +105.28% | 1.17 | −7.47% | 66% | 0.31 |
+
+WR gap Y1 72% / Y2 64% = 8pp (below the 10pp warning). Fine-tuning is deferred until the rebuild is
+finished (user decision).
