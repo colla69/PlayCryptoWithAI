@@ -1,7 +1,8 @@
 # Plan: backtester measurement gaps found while fixing its clock (2026-09-29)
 
 **Status: open — not fixed.** Found while fixing the portfolio backtester's time alignment
-(branch `fix/backtester-time-alignment`). Items 1 and 2 change every window's metrics, so each gets
+(branch `fix/backtester-time-alignment`); item 4 was added on 2026-10-24. Items 1, 2 and 4 change
+every window's metrics, so each gets
 its own PR and its own before/after baseline. None was folded into the alignment fix, which had to
 be shown to be an identity on aligned data.
 
@@ -76,3 +77,43 @@ price.
 Also noted: live's macro filter (`main.js`, `isBullTrend(getCandles('BTC/USDC'))`) reads the
 forming bar, while live's regime classifier drops it — a live-side inconsistency to settle with
 item 1.
+
+## 4. Stops are checked once per bar, at the close (added 2026-10-24)
+
+Found while comparing the bot with Freqtrade's `--timeframe-detail` (see
+[EXTERNAL_BOTS_REVIEW.md](../EXTERNAL_BOTS_REVIEW.md)). Read at commit `401e898`; not measured yet.
+
+| | Price fed to the stop check | How often |
+|---|---|---|
+| Live / testnet | ticker `last` (`main.js`, fast risk loop, `RISK_CHECK_MS = 2 * 60_000`) | every 2 min |
+| Backtest | `price: Number(candle.close)` (`portfolioBacktester.js` `#precomputeData`) | once per 12h bar |
+
+`BacktestSimulator.#checkRisk` compares only that close against SL and TP. The bar's high and low
+are never used for exits. On a 12h bar this moves results both ways:
+
+- **Optimistic:** a wick through the stop that recovers by the close stops live out; the backtest
+  holds.
+- **Pessimistic:** a crash through the stop that closes far below it fills at the close in the
+  backtest; live fills near the stop.
+- **Missed events:** a take-profit, the +5% break-even trigger, or a new trailing high reached
+  inside the bar counts live and not in the backtest.
+
+The fast risk loop runs only when `!paperMode`, so paper mode does not have the 2-minute check
+either. What paper does between cycles was not checked.
+
+**The stop logic also exists twice.** `paperTrader.js` and `liveTrader.js` import
+`calcTrailingStop` and `calcBreakEven` from `traderUtils.js`. `backtestSimulator.js` imports only
+`calcPartialExit` and `calcATRStopPrices`, and re-implements both rules inline
+(`checkAndUpdateTrailingStop`, `#checkRisk`). The copies have already drifted: `trailArmPct`
+exists only in the simulator. It is a research knob for riding mode with default 0, so it does not
+change the baseline today. The `Break-even stop` row in `liveParityInventory.test.js` passes on the
+substring `breakEven` on both sides, so it cannot see either difference.
+
+**Fix shape:** replay each 12h bar's exits on its 15m bars (every tested symbol already needs
+`{COIN}_USDC_15m.json`), in time order. When one 15m bar touches both the stop and the target,
+count the stop first. Fill a stop at `min(stop, bar open)` so a gap down fills at the open. Make
+the simulator call `calcTrailingStop` and `calcBreakEven` instead of its own copies, and keep
+`trailArmPct` as a parameter of the shared helper. Pin the inventory row to the shared helpers.
+Re-baseline: if the metrics get worse, that is the measurement getting honest, not a regression to
+revert. Then re-run the optimizer, since its per-symbol stops were chosen under close-only exits.
+Check `perSymbolOptimizer` — this item was read on the portfolio backtester path only.

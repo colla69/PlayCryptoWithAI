@@ -20,8 +20,9 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
 📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
-📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — open measurement gaps (fill timing, equity marking, gapped positions)  
-📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship
+📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — open measurement gaps (fill timing, equity marking, gapped positions, close-only stops)  
+📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship  
+📖 **[External bots review](docs/EXTERNAL_BOTS_REVIEW.md)** — NostalgiaForInfinity, Freqtrade, NautilusTrader and others: what is worth taking
 
 ---
 
