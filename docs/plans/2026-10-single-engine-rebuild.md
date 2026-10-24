@@ -505,3 +505,18 @@ change: a boot on the same 12h bar gives the same decision and confidence for al
 boot before the move. `tests/core/engine.test.js` drives the real engine with PaperTrader and stub
 aggregators — the first run of phase B: one free slot and three BUYs open one position, the highest
 confidence; a tie goes to the earlier symbol; the others log the slot limit.
+
+**Slice 3b — the live engine replays history.** `src/backtester/engineReplay.js` drives
+`createTradingEngine` with a replay source: at every 12h close the clock is set to the cycle time,
+the candle store serves what live would have fetched (closed bars + a seconds-old forming bar), and
+`engine.runAllSymbols()` runs; until the next close every open position meets its 15m bars through
+`engine.onPriceTick` — live's two events. Orders go to a `BacktestSimulator` behind live's order
+interface; `RiskManager` runs on the replay clock; the aggregators and the regime tracker warm up on
+the history before the window. `src/scripts/runEngineReplay.mjs` runs it next to
+`PortfolioBacktester` with the same settings and compares every trade.
+
+Live window (2026-08-20 → 10-24, $118.40, the 09-28 deposit): **6 of 6 trades identical** — symbol,
+entry and exit time, reason, fills and size — and the same realised P&L ($8.61). The first run found
+a real bug in slice 3a: the move had shadowed the clock inside the 15m/4h fetch, the filters failed
+open, and the replay took the four entries live's MTF/4h filters had blocked. Fixed, with a test
+that fails on the bug.
