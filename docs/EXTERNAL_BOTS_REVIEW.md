@@ -5,7 +5,8 @@ What other open-source trading bots do that this bot could use, and what it shou
 **Sources.** The NostalgiaForInfinity facts come from its README and a shallow clone of `main` at
 commit `6d45984` (2026-10-24). The facts about this bot come from reading its code at `401e898`.
 The notes on Freqtrade's tools, NautilusTrader, Jesse, vectorbt and skfolio come from general
-knowledge as of mid-2026 and were not re-checked against those projects.
+knowledge as of mid-2026 and were not re-checked against those projects. The original answer this
+doc grew from is kept verbatim in [plans/2026-10-24-external-bots-answer.md](plans/2026-10-24-external-bots-answer.md).
 
 ## Summary
 
