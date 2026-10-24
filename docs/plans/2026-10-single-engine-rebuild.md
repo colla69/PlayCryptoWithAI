@@ -457,8 +457,13 @@ rollback (`docker tag` before rebuilding):
    `cycle failed` without a `retrying once` before it, the same number of `decision=` lines per
    cycle as before. After a week, rerun the reconciliation on a fresh snapshot — layer 1 should show
    no stale-bar mismatches.
-2. **`HEAD` — the new exits** (`4b2f365`: SL/TP × 1.5, break-even trigger +10%), plus the paper
-   risk loop and backtester-only changes. Watch the first stops and targets against the replay.
+2. **`HEAD` — the new exits and step 4.** The new exits (`4b2f365`: SL/TP × 1.5, break-even trigger
+   +10%); the cycle as an engine (`d9e9658`, same decisions on the same bar) with entries filled one
+   at a time by confidence (`c096828`, closes the slot race); risk-loop exits counted toward the
+   daily-loss limit (`c35dcc8`); the bear cash-exit priced at this cycle's price (`2d5aec9`); the
+   sleeve inside the engine (`39844c8`); the paper risk loop and the shared $11 floor in paper.
+   Watch: the first stops and targets against `runEngineReplay.mjs` on a fresh snapshot, the daily
+   P&L after a stop-loss, and that no cycle opens more scalper positions than `maxOpenPositions`.
 
 Both need `TSM_CORE` and `.env` unchanged. Fine-tuning (exits that loosen with profit, per-symbol
 retune, PBO / CPCV) comes after the rebuild, per the user.
