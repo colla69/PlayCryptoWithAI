@@ -904,18 +904,7 @@ let riskCheckId = null;
           const price = Number(ticker?.last ?? ticker?.close ?? 0);
           if (price <= 0) continue;
 
-          dashboardState.updatePrice(pos.symbol, price);
-          const result = await trader.checkRisk(pos.symbol, price);
-          if (result) {
-            // Position was closed — update dashboard
-            logger.info(`[RISK-LOOP] ${pos.symbol}: position closed by risk check`);
-            dashboardState.pushTrade(result);
-            notifyTrade(result);
-            const freshStatus = await trader.getStatus();
-            dashboardState.updateStatus(freshStatus, riskManager.getDailyStats());
-            pushEvent('trade', result);
-            pushEvent('status', freshStatus);
-          }
+          await engine.onPriceTick(pos.symbol, price);
         } catch (err) {
           logger.debug(`[RISK-LOOP] ${pos.symbol}: check failed — ${err.message}`);
         }

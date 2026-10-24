@@ -11,7 +11,13 @@ function getDayKey(date = new Date()) {
 }
 
 export class RiskManager {
-  constructor(config = {}) {
+  /**
+   * @param {object} [config]
+   * @param {{now?: Function}} [opts] — the clock for the day rollover; a replay
+   *   passes its own so the daily-loss limit resets on replayed days.
+   */
+  constructor(config = {}, { now = () => Date.now() } = {}) {
+    this.now = now;
     this.config = {
       initialBalance: Number(config.initialBalance ?? 0),
       maxDailyLossPct: Number(config.maxDailyLossPct ?? 0),
@@ -27,7 +33,7 @@ export class RiskManager {
     // limit scales off this so deposits/withdrawals/growth move the limit;
     // config.initialBalance is only the fallback before the first reading.
     this.lastEquity = null;
-    this.currentDayKey = getDayKey();
+    this.currentDayKey = getDayKey(new Date(this.now()));
     this.midnightCheckId = setInterval(() => this.#checkDayRollover(), MIDNIGHT_CHECK_INTERVAL_MS);
     this.midnightCheckId.unref?.();
   }
@@ -40,7 +46,7 @@ export class RiskManager {
    * @param {Array<{side: string, pnl: number, timestamp: string}>} trades
    */
   seedFromHistory(trades = []) {
-    const todayKey = getDayKey();
+    const todayKey = getDayKey(new Date(this.now()));
     const todayPnL = trades
       .filter((t) => {
         if (t.side !== 'SELL') return false;
@@ -143,7 +149,7 @@ export class RiskManager {
     this.dailyPnL = 0;
     this.tradesCount = 0;
     this.blocked = false;
-    this.currentDayKey = getDayKey();
+    this.currentDayKey = getDayKey(new Date(this.now()));
     logger.info(`[RISK] Day rollover — resetting daily stats (prev: pnl=${prevPnL.toFixed(2)} trades=${prevTrades})`);
     return this.getDailyStats();
   }
@@ -158,7 +164,7 @@ export class RiskManager {
   }
 
   #checkDayRollover() {
-    const today = getDayKey();
+    const today = getDayKey(new Date(this.now()));
 
     if (today !== this.currentDayKey) {
       this.resetDailyStats();

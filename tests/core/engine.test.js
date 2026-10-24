@@ -69,9 +69,10 @@ function build({ confidences, maxOpenPositions }) {
       signals: [{ signal: 'BUY', confidence: confidences[s], reason: 'stub' }], externalSignals: [],
     }),
   }]));
+  const riskManager = new RiskManager({ ...cfg.risk }, { now: () => NOW });
   const engine = createTradingEngine({
     config: cfg, dashboardState, trader,
-    riskManager: new RiskManager({ ...cfg.risk }),
+    riskManager,
     regimeTracker: new RegimeTracker(config.regimeClassifier ?? {}),
     symbolAggregators, signalConfig: config.signals,
     fetchOHLCV: async (s, tf) => (tf === config.timeframe ? candles[s] : []),
@@ -81,7 +82,7 @@ function build({ confidences, maxOpenPositions }) {
     modeLabel: 'paper',
     now: () => NOW,
   });
-  return { engine, trader, dashboardState };
+  return { engine, trader, dashboardState, riskManager };
 }
 
 describe('engine: entries fill the free slots one at a time, by confidence', () => {
@@ -116,5 +117,27 @@ describe('engine: entries fill the free slots one at a time, by confidence', () 
     await engine.runAllSymbols();
     assert.equal(trader.getStatus().positions.length, 3);
     assert.equal(engine.state.lastCycleAt, NOW);
+  });
+});
+
+describe('engine: price ticks', () => {
+  test('a stop from a tick closes the position and counts toward the daily-loss brake', async () => {
+    const { engine, trader, riskManager } = build({ confidences: { 'AAA/USDC': 0.9, 'BBB/USDC': 0.1, 'CCC/USDC': 0.1 }, maxOpenPositions: 1 });
+    await engine.runAllSymbols();
+    const [pos] = trader.getStatus().positions;
+    assert.equal(pos.symbol, 'AAA/USDC');
+    const closed = await engine.onPriceTick('AAA/USDC', pos.stopLoss * 0.99);
+    assert.equal(closed.reason, 'stop_loss');
+    assert.equal(trader.getStatus().positions.length, 0);
+    assert.ok(riskManager.getDailyStats().dailyPnL < 0, 'the loss reached the daily-loss brake');
+  });
+
+  test('a tick that crosses nothing changes nothing', async () => {
+    const { engine, trader, riskManager } = build({ confidences: { 'AAA/USDC': 0.9, 'BBB/USDC': 0.1, 'CCC/USDC': 0.1 }, maxOpenPositions: 1 });
+    await engine.runAllSymbols();
+    const [pos] = trader.getStatus().positions;
+    assert.equal(await engine.onPriceTick('AAA/USDC', pos.entryPrice), null);
+    assert.equal(trader.getStatus().positions.length, 1);
+    assert.equal(riskManager.getDailyStats().dailyPnL, 0);
   });
 });

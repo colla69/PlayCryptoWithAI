@@ -622,5 +622,28 @@ export function createTradingEngine(deps) {
     logger.info(`[MTF-CACHE] ${label} refresh complete: ${refreshed}/${config.symbols.length} symbols`);
   }
 
-  return { runAllSymbols, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state };
+  /**
+   * One price tick for an open scalper position — live's 2-minute risk loop, and a
+   * replay's 15m bars. A stop, target or trailing exit is recorded with the risk
+   * manager like any other exit: the risk loop used to skip that, so the daily-loss
+   * brake never saw the losses it most often exists for.
+   * @returns {Promise<object|null>} the closing trade, if one fired
+   */
+  async function onPriceTick(symbol, price) {
+    dashboardState.updatePrice(symbol, price);
+    const result = await trader.checkRisk(symbol, price);
+    if (result) {
+      logger.info(`[RISK-LOOP] ${symbol}: position closed by risk check`);
+      dashboardState.pushTrade(result);
+      if (typeof result.pnl === 'number') riskManager.recordTrade(result.pnl);
+      notifyTrade(result);
+      const freshStatus = await trader.getStatus();
+      dashboardState.updateStatus(freshStatus, riskManager.getDailyStats());
+      pushEvent('trade', result);
+      pushEvent('status', freshStatus);
+    }
+    return result;
+  }
+
+  return { runAllSymbols, onPriceTick, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state };
 }
