@@ -188,3 +188,29 @@ describe('asymmetric exit (item 8)', () => {
     assert.equal(r.filtersApplied.asymmetricExit ?? 0, 0);
   });
 });
+
+describe('TSM core positions in the simulator (step 4, slice 3c)', () => {
+  test('open, no stop, resize up and down, close on the flip', async () => {
+    const { BacktestSimulator } = await import('../../src/backtester/backtestSimulator.js');
+    const sim = new BacktestSimulator({ initialBalance: 1000, feePct: 0, slippagePct: 0 });
+    const opened = sim.openCore('BTC/USDC#core', 100, 200);
+    assert.equal(opened.qty, 2);
+    assert.equal(sim.balance, 800);
+    // A crash through any level closes nothing: only the vote flip exits a core position.
+    assert.equal(sim.checkRisk('BTC/USDC#core', 1), null);
+    assert.equal(sim.replayBar('BTC/USDC#core', { timestamp: 0, open: 100, high: 100, low: 1, close: 50 }), null);
+    assert.equal(sim.getStatus().positions[0].isCore, true);
+    // Top up $100 at 100 → 3 units, blended entry 100; trim $100 at 100 → 2 units.
+    sim.resizeCore('BTC/USDC#core', 100, 100);
+    assert.equal(sim.positions.get('BTC/USDC#core').qty, 3);
+    const trim = sim.resizeCore('BTC/USDC#core', 100, -100);
+    assert.equal(trim.reason, 'tsm_core_resize');
+    assert.equal(sim.positions.get('BTC/USDC#core').qty, 2);
+    // Below the $11 floor a resize does nothing.
+    assert.equal(sim.resizeCore('BTC/USDC#core', 100, 5), null);
+    const closed = sim.closeCore('BTC/USDC#core', 120);
+    assert.equal(closed.reason, 'tsm_core_flip');
+    assert.equal(closed.pnl, 40);
+    assert.equal(sim.positions.size, 0);
+  });
+});

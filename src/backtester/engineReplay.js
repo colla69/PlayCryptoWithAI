@@ -9,7 +9,7 @@
  * the next close through `engine.onPriceTick` — live's two events, bar closed and
  * price tick. Orders go to a `BacktestSimulator` behind live's order interface,
  * with the same fees, slippage tiers and minimum notional as `PortfolioBacktester`.
- * The core sleeve is not replayed (`runTsmCoreCycle` is a no-op).
+ * The core sleeve runs too (TSM_CORE=true), on the simulator's core positions.
  *
  * Nothing here touches bot state: the dashboard and the notifications are fakes.
  */
@@ -70,6 +70,22 @@ class SimOrderHandler {
 
   async replayBar(symbol, bar) { return this.#asTrade(this.sim.replayBar(symbol, bar)); }
 
+  // TSM core sleeve (keys '<symbol>#core'), as LiveTrader's calls.
+  async openCorePosition(key, price, allocationUsd) {
+    const r = this.sim.openCore(key, price, allocationUsd, { slippagePct: this.slippage[key.split('#')[0]] });
+    return r ? { ...r, side: 'BUY', isCore: true, timestamp: iso(this.sim.currentTimestamp) } : null;
+  }
+
+  async closeCorePosition(key, price) {
+    return this.#asTrade(this.sim.closeCore(key, price, { slippagePct: this.slippage[key.split('#')[0]] }));
+  }
+
+  async resizeCorePosition(key, price, deltaUsd) {
+    const r = this.sim.resizeCore(key, price, deltaUsd, { slippagePct: this.slippage[key.split('#')[0]] });
+    if (!r) return null;
+    return r.exitTime != null ? this.#asTrade(r) : { ...r, timestamp: iso(this.sim.currentTimestamp) };
+  }
+
   markPrice(symbol, price) { return this.sim.markPrice(symbol, price); }
 
   async getStatus() {
@@ -78,7 +94,7 @@ class SimOrderHandler {
       ...status,
       positions: status.positions.map((p) => {
         const pos = this.sim.positions.get(p.symbol);
-        return { ...p, currentPrice: pos?.lastPrice ?? p.entryPrice, openedAt: iso(pos.entryTime), isCore: false };
+        return { ...p, currentPrice: pos?.lastPrice ?? p.entryPrice, openedAt: iso(pos.entryTime), isCore: pos?.isCore === true };
       }),
     };
   }
@@ -97,7 +113,7 @@ function replayDashboard(getVisible) {
     pushSignal: (s) => signals.push(s),
     pushBlockedSignal: noop, pushError: noop, updatePrice: noop, updateStrategyResults: noop,
     updateStatus: noop, incrementCycle: noop, getSummary: () => ({}), setRegime: noop,
-    setMarketContext: noop, setCircuitBreaker: noop,
+    setMarketContext: noop, setCircuitBreaker: noop, setTsmCore: noop,
   };
 }
 
@@ -113,10 +129,14 @@ function replayDashboard(getVisible) {
  * @param {Array<{ts:number, amount:number}>} [p.deposits]
  * @param {Record<string, number>} p.slippage — per-symbol slippage tiers
  * @param {object} [p.cfg] — config for the engine (defaults to config/default.js)
+ * @param {Array<{t:number, v:number}>} [p.nasdaqRows] — the sleeve's macro feed; cut to the clock
+ * @param {Array<{equity:number}>} [p.equityHistory] — account equity before the window (the
+ *   sleeve's high-water mark); the replay appends its own daily points
  */
 export async function replayEngine({
   symbolCandles, mtf15mCandles = {}, mtf4hCandles = {}, fearGreedData = null,
   fromTs, toTs, initialBalance, deposits = [], slippage = {}, cfg = config,
+  nasdaqRows = [], equityHistory = [],
 }) {
   const tfMs = timeframeMs(cfg.timeframe);
   const symbols = cfg.symbols.filter((s) => symbolCandles[s]?.length);
@@ -186,16 +206,19 @@ export async function replayEngine({
     regimeTracker, symbolAggregators, signalConfig, fetchOHLCV,
     marketContext: { getBtcDominanceTrend: btcDominanceAt, getEthBtcTrend: () => null },
     notifyTrade: () => {}, notifyAlert: async () => {}, pushEvent: () => {}, recordEquitySnapshot: () => {},
-    runTsmCoreCycle: async () => {},
+    // The sleeve's feeds as of the clock: its HWM ladder reads account equity, its
+    // macro overlay the NASDAQ closes.
+    loadEquityHistory: () => [...equityHistory, ...equity.map((p) => ({ equity: p.balance }))],
+    loadNasdaqHistory: async () => ({ rows: nasdaqRows.filter((r) => r.t <= clock) }),
     modeLabel: 'replay',
     now,
   });
   engine.state.fearGreedData = fearGreedData;
 
+  const equity = [];
   const cycles = [...new Set(symbols.flatMap((s) => symbolCandles[s]
     .map((c) => Number(c.timestamp)).filter((t) => t >= fromTs && t <= toTs)))].sort((a, b) => a - b);
   const pending = [...deposits].filter((d) => d.ts >= fromTs).sort((a, b) => a.ts - b.ts);
-  const equity = [];
 
   for (let k = 0; k < cycles.length; k++) {
     cycleTs = cycles[k];
@@ -203,10 +226,17 @@ export async function replayEngine({
     clock = cycleTs + CYCLE_DELAY_MS;
     sim.setTimestamp(cycleTs);
     await engine.runAllSymbols();
+    // Live's risk loop marks core positions every 2 min; the replay marks them per cycle.
+    for (const [key, pos] of sim.positions) {
+      if (!pos.isCore) continue;
+      const price = Number(visible(key.split('#')[0]).at(-1)?.close);
+      if (price > 0) sim.markPrice(key, price);
+    }
 
     // Price ticks until the next close: each open position meets its 15m bars.
     const nextTs = cycles[k + 1] ?? cycleTs + tfMs;
     for (const pos of (await trader.getStatus()).positions) {
+      if (pos.isCore) continue; // no stops: the sleeve exits only on the vote flip
       const bars = mtf15mCandles[pos.symbol];
       if (!bars?.length) continue;
       const entry = sim.positions.get(pos.symbol)?.entryTime ?? cycleTs;

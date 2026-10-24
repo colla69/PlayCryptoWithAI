@@ -108,6 +108,66 @@ export class BacktestSimulator {
     return this.#checkRisk(String(symbol), roundPrice(value));
   }
 
+  /**
+   * TSM core sleeve positions, as LiveTrader / PaperTrader open them: a dollar
+   * allocation (capped at the free balance), no stop and no target — the only exit is
+   * closeCore on the vote flip — and resizes that add or trim at a blended entry.
+   * Fees, slippage and the exchange floor as for any order. Key: '<symbol>#core'.
+   */
+  openCore(key, price, allocationUsd, { slippagePct } = {}) {
+    if (this.positions.has(key)) return null;
+    const allocation = roundMoney(Math.min(Number(allocationUsd) || 0, this.balance));
+    const slip = slippagePct != null ? Number(slippagePct) : this.slippagePct;
+    const fillPrice = roundPrice(Number(price) * (1 + this.feePct + slip));
+    const qty = roundQty(allocation / fillPrice);
+    const cost = roundMoney(qty * fillPrice);
+    if (qty <= 0 || cost > this.balance) return null;
+    if (cost < this.minNotional) { this.minNotionalRejections += 1; return null; }
+    const position = {
+      qty, entryPrice: fillPrice, entryFillPrice: fillPrice, entrySignalPrice: roundPrice(Number(price)),
+      entryFee: roundMoney(qty * Number(price) * this.feePct), costBasis: cost,
+      initialStopLoss: 0, stopLoss: 0, takeProfit: Infinity, highWaterMark: fillPrice,
+      entryTime: this.currentTimestamp, positionPct: null, partialExitDone: false, isCore: true,
+      lastPrice: roundPrice(Number(price)),
+    };
+    this.balance = roundMoney(this.balance - cost);
+    this.totalFees = roundMoney(this.totalFees + position.entryFee);
+    this.positions.set(key, position);
+    return { ...position, symbol: key, side: 'BUY' };
+  }
+
+  closeCore(key, price, { slippagePct } = {}) {
+    if (!this.positions.get(key)?.isCore) return null;
+    return this.#closePosition(key, roundPrice(Number(price)), 'tsm_core_flip', { slippagePct });
+  }
+
+  resizeCore(key, price, deltaUsd, { slippagePct } = {}) {
+    const position = this.positions.get(key);
+    if (!position?.isCore) return null;
+    const p = roundPrice(Number(price));
+    const slip = slippagePct != null ? Number(slippagePct) : this.slippagePct;
+    if (deltaUsd > 0) {
+      const spend = roundMoney(Math.min(deltaUsd, this.balance));
+      if (spend < this.minNotional) return null;
+      const fillPrice = roundPrice(p * (1 + this.feePct + slip));
+      const addQty = roundQty(spend / fillPrice);
+      const cost = roundMoney(addQty * fillPrice);
+      position.costBasis = roundMoney(position.costBasis + cost);
+      position.qty = roundQty(position.qty + addQty);
+      position.entryPrice = roundPrice(position.costBasis / position.qty);
+      position.entryFee = roundMoney(position.entryFee + addQty * p * this.feePct);
+      this.balance = roundMoney(this.balance - cost);
+      return { symbol: key, side: 'BUY', qty: addQty, price: p, reason: 'tsm_core_resize', isCore: true };
+    }
+    if (deltaUsd < 0) {
+      const sellQty = roundQty(Math.min(-deltaUsd / p, position.qty));
+      if (sellQty * p < this.minNotional) return null;
+      if (sellQty >= position.qty) return this.closeCore(key, p, { slippagePct });
+      return this.#partialClose(key, p, 'tsm_core_resize', sellQty / position.qty);
+    }
+    return null;
+  }
+
   /** Marks an open position at a price without touching its stops (as live's markPrice). */
   markPrice(symbol, price) {
     const position = this.positions.get(String(symbol));
@@ -174,6 +234,7 @@ export class BacktestSimulator {
         stopLoss: roundPrice(position.stopLoss),
         takeProfit: roundPrice(position.takeProfit),
         highWaterMark: roundPrice(position.highWaterMark),
+        ...(position.isCore && { isCore: true }),
       })),
       totalPnL: roundMoney(this.totalPnL),
       totalFees: roundMoney(this.totalFees),
@@ -191,6 +252,8 @@ export class BacktestSimulator {
       return null;
     }
     position.lastPrice = currentPrice;
+    // TSM core positions exit only on the vote flip (closeCore), as live's checkRisk.
+    if (position.isCore) return null;
 
     this.checkAndUpdateTrailingStop(symbol, currentPrice);
 

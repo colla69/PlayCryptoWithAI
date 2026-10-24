@@ -64,9 +64,13 @@ const pbTrades = pb.trades.filter((t) => t.entryTime <= toTs);
 
 // ── The live engine, replayed ────────────────────────────────────────────────
 const t0 = Date.now();
+// Scalper against scalper: PortfolioBacktester has no TSM sleeve, so the replay runs
+// without it too (its cash use would change every scalper size). The sleeve has its
+// own check against live, runSleeveReplay.mjs.
 const replay = await replayEngine({
   symbolCandles: c12, mtf15mCandles, mtf4hCandles, fearGreedData,
   fromTs, toTs, initialBalance: balance, deposits, slippage: SLIPPAGE_TIERS,
+  cfg: { ...config, tsmCore: { ...(config.tsmCore ?? {}), enabled: false } },
 });
 const rpTrades = replay.trades.map((t) => t.raw).filter((t) => t.entryTime <= toTs);
 

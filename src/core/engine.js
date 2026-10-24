@@ -711,7 +711,7 @@ export function createTradingEngine(deps) {
       const mo = coreCfg.macroOverlay ?? {};
       if (mo.enabled !== false) {
         const nasdaq = await loadNasdaqHistory();
-        const ro = computeEquityRiskOff(nasdaq?.rows, { emaDays: mo.emaDays ?? 100 });
+        const ro = computeEquityRiskOff(nasdaq?.rows, { emaDays: mo.emaDays ?? 100, asOfMs: now() });
         if (ro.available) {
           macroFactor = ro.above ? 1 : Number(mo.riskOffFactor ?? 0.5);
           macroState = ro.above ? 'risk-on' : `RISK-OFF ×${macroFactor}`;

@@ -539,3 +539,15 @@ equity history and the NASDAQ feed as deps. The risk loop's core branch reads
 `engine.state.tsmCoreFailedCloses`. Proof of no change: on the same 12h bar, the boot's
 `[TSM-CORE]` lines (votes, realized vol, size fraction, macro state for all four majors) are
 identical to the boot before the move.
+
+**The sleeve replays with live's code.** `BacktestSimulator` holds TSM core positions as live and
+paper do (`openCore` / `closeCore` / `resizeCore`: a dollar allocation, no stop or target, blended
+entry on resize, the $11 floor), and the engine replay serves the sleeve's feeds as of the clock (its
+own equity curve for the HWM ladder, NASDAQ closes cut to the clock — the overlay now takes the
+engine's `now()`). `src/scripts/runSleeveReplay.mjs` replays 2026-08-03 → 10-24 from live's balance
+then ($189.43) with the deposits: **11 of 11 vote-flip opens and closes land on live's cycle**. The
+remaining differences are resizes, which follow account equity (a 15% drift band on a share of
+equity) — the replay approximates live's equity, and the 2026-09-28 resizes came from an
+out-of-cycle restart right after a deposit. This is the first backtest of the sleeve with live's own
+code; `runTrendCore` stays as the research study it was. `runEngineReplay.mjs` runs the scalper
+without the sleeve, since `PortfolioBacktester` has none (6 of 6, 26 of 26 still identical).
