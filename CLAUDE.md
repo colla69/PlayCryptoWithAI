@@ -17,6 +17,9 @@ in the trading code.
 - **Aggregator parity:** `src/engine/signalAggregator.js` ≡ `PortfolioBacktester` ≡
   `perSymbolOptimizer.aggregate()`. Change all three together; the shared math lives in
   `src/engine/aggregatorVoting.js`. `tests/engine/aggregatorParity.test.js` must stay green.
+- **Engine parity:** the cycle live runs is `src/core/engine.js`; `src/backtester/engineReplay.js`
+  replays it over history. `tests/backtester/engineReplayParity.test.js` requires it to trade
+  exactly like `PortfolioBacktester` — when it fails, one engine changed without the other.
 - **Parity is more than the voting math.** It has broken fifteen times *outside* the aggregator — a
   threshold read raw instead of scaled, three separate first-wins candle merges (in-memory,
   downloader, startup seed — hand-rolled merges are banned, call `mergeCandles()`), a cycle

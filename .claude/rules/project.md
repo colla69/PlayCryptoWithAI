@@ -130,6 +130,12 @@ under Architecture Rules). A frozen partial bar is silent: it corrupts every ind
 from it and nothing errors. Repair with `npm run download-history -- --timeframe <tf> --repair`,
 then verify with `rebuildDeepHistory.mjs`.
 
+**The behavioural guard: `tests/backtester/engineReplayParity.test.js`.** The engine live runs
+(`src/core/engine.js`), replayed over a fixed market by `engineReplay.js`, must give exactly
+`PortfolioBacktester`'s trades. On real data the two match trade for trade (6/6 on the live window,
+26/26 over a year); `runEngineReplay.mjs` reruns that, `runSleeveReplay.mjs` checks the TSM sleeve
+against live's own orders.
+
 **The structural guard: `tests/backtester/liveParityInventory.test.js`.** Every rule that can reject
 or resize a live entry is listed there with the symbol implementing it on *both* sides. Adding a
 live-side rule without a backtest counterpart fails that fixture immediately, instead of surfacing

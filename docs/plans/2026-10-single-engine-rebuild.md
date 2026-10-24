@@ -551,3 +551,13 @@ equity) — the replay approximates live's equity, and the 2026-09-28 resizes ca
 out-of-cycle restart right after a deposit. This is the first backtest of the sleeve with live's own
 code; `runTrendCore` stays as the research study it was. `runEngineReplay.mjs` runs the scalper
 without the sleeve, since `PortfolioBacktester` has none (6 of 6, 26 of 26 still identical).
+
+**Step 4 is built.** One order contract (live ≡ paper ≡ simulator on the same calls), one engine for
+the cycle with live's two events (`runAllSymbols` on a bar close, `onPriceTick` on a price), used by
+`main.js`, the tests and the replay; the replay of that engine trades exactly like
+`PortfolioBacktester` (6/6, 26/26) and the sleeve's flips land on live's cycles (11/11).
+`tests/backtester/engineReplayParity.test.js` keeps the two engines equal on a fixed synthetic market
+(6 symbols, alternating trends, gate thresholds relaxed on both sides so it trades); it fails when
+one side drifts (checked: a fill moved to the close on one side breaks it). `PortfolioBacktester`
+stays as the fast research engine — it precomputes the signal rows, the replay runs the cycle as
+live does.
