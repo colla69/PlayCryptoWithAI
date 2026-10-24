@@ -2,6 +2,8 @@ import '../types.js'; // JSDoc type definitions
 import fs from 'fs';
 import path from 'path';
 import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
+
+const BINANCE = { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits };
 import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { runtimeDir } from '../utils/runtimePaths.js';
@@ -21,7 +23,14 @@ const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
 const POSITION_STATE_FILE = path.join(runtimeDir('data'), 'position_state.json');
 
 export class LiveTrader {
-  constructor(config = {}) {
+  /**
+   * @param {object} [config]
+   * @param {object} [exchange] — the order and balance calls this trader makes. The
+   *   real Binance client by default; a test passes a fake so the order path can be
+   *   checked against the paper trader and the simulator (orderContract.test.js).
+   */
+  constructor(config = {}, exchange = BINANCE) {
+    this.exchange = exchange;
     this.config = {
       ...config,
       maxPositionPct: Number(config.maxPositionPct ?? 0),
@@ -199,7 +208,7 @@ export class LiveTrader {
     let restored = 0;
     const savedState = LiveTrader.loadPositionState();
     try {
-      const balance = await fetchBalance();
+      const balance = await this.exchange.fetchBalance();
       const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
 
       // ── TSM core positions first ──────────────────────────────────────────
@@ -403,7 +412,7 @@ export class LiveTrader {
 
   async syncPositions() {
     try {
-      const openOrders = await fetchOpenOrders();
+      const openOrders = await this.exchange.fetchOpenOrders();
       return {
         openOrders,
         positions: Array.from(this.positions.entries()).map(([symbol, position]) => ({ symbol, ...position })),
@@ -433,18 +442,18 @@ export class LiveTrader {
       const price = roundPrice(referencePrice);
       if (!Number.isFinite(price) || price <= 0) return null;
 
-      const balance = await fetchBalance();
+      const balance = await this.exchange.fetchBalance();
       const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? 0);
       const allocation = roundMoney(Math.min(Number(allocationUsd) || 0, freeQuote));
 
       const rawQty = allocation / price;
-      const qty = await amountToPrecision(market, rawQty).catch(() => roundQty(rawQty));
+      const qty = await this.exchange.amountToPrecision(market, rawQty).catch(() => roundQty(rawQty));
       const notional = roundMoney(qty * price);
 
       let minQty = 0;
       let minNotional = FALLBACK_MIN_NOTIONAL;
       try {
-        const limits = await getMarketLimits(market);
+        const limits = await this.exchange.getMarketLimits(market);
         minQty = limits.minQty ?? 0;
         minNotional = Math.max(limits.minNotional ?? 0, FALLBACK_MIN_NOTIONAL);
       } catch {
@@ -456,7 +465,7 @@ export class LiveTrader {
         return null;
       }
 
-      const order = await createOrder(market, 'market', 'buy', qty);
+      const order = await this.exchange.createOrder(market, 'market', 'buy', qty);
       const entryPrice = await this.#resolveTradePrice(order, market, price);
       const reportedQty = Number(order.filled ?? order.amount ?? qty);
       const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
@@ -518,16 +527,16 @@ export class LiveTrader {
       const timestamp = new Date().toISOString();
 
       if (delta > 0) {
-        const balance = await fetchBalance();
+        const balance = await this.exchange.fetchBalance();
         const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? 0);
         const spend = roundMoney(Math.min(delta, freeQuote));
         const rawQty = spend / price;
-        const qty = await amountToPrecision(market, rawQty).catch(() => roundQty(rawQty));
+        const qty = await this.exchange.amountToPrecision(market, rawQty).catch(() => roundQty(rawQty));
         if (qty <= 0 || qty * price < FALLBACK_MIN_NOTIONAL) {
           logger.info(`[LIVE] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below minimums)`);
           return null;
         }
-        const order = await createOrder(market, 'market', 'buy', qty);
+        const order = await this.exchange.createOrder(market, 'market', 'buy', qty);
         const fillPrice = await this.#resolveTradePrice(order, market, price);
         const reported = Number(order.filled ?? order.amount ?? qty);
         const addQty = roundQty(reported > 0 ? reported : qty);
@@ -552,13 +561,13 @@ export class LiveTrader {
         const base = market.split('/')[0];
         let sellQty = Math.min(-delta / price, position.qty);
         try {
-          const bal = await fetchBalance();
+          const bal = await this.exchange.fetchBalance();
           const freeBase = Number(bal.free?.[base] ?? 0);
           sellQty = Math.min(sellQty, freeBase);
         } catch {
           // fall back to computed qty
         }
-        sellQty = await amountToPrecision(market, sellQty).catch(() => roundQty(sellQty));
+        sellQty = await this.exchange.amountToPrecision(market, sellQty).catch(() => roundQty(sellQty));
         if (sellQty <= 0 || sellQty * price < FALLBACK_MIN_NOTIONAL) {
           logger.info(`[LIVE] ${symbol}: core resize SELL skipped (below minimums)`);
           return null;
@@ -567,7 +576,7 @@ export class LiveTrader {
           // Never let a resize silently liquidate — full exits are the vote's job
           return this.closeCorePosition(symbol, price);
         }
-        const order = await createOrder(market, 'market', 'sell', sellQty);
+        const order = await this.exchange.createOrder(market, 'market', 'sell', sellQty);
         const fillPrice = await this.#resolveTradePrice(order, market, price);
         // Deduct what actually filled, not what we asked for — a partial fill
         // must not desync the tracked qty from the wallet.
@@ -612,7 +621,7 @@ export class LiveTrader {
 
       // Merge per-symbol risk override on top of global config for this trade
       const risk = riskOverride ? { ...this.config, ...riskOverride } : this.config;
-      const balance = await fetchBalance();
+      const balance = await this.exchange.fetchBalance();
       const freeQuote = Number(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
 
       if (this.initialBalance === null) {
@@ -628,14 +637,14 @@ export class LiveTrader {
 
       // Apply exchange lot-size step precision before any checks
       const rawQty = allocation / referencePrice;
-      const qty = await amountToPrecision(symbol, rawQty).catch(() => roundQty(rawQty));
+      const qty = await this.exchange.amountToPrecision(symbol, rawQty).catch(() => roundQty(rawQty));
       const notional = roundMoney(qty * referencePrice);
 
       // Fetch exchange-enforced limits (minQty, minNotional) — fall back to safe defaults
       let minQty = 0;
       let minNotional = FALLBACK_MIN_NOTIONAL;
       try {
-        const limits = await getMarketLimits(symbol);
+        const limits = await this.exchange.getMarketLimits(symbol);
         minQty = limits.minQty ?? 0;
         minNotional = Math.max(limits.minNotional ?? 0, FALLBACK_MIN_NOTIONAL);
       } catch {
@@ -654,7 +663,7 @@ export class LiveTrader {
         return null;
       }
 
-      const order = await createOrder(symbol, 'market', 'buy', qty);
+      const order = await this.exchange.createOrder(symbol, 'market', 'buy', qty);
       logger.debug(`[LIVE] ${symbol}: BUY order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
       const entryPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
       const reportedQty = Number(order.filled ?? order.amount ?? qty);
@@ -750,10 +759,10 @@ export class LiveTrader {
     // Apply Binance lot-size step truncation and check minimum notional
     const base = symbol.split('/')[0];
     try {
-      const bal = await fetchBalance();
+      const bal = await this.exchange.fetchBalance();
       const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
       if (freeBase > 0) {
-        const maxSellable = await amountToPrecision(symbol, Math.min(freeBase, sellQty));
+        const maxSellable = await this.exchange.amountToPrecision(symbol, Math.min(freeBase, sellQty));
         if (maxSellable < sellQty) sellQty = maxSellable;
       }
     } catch { /* fall back to computed qty */ }
@@ -763,7 +772,7 @@ export class LiveTrader {
       return null;
     }
 
-    const order = await createOrder(symbol, 'market', 'sell', sellQty);
+    const order = await this.exchange.createOrder(symbol, 'market', 'sell', sellQty);
     const exitPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
     const proceeds = roundMoney(sellQty * exitPrice);
     const portionEntryCost = roundMoney(sellQty * position.entryPrice);
@@ -816,10 +825,10 @@ export class LiveTrader {
       const base = market.split('/')[0];
       let sellQty = position.qty;
       try {
-        const bal = await fetchBalance();
+        const bal = await this.exchange.fetchBalance();
         const freeBase = Number(bal.free?.[base] ?? bal.total?.[base] ?? 0);
         if (freeBase > 0) {
-          const maxSellable = await amountToPrecision(market, Math.min(freeBase, sellQty));
+          const maxSellable = await this.exchange.amountToPrecision(market, Math.min(freeBase, sellQty));
           const dust = roundQty(Math.min(freeBase, sellQty) - maxSellable);
           if (dust > 0) {
             logger.info(`[LIVE] ${symbol}: dust after step-size truncation: ${dust} ${base} (≈ ${(dust * referencePrice).toFixed(4)} ${this.quoteCurrency})`);
@@ -833,7 +842,7 @@ export class LiveTrader {
         // fetchBalance/amountToPrecision failed — fall back to stored qty
       }
 
-      const order = await createOrder(market, 'market', 'sell', sellQty);
+      const order = await this.exchange.createOrder(market, 'market', 'sell', sellQty);
       logger.debug(`[LIVE] ${symbol}: SELL order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
       const exitPrice = await this.#resolveTradePrice(order, market, referencePrice);
       const proceeds = roundMoney(sellQty * exitPrice);
@@ -890,7 +899,7 @@ export class LiveTrader {
     }
 
     try {
-      const ticker = await fetchTicker(symbol);
+      const ticker = await this.exchange.fetchTicker(symbol);
       const tickerPrice = Number(ticker.last ?? 0);
       if (Number.isFinite(tickerPrice) && tickerPrice > 0) {
         return roundPrice(tickerPrice);
@@ -903,7 +912,7 @@ export class LiveTrader {
   }
 
   async #fetchQuoteBalance() {
-    const balance = await fetchBalance();
+    const balance = await this.exchange.fetchBalance();
     return roundMoney(balance.free?.[this.quoteCurrency] ?? balance.total?.[this.quoteCurrency] ?? 0);
   }
 

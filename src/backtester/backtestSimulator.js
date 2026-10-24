@@ -98,6 +98,26 @@ export class BacktestSimulator {
   }
 
   /**
+   * One price tick through the stop logic, filled at that price — the call
+   * LiveTrader.checkRisk and PaperTrader.checkRisk answer (orderContract.test.js).
+   * @returns {object|null} the closing trade, if a stop or target fired
+   */
+  checkRisk(symbol, price) {
+    const value = Number(price);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return this.#checkRisk(String(symbol), roundPrice(value));
+  }
+
+  /** Marks an open position at a price without touching its stops (as live's markPrice). */
+  markPrice(symbol, price) {
+    const position = this.positions.get(String(symbol));
+    const value = Number(price);
+    if (!position || !Number.isFinite(value) || value <= 0) return false;
+    position.lastPrice = roundPrice(value);
+    return true;
+  }
+
+  /**
    * Replays one bar's price path through the stop logic, the way live's 2-minute
    * risk loop meets it: open, low, high, close (the stop before the target when a
    * bar touches both). A stop crossed inside the bar fills at the stop, a gap

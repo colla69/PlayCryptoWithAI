@@ -462,3 +462,25 @@ rollback (`docker tag` before rebuilding):
 
 Both need `TSM_CORE` and `.env` unchanged. Fine-tuning (exits that loosen with profit, per-symbol
 retune, PBO / CPCV) comes after the rebuild, per the user.
+
+## Step 4 — built (user decision 2026-10-24: now, not after the release)
+
+**Slice 1 — one order contract.** `LiveTrader` takes its exchange calls as a constructor argument
+(the real Binance client by default, so live is unchanged), `PaperTrader` gained a public
+`checkRisk` (paper now runs the 2-minute risk loop), and `BacktestSimulator` answers the same
+`checkRisk(symbol, price)` / `markPrice` calls. `tests/executor/orderContract.test.js` drives all
+three — live against a fake exchange — through stop, target, break-even, strategy-sell, trailing and
+min-notional scripts: identical trades on every one. Found while writing it: paper hardcoded a $10
+floor (orders, sleeve opens, sleeve resizes) where live and the simulator use the shared $11; it now
+uses `FALLBACK_MIN_NOTIONAL`. Known, documented difference: live's recorded P&L excludes fees,
+paper charges none, the simulator models them — the contract runs at zero fees.
+
+**Found for slice 2 — a slot race in live.** `runAllSymbols` runs every symbol's cycle at once
+(`Promise.all`). Each captures `getStatus()` early and checks `canTrade`'s position limit after
+its filter fetches, and `LiveTrader`'s own guard counts positions that are only added after four
+awaits. Two BUYs in one cycle with three slots taken can both pass — five positions — and which BUY
+gets a contested slot depends on which fetch returns first, not on confidence. It never fired (live
+held at most two scalper positions), but the backtester fills slots by confidence, one at a time.
+
+**Closed, not verifiable:** DOGE's 2026-08-20 entry size and the exit of the ETH position opened
+2026-08-03 predate the retained logs (user decision: not pursued).

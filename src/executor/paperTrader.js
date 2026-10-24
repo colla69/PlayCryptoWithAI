@@ -1,6 +1,7 @@
 import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
+import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
@@ -215,9 +216,10 @@ export class PaperTrader {
       return null;
     }
 
-    // Mirror the live exchange minimum notional so paper results stay comparable
-    if (cost < 10) {
-      logger.warn(`[PAPER] ${symbol}: BUY skipped, order value ${cost.toFixed(2)} below $10 minimum notional`);
+    // The live exchange floor, from the same constant liveTrader and the simulator
+    // use — paper hardcoded $10 against their $11, so it took orders live rejects.
+    if (cost < FALLBACK_MIN_NOTIONAL) {
+      logger.warn(`[PAPER] ${symbol}: BUY skipped, order value ${cost.toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} minimum notional`);
       return null;
     }
 
@@ -311,7 +313,7 @@ export class PaperTrader {
     const qty = roundQty(allocation / price);
     const cost = roundMoney(qty * price);
 
-    if (qty <= 0 || cost > this.balance || cost < 10) {
+    if (qty <= 0 || cost > this.balance || cost < FALLBACK_MIN_NOTIONAL) {
       logger.warn(`[PAPER] ${symbol}: core BUY skipped, allocation ${allocation.toFixed(2)} invalid (balance=${this.balance.toFixed(2)})`);
       return null;
     }
@@ -387,8 +389,8 @@ export class PaperTrader {
 
     if (delta > 0) {
       const spend = roundMoney(Math.min(delta, this.balance));
-      if (spend < 10) {
-        logger.info(`[PAPER] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below $10 min)`);
+      if (spend < FALLBACK_MIN_NOTIONAL) {
+        logger.info(`[PAPER] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} min)`);
         return null;
       }
       const addQty = roundQty(spend / price);
@@ -411,8 +413,8 @@ export class PaperTrader {
     if (delta < 0) {
       const sellQty = roundQty(Math.min(-delta / price, position.qty));
       const proceeds = roundMoney(sellQty * price);
-      if (proceeds < 10) {
-        logger.info(`[PAPER] ${symbol}: core resize SELL skipped (${proceeds.toFixed(2)} below $10 min)`);
+      if (proceeds < FALLBACK_MIN_NOTIONAL) {
+        logger.info(`[PAPER] ${symbol}: core resize SELL skipped (${proceeds.toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} min)`);
         return null;
       }
       if (sellQty >= position.qty) {
