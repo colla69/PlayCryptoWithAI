@@ -390,3 +390,58 @@ A baseline from the edited file reproduces the preload run exactly. Final config
 
 WR gap Y1 72% / Y2 64% = 8pp (below the 10pp warning). Fine-tuning is deferred until the rebuild is
 finished (user decision).
+
+## Step 4 — design (implementation starts after step 3 is live and stable)
+
+Per the decisions above, step 4 is planned now and built only after the step-1–3 release has run
+live without surprises. What exists and what is left:
+
+**Order interface.** The three order handlers already share most of a surface:
+
+| Call | `LiveTrader` | `PaperTrader` | `BacktestSimulator` |
+|---|---|---|---|
+| `execute(symbol, decision, price, risk)` | async, real orders | sync | sync, with `fillPrice` / `positionPct` opts |
+| `checkRisk(symbol, price)` | yes | **yes, since 2026-10-24** (was private) | `replayBar(symbol, bar)` + the tick inside `execute` |
+| `markPrice(symbol, price)` | yes | yes | `markEquity(prices)` |
+| `getStatus()` | async | sync | sync |
+| core sleeve `open/close/resizeCorePosition` | yes | yes | — (the sleeve is simulated by `runTrendCore`) |
+
+Left: (a) one `OrderHandler` contract (all async, `execute` taking a resolved size instead of each
+handler sizing itself — sizing is `computePositionSize` everywhere), (b) the sleeve's order calls
+on the simulator, so the sleeve is backtested with live's `tsmCore` functions instead of
+`runTrendCore`'s copy, (c) a contract test that drives all three handlers through the same tick
+sequence and requires identical trades.
+
+**Event loop.** Live has three clocks: the aligned 12h cycle (`createAlignedScheduler`), the 2-minute
+risk loop, and the 5 s price poll. The backtester has one step per 12h bar plus the 15m replay.
+Left: a replay source that emits the same two events live reacts to — `barClosed(T)` for every
+symbol and `priceTick(symbol, price, ts)` from the 15m bars — and one `Engine` that `main.js` and
+the backtester both drive. `runAllSymbols` becomes `onBarClosed`; `runRiskChecks` becomes
+`onPriceTick`. The reconciliation then replays live's own event stream instead of the
+backtester's step loop.
+
+**Done already, groundwork:** the decision core (step 3), shared stop helpers and the intrabar
+replay (item 4), the fetch-first cycle (item 12), and the paper risk loop (paper now meets prices
+every 2 minutes like live, so a paper run is a faithful shadow).
+
+## Warm history for baseline and walk-forward windows (2026-10-24)
+
+Found by the recursive check in `runSignalIntegrity.mjs` (decisions depend slightly on how much
+history is loaded: 99.68% the same with 250 bars, 99.87% with 1,000). `sliceWindow` cut every
+window at its start, so each window restarted every indicator there — `last_90d` (180 bars) got its
+first decision row at bar 50 and traded 65 of its 90 days on cold state, while live always has about
+1,600 bars behind a decision. Now `sliceWithHistory` keeps the history before the window and the run
+trades only from the window's start (`tradeFromTs`), as the reconciliation does. Same config:
+
+| Window | Cold start | Warm history |
+|---|---|---|
+| last_90d | −4.73%, Sh −2.54, DD −5.14% | +0.32%, Sh 0.20, DD −1.40% |
+| last_180d | +14.78%, Sh 1.84, DD −4.76% | +14.36%, Sh 2.11, DD −2.11% |
+| y2_365d | +12.88%, Sh 1.27, DD −2.71% | +17.77%, Sh 1.51, DD −3.89% |
+| y1y2_full | +94.86%, Sh 2.20, DD −6.88% | +97.67%, Sh 2.20, DD −6.89% |
+| full_history | +105.28%, Sh 1.17 | identical (it starts at the data's start) |
+| walk-forward, live sizing | +65.40%, Sh 1.38, DSR 0.53 | +65.06%, Sh 1.36, DSR 0.50 |
+
+The walk-forward moves least: its folds already had 365 bars of training as warm-up. Its DSR is now
+exactly on the 0.5 acceptance line — a point for the fine-tuning to come. Lookahead check: trades
+closed before three cuts are identical with or without later data.

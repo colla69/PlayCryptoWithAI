@@ -36,7 +36,7 @@ import {
   buildPerSymbolOverrides,
   FULL_LIVE_FILTERS,
   SLIPPAGE_TIERS,
-  sliceWindow,
+  sliceWithHistory,
 } from './baselineFramework.js';
 // Live's own builder (follow-ups item 7): a private copy here knew 15 of the 20
 // strategies and defaulted a symbol without a list to ['RSI'] where live uses all.
@@ -135,7 +135,8 @@ export function runFold({
   rowsOnly = false,
 }) {
   // Slice candles to train+forward span. Symbols without enough overlap drop out.
-  const sliced = sliceWindow(symbolCandles, fold.trainStart, fold.forwardEnd);
+  // History before the fold warms the indicators; trading starts at trainStart.
+  const sliced = sliceWithHistory(symbolCandles, fold.trainStart, fold.forwardEnd);
   const symbols = Object.keys(sliced);
   if (symbols.length === 0) {
     return { fold, skipped: true, reason: 'no symbols in window' };
@@ -198,6 +199,7 @@ export function runFold({
       ? config.risk.confidenceThresholdScale
       : 1,
     ...FULL_LIVE_FILTERS,
+    tradeFromTs: fold.trainStart,
     // WS3 sweep hook: per-run filter knob overrides (e.g. {mtfMinScore:0.3}).
     ...filterOverrides,
   });

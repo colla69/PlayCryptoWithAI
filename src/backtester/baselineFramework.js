@@ -174,14 +174,18 @@ export function loadMtfCandles(symbols, suffix) {
 }
 
 /**
- * Slice each symbol's candles to a [startTs, endTs] window. Symbols whose data
- * doesn't overlap the window get an empty array (caller filters).
+ * A window's candles WITH the history before it, for warm indicators: every bar up
+ * to `endTs`, for the symbols with at least 60 bars inside [startTs, endTs]. Pair
+ * it with `tradeFromTs: startTs`, so the run trades and measures only the window.
+ * Live decides with ~1,600 bars behind every cycle; a window cut at its start
+ * restarted every indicator there — `last_90d` traded 65 of its 90 days, all on cold
+ * EMA200 / ADX / PSAR state (runSignalIntegrity.mjs, recursive check).
  */
-export function sliceWindow(symbolCandles, startTs, endTs) {
+export function sliceWithHistory(symbolCandles, startTs, endTs) {
   const out = {};
   for (const [sym, candles] of Object.entries(symbolCandles)) {
-    const slice = candles.filter((c) => c.timestamp >= startTs && c.timestamp <= endTs);
-    if (slice.length >= 60) out[sym] = slice;
+    const inWindow = candles.filter((c) => c.timestamp >= startTs && c.timestamp <= endTs).length;
+    if (inWindow >= 60) out[sym] = candles.filter((c) => c.timestamp <= endTs);
   }
   return out;
 }
@@ -345,7 +349,7 @@ export function runWindow({
   basePctOverride = 0,
   riskOverrides = {},
 }) {
-  const sliced = sliceWindow(symbolCandles, window.startTs, window.endTs);
+  const sliced = sliceWithHistory(symbolCandles, window.startTs, window.endTs);
   const symbols = Object.keys(sliced);
   if (symbols.length === 0) {
     return {
@@ -414,6 +418,8 @@ export function runWindow({
       ? config.risk.confidenceThresholdScale
       : 1,
     ...FULL_LIVE_FILTERS,
+    // Warm indicators from the history before the window; trade only inside it.
+    tradeFromTs: window.startTs,
     // WS3 sweep hook: override individual filter knobs (e.g. mtfMinScore) without
     // mutating the frozen FULL_LIVE_FILTERS. Spread last so overrides win.
     ...filterOverrides,
