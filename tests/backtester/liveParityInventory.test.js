@@ -172,6 +172,16 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'fillPrice: d.price' },
   },
   {
+    // Live ran every symbol's cycle at once: two BUYs could both pass the position
+    // limit against a status read before either order, and a contested slot went to
+    // whichever fetch returned first. Both sides now fill slots one at a time, by
+    // confidence, from fresh status (plan step 4, slice 2).
+    rule: 'Entry slots filled one at a time, highest confidence first',
+    live: { file: 'src/main.js', symbol: 'byEntryPriority' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'byEntryPriority' },
+    shared: 'src/core/decisionCore.js',
+  },
+  {
     // Pinned to the shared helper: the row used to pass on the substring
     // "breakEven" while the simulator ran its own copy (follow-ups item 4).
     rule: 'Break-even stop',

@@ -23,7 +23,7 @@ import { recordEquitySnapshot, loadEquityHistory } from './dashboard/equityHisto
 import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
-import { resolveDecision } from './core/decisionCore.js';
+import { resolveDecision, byEntryPriority } from './core/decisionCore.js';
 import { calcFearGreedAdjustedThreshold } from './core/filters.js';
 import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
 import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
@@ -280,6 +280,28 @@ async function runCycle(symbol) {
       logger.info(`${symbol}: SELL threshold lowered for exit (conf=${result.confidence.toFixed(2)} ≥ ${resolved.sellThreshold.toFixed(2)})`);
     }
 
+    const ctx = { symbol, result, decisionCandles, currentPrice, currentStatus, symRisk };
+    // An entry waits: runAllSymbols fills the free slots one at a time, highest
+    // confidence first, each from fresh status — as the backtester does.
+    if (result.decision === 'BUY' && !hasPosition) return ctx;
+    await completeCycle(ctx);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const message = `${symbol}: cycle failed - ${errorMessage}`;
+    logger.error(message);
+    dashboardState.pushError(message);
+    pushEvent('error', { message, timestamp: Date.now() });
+  }
+  return null;
+}
+
+/**
+ * The rest of a symbol's cycle: entry gates, the risk manager, sizing, the order,
+ * the dashboard. Called at once for exits and holds, and for each entry candidate
+ * in turn (runAllSymbols), so a slot one entry takes is visible to the next.
+ */
+async function completeCycle({ symbol, result, decisionCandles, currentPrice, currentStatus, symRisk }) {
+  try {
     // ── Entry filters: regime, correlation, MTF ──────────────────────────────
     let blockReason = null;
     let mtfSizeFactor = 1.0;
@@ -623,7 +645,21 @@ async function runAllSymbols() {
       }
     }
 
-    await Promise.all(config.symbols.filter((symbol) => fetched.get(symbol)).map((symbol) => runCycle(symbol)));
+    // Phase A in parallel: decisions, exits, holds. Phase B one at a time: entries
+    // by confidence, each from fresh status. All at once, every cycle checked the
+    // position limit against a status read before the others' orders — two BUYs
+    // with three slots taken both passed (follow-ups, step-4 slot race).
+    const candidates = (await Promise.all(
+      config.symbols.filter((symbol) => fetched.get(symbol)).map((symbol) => runCycle(symbol)),
+    )).filter(Boolean);
+    const order = new Map(config.symbols.map((symbol, k) => [symbol, k]));
+    candidates.sort((a, b) => byEntryPriority(
+      { confidence: a.result.confidence, order: order.get(a.symbol) },
+      { confidence: b.result.confidence, order: order.get(b.symbol) },
+    ));
+    for (const candidate of candidates) {
+      await completeCycle({ ...candidate, currentStatus: await trader.getStatus() });
+    }
 
     // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
     // candles that runCycle just refreshed in dashboardState.

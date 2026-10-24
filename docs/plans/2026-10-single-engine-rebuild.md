@@ -484,3 +484,13 @@ held at most two scalper positions), but the backtester fills slots by confidenc
 
 **Closed, not verifiable:** DOGE's 2026-08-20 entry size and the exit of the ETH position opened
 2026-08-03 predate the retained logs (user decision: not pursued).
+
+**Slice 2 — entries one at a time, by confidence.** `runCycle` now returns an unheld BUY as an
+entry candidate instead of executing it; the rest of the cycle is `completeCycle`. `runAllSymbols`
+runs phase A (every symbol in parallel: decision, exits, holds) and then phase B: candidates sorted
+by `byEntryPriority` (decisionCore — confidence first, ties by `config.symbols` order), each
+completed with a fresh `getStatus()`, so a slot, a correlation or an equity change from the
+previous entry is visible to the next. The backtester sorts its queue with the same comparator (the
+golden is unchanged: same order as its stable sort). Inventory row: "Entry slots filled one at a
+time, highest confidence first". The boot cycle had no BUY, so phase B is first exercised by the
+engine tests in slice 3.

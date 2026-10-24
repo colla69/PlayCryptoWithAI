@@ -97,3 +97,14 @@ describe('resolveDecision', () => {
     assert.equal(resolveDecision({ ...base, decision: 'BUY' }).decision, 'BUY');
   });
 });
+
+describe('byEntryPriority', () => {
+  test('higher confidence first, ties by config order', async () => {
+    const { byEntryPriority } = await import('../../src/core/decisionCore.js');
+    const list = [
+      { s: 'C', confidence: 0.5, order: 2 }, { s: 'A', confidence: 0.7, order: 0 },
+      { s: 'B', confidence: 0.5, order: 1 }, { s: 'D', confidence: 0.9, order: 3 },
+    ];
+    assert.deepEqual(list.sort(byEntryPriority).map((x) => x.s), ['D', 'A', 'B', 'C']);
+  });
+});

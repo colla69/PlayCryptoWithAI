@@ -31,7 +31,7 @@
 
 import SignalAggregator from '../engine/signalAggregator.js';
 import { applySizeFloor, computePositionSize } from '../core/positionSizing.js';
-import { evaluateEntryGates, resolveDecision } from '../core/decisionCore.js';
+import { evaluateEntryGates, resolveDecision, byEntryPriority } from '../core/decisionCore.js';
 import { BacktestSimulator } from './backtestSimulator.js';
 import { calculateMetrics } from './metrics.js';
 import { calculateADX, isBullTrend, computeATRPct } from '../utils/indicators.js';
@@ -557,7 +557,12 @@ export class PortfolioBacktester {
       if (this.momentumRank) {
         buyQueue.sort((a, b) => (Number(b.d.mom ?? 0)) - (Number(a.d.mom ?? 0)));
       } else {
-        buyQueue.sort((a, b) => b.d.confidence - a.d.confidence);
+        // Shared with live (runAllSymbols): confidence first, ties by symbol order.
+        const order = new Map(symbols.map((s, k) => [s, k]));
+        buyQueue.sort((a, b) => byEntryPriority(
+          { confidence: a.d.confidence, order: order.get(a.sym) },
+          { confidence: b.d.confidence, order: order.get(b.sym) },
+        ));
       }
 
       // ── Weekly DD circuit breaker (Phase 7) ─────────────────────────────

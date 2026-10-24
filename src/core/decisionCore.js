@@ -145,3 +145,14 @@ export function evaluateEntryGates({
 
   return { blockReason: null, gate: null, mtfSizeFactor };
 }
+
+/**
+ * The order entry candidates get the free slots in: highest confidence first, ties
+ * by the symbol's place in config.symbols. Live and the backtester both sort with
+ * it, so a contested slot goes to the same symbol on both sides.
+ * @param {{confidence: number, order: number}} a
+ * @param {{confidence: number, order: number}} b
+ */
+export function byEntryPriority(a, b) {
+  return (b.confidence - a.confidence) || (a.order - b.order);
+}
