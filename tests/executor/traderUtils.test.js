@@ -38,6 +38,14 @@ describe('calcTrailingStop', () => {
     assert.equal(result.shouldUpdate, false);
     assert.equal(result.newHighWaterMark, 110);
   });
+
+  test('with an arm level, no trailing until the price reaches it', () => {
+    const pos = { entryPrice: 100, highWaterMark: 100, stopLoss: 90, trailingStopPct: 0.03 };
+    assert.deepEqual(calcTrailingStop(pos, 104, 0.05), { shouldUpdate: false });
+    const armed = calcTrailingStop(pos, 105, 0.05);
+    assert.equal(armed.shouldUpdate, true);
+    assert.equal(armed.newStopLoss, 101.85);
+  });
 });
 
 describe('calcBreakEven', () => {

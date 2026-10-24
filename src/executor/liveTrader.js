@@ -95,7 +95,7 @@ export class LiveTrader {
       logger.debug(`[LIVE] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
 
       // Trailing stop update
-      const trailing = calcTrailingStop(position, currentPrice);
+      const trailing = calcTrailingStop(position, currentPrice, this.config.trailArmPct);
       if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
       if (trailing.shouldUpdate) {
         const prevSL = position.stopLoss;
@@ -364,8 +364,10 @@ export class LiveTrader {
             logger.info(`[LIVE] ${symbol}: BE lock applied — current price ${currentPrice.toFixed(8)} ≥ BE level ${(entryPrice * (1 + breakEvenTriggerPct)).toFixed(8)}, stop set to ${position.stopLoss.toFixed(8)}`);
           }
 
-          // Trailing stop (if enabled and price is above entry)
-          if (position.stopLoss < position.entryPrice && position.trailingStopPct && currentPrice > entryPrice) {
+          // Trailing stop (if enabled, the price above entry and past the arm level)
+          const armPct = Number(this.config.trailArmPct ?? 0);
+          if (position.stopLoss < position.entryPrice && position.trailingStopPct && currentPrice > entryPrice
+            && !(armPct > 0 && currentPrice < entryPrice * (1 + armPct))) {
             const trailStop = roundPrice(currentPrice * (1 - position.trailingStopPct));
             if (trailStop > position.stopLoss) {
               position.stopLoss = trailStop;

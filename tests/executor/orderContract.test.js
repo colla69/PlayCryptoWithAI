@@ -113,6 +113,14 @@ describe('order contract: live ≡ paper ≡ simulator', () => {
     assert.equal(r.exitPrice, 116.9);
   });
 
+  test('an armed trailing stop waits for the arm level, then trails', async () => {
+    // Trail 3%, arm at +5%: 104 then a dip to 101.5 stops nothing (unarmed, a plain
+    // trail would sit at 100.88); 110 arms it at 106.7; 106 closes.
+    const risk = { ...RISK, trailingStopPct: 0.03, trailArmPct: 0.05, takeProfitPct: 5, breakEvenTriggerPct: 0 };
+    const r = sameEverywhere(await play({ open: 100, ticks: [104, 101.5, 110, 106] }, 1000, risk));
+    assert.deepEqual(r, { opened: 1.5, reason: 'trailing_stop', exitPrice: 106, pnl: 9 });
+  });
+
   test('every handler refuses an order under the shared $11 floor', async () => {
     // 15% of $70 = $10.50: paper's old hardcoded $10 floor took it, live never would.
     const r = sameEverywhere(await play({ open: 100, ticks: [94] }, 70));

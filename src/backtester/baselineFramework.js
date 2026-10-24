@@ -386,7 +386,7 @@ export function runWindow({
       initialBalance:      budget,
       stopLossPct:         slMedian,
       takeProfitPct:       tpMedian,
-      trailingStopPct:     riding ? rideWinnersTrail : 0,
+      trailingStopPct:     riding ? rideWinnersTrail : (config.risk?.trailingStopPct ?? 0), // live reads config.risk
       // Riding winners requires lifting the 14-bar position-aging cap — otherwise
       // every position is force-closed at 7 days and a multi-week 10x can never run.
       ...(riding && { positionAgingExit: { enabled: false } }),

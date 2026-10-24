@@ -131,6 +131,7 @@ export function runFold({
   // Research sweeps (runStopSweep.mjs): scale every stop / target, and reuse the
   // fold's signal rows across cells. Both off by default.
   riskScale = null,
+  riskOverrides = {},
   rows = null,
   rowsOnly = false,
 }) {
@@ -179,13 +180,15 @@ export function runFold({
       initialBalance:      budget,
       stopLossPct:         slMedianScaled,
       takeProfitPct:       tpMedian,
-      trailingStopPct:     riding ? rideWinnersTrail : 0,
+      trailingStopPct:     riding ? rideWinnersTrail : (config.risk?.trailingStopPct ?? 0), // live reads config.risk
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,
       ...(riding && { positionAgingExit: { enabled: false } }),
       ...(riding && ridePartial && { ridePartial }),
       ...(riding && trailArmPct > 0 && { trailArmPct }),
+      // A sweep's exit cell, e.g. { trailingStopPct: 0.07, trailArmPct: 0.05 }.
+      ...riskOverrides,
     },
     signals: { ...(config.signals ?? {}), minConfidence: minConfMedian },
     maxOpenPositions,

@@ -9,10 +9,17 @@ const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
  * Determine if trailing stop should be updated.
  * @param {{entryPrice: number, highWaterMark: number, stopLoss: number, trailingStopPct?: number}} position
  * @param {number} currentPrice
+ * @param {number} [armPct=0] - trail only once the price is this far above entry
+ *   (e.g. 0.05), so early noise does not shake a position out; 0 trails from entry
  * @returns {{shouldUpdate: boolean, newHighWaterMark?: number, newStopLoss?: number}}
  */
-export function calcTrailingStop(position, currentPrice) {
+export function calcTrailingStop(position, currentPrice, armPct = 0) {
   if (!position || !position.trailingStopPct) {
+    return { shouldUpdate: false };
+  }
+
+  const arm = Number(armPct ?? 0);
+  if (arm > 0 && currentPrice < position.entryPrice * (1 + arm)) {
     return { shouldUpdate: false };
   }
 

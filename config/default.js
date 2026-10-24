@@ -55,6 +55,10 @@ export default {
     stopLossPct: 0.075,
     takeProfitPct: 0.18,
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
+    // With a trailing stop on: start trailing only once the trade is this far up
+    // (e.g. 0.05), so noise right after the entry cannot stop it out. 0 = trail from
+    // entry. Shared by live, paper and the simulator (calcTrailingStop).
+    trailArmPct: 0,
     // Once a trade is up this much, the stop locks at entry × 1.002 (the 0.2% covers
     // round-trip fees — see calcBreakEven). 0.05 → 0.10 on 2026-10-24: under real stop
     // timing (the backtester replays each period's 15m bars, as live's 2-minute loop

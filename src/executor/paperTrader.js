@@ -115,7 +115,7 @@ export class PaperTrader {
     logger.debug(`[PAPER] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
 
     // Trailing stop update
-    const trailing = calcTrailingStop(position, currentPrice);
+    const trailing = calcTrailingStop(position, currentPrice, this.config.trailArmPct);
     if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
     if (trailing.shouldUpdate) {
       const prevSL = position.stopLoss;

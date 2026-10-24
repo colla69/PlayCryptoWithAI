@@ -79,16 +79,7 @@ export class BacktestSimulator {
       return null;
     }
 
-    // Arm-after-profit: don't start trailing until the position is up by trailArmPct,
-    // so early noise doesn't shake the rider out before the trend develops. A
-    // research knob (default 0) kept here, around live's shared rule.
-    const ref = this.#stopView(position);
-    const armPct = Number(this.config.trailArmPct ?? 0);
-    if (armPct > 0 && currentPrice < ref.entryPrice * (1 + armPct)) {
-      return null;
-    }
-
-    const trailing = calcTrailingStop(ref, currentPrice);
+    const trailing = calcTrailingStop(this.#stopView(position), currentPrice, this.config.trailArmPct);
     if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
     if (trailing.shouldUpdate) {
       position.stopLoss = trailing.newStopLoss;
