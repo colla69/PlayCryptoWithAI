@@ -25,8 +25,8 @@ import { loadFearGreedHistory } from './data/fearGreed.js';
 import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
-import { computeTsmVote, planCoreActions, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey, baseSymbol, selectSleeveRung, sleeveFeasibility } from './engine/tsmCore.js';
-import { loadNasdaqHistory, computeEquityRiskOff } from './data/nasdaqTrend.js';
+import { baseSymbol } from './engine/tsmCore.js';
+import { loadNasdaqHistory } from './data/nasdaqTrend.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -37,7 +37,7 @@ import {
   scaleMinConfidence,
 } from './utils/strategyBuilder.js';
 import { buildCorrelationMatrix } from './utils/correlation.js';
-import { checkCandleFreshness, formatAge } from './utils/candleFreshness.js';
+import { checkCandleFreshness } from './utils/candleFreshness.js';
 import { withFormingBar } from './utils/formingBar.js';
 import { createAlignedScheduler } from './core/cycleScheduler.js';
 import { createTradingEngine } from './core/engine.js';
@@ -76,7 +76,7 @@ const engine = createTradingEngine({
   fetchOHLCV,
   marketContext: { getBtcDominanceTrend, getEthBtcTrend },
   notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot,
-  runTsmCoreCycle: () => runTsmCoreCycle(),
+  loadEquityHistory, loadNasdaqHistory,
   modeLabel: (paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase(),
   initialState: { currentRegime: REGIME_LABELS.BULL_RANGE },
 });
@@ -131,233 +131,6 @@ function initializeExternalSignalSources() {
 
 
 
-// ── TSM majors core sleeve ────────────────────────────────────────────────────
-// Once per cycle: recompute the momentum majority vote per core symbol and
-// reconcile positions (open on flip-on, close on flip-off — no other exits).
-// The sleeve is independent of the scalper: core positions skip stop
-// management, entry filters, and bear cash-exit, and their PnL intentionally
-// does NOT feed riskManager's daily-loss accounting. Execution follows the
-// session's trader instance: PaperTrader simulates, LiveTrader places REAL
-// market orders — TSM_CORE=true is the deliberate opt-in in either mode.
-// Vote-flip exits that fail on the exchange are alerted immediately and
-// retried by the fast risk loop (live) instead of waiting 12h.
-const tsmCoreFailedCloses = new Set();
-// Rung bookkeeping: alert on transitions, and only once per boot on infeasibility.
-let tsmLastRungKey = null;
-let tsmFeasibilityAlerted = false;
-async function runTsmCoreCycle() {
-  const coreCfg = config.tsmCore ?? {};
-  if (!coreCfg.enabled) return;
-  // Fresh cycle re-decides everything — stale retry flags would otherwise
-  // outlive a vote that flipped back on.
-  tsmCoreFailedCloses.clear();
-  try {
-    const status = await trader.getStatus();
-
-    // ── Equity-ladder rung selection (HWM ratchet) ──────────────────────────
-    // Sizing keys off the account's all-time-high equity, never current equity:
-    // wins and deposits both step risk DOWN a rung; a drawdown never steps it
-    // back up. See config.tsmCore.equityLadder for the rung rationale.
-    const currentEquity = calcEquityFromStatus(status);
-    const hwmEquity = Math.max(
-      currentEquity,
-      ...loadEquityHistory().map((p) => Number(p.equity) || 0),
-    );
-    const rung = selectSleeveRung(hwmEquity, coreCfg.equityLadder);
-    const active = rung
-      ? { ...coreCfg, symbols: rung.symbols, deploymentPct: rung.deploymentPct }
-      : coreCfg;
-    const nextRung = rung
-      ? (coreCfg.equityLadder ?? [])
-        .filter((r) => Number(r.minHwmEquity) > Number(rung.minHwmEquity))
-        .sort((a, b) => Number(a.minHwmEquity) - Number(b.minHwmEquity))[0] ?? null
-      : null;
-    const rungKey = `${(active.symbols ?? []).length}@${active.deploymentPct}`;
-    logger.info(
-      `[TSM-CORE] rung ${rungKey} (HWM $${hwmEquity.toFixed(2)})`
-      + `${nextRung ? ` · next de-risk at $${nextRung.minHwmEquity} HWM` : ' · top rung'}`,
-    );
-    if (tsmLastRungKey !== null && tsmLastRungKey !== rungKey) {
-      void notifyAlert(
-        `🧲 TSM sleeve de-risked: ${tsmLastRungKey} → ${rungKey} (HWM $${hwmEquity.toFixed(2)}). `
-        + 'Held slots will drift-rebalance to the new size.',
-      );
-    }
-    tsmLastRungKey = rungKey;
-
-    // Advisory only (order-time enforcement lives in the trader): can this rung
-    // actually place an order at CURRENT equity under adverse multipliers?
-    const feas = sleeveFeasibility({
-      equity: currentEquity,
-      nSymbols: (active.symbols ?? []).length,
-      deploymentPct: active.deploymentPct,
-      riskOffFactor: Number(coreCfg.macroOverlay?.riskOffFactor ?? 0.5),
-    });
-    if (!feas.feasible && !tsmFeasibilityAlerted) {
-      tsmFeasibilityAlerted = true;
-      const message = `[TSM-CORE] rung ${rungKey} cannot clear the exchange min-notional floor at current `
-        + `equity $${currentEquity.toFixed(2)} (adverse slot ≈ $${feas.adverseSlotUsd}) — sleeve will idle in cash. `
-        + `Viable from ~$${feas.viableFromEquity} equity.`;
-      logger.warn(message);
-      void notifyAlert(message);
-    }
-
-    // ── Macro overlay (M1): half size while NASDAQ < its 100d EMA ───────────
-    // FRED feed is keyless with a 12h disk cache; any failure → neutral (1).
-    let macroFactor = 1;
-    let macroState = 'off';
-    const mo = coreCfg.macroOverlay ?? {};
-    if (mo.enabled !== false) {
-      const nasdaq = await loadNasdaqHistory();
-      const ro = computeEquityRiskOff(nasdaq?.rows, { emaDays: mo.emaDays ?? 100 });
-      if (ro.available) {
-        macroFactor = ro.above ? 1 : Number(mo.riskOffFactor ?? 0.5);
-        macroState = ro.above ? 'risk-on' : `RISK-OFF ×${macroFactor}`;
-      } else {
-        macroState = 'unavailable → neutral';
-        logger.warn('[TSM-CORE] NASDAQ feed unavailable — macro overlay neutral this cycle');
-      }
-    }
-
-    const signals = new Map();
-    const prices = new Map();
-    const fractions = new Map();
-    const vols = new Map();
-    for (const symbol of active.symbols ?? []) {
-      const candles = dashboardState.getCandles(symbol);
-      if (!candles || candles.length < 2) {
-        logger.warn(`[TSM-CORE] ${symbol}: no candles cached — skipping`);
-        continue;
-      }
-      // The sleeve places REAL market orders in live mode, so a frozen series
-      // is far more dangerous here than on the scalper path: a stale vote could
-      // open or close a whole slot at a price that no longer exists. Skipping
-      // leaves any held position untouched — planCoreActions only acts on
-      // symbols present in `signals`.
-      const coreFreshness = checkCandleFreshness(
-        candles, config.timeframe, config.maxCandleStalenessPeriods,
-      );
-      if (coreFreshness.stale) {
-        const message = `[TSM-CORE] ${symbol}: candle series stale (newest bar ${formatAge(coreFreshness.ageMs)} old) — skipping, position left as-is`;
-        logger.warn(message);
-        dashboardState.pushError(message);
-        continue;
-      }
-      // Closed bars only — the forming candle is sliced off (no lookahead). Through
-      // withFormingBar, or a series that has no new bar yet loses its closed one.
-      const closed = withFormingBar(candles, config.timeframe).slice(0, -1);
-      const vote = computeTsmVote(closed, coreCfg.lookbackBars ?? [60, 90, 120]);
-      const realizedVol = computeRealizedVolAnnual(closed, { windowBars: coreCfg.volWindowBars ?? 60 });
-      const fraction = computeTargetFraction({
-        volTarget: coreCfg.volTarget ?? null,
-        realizedVol,
-        minFraction: coreCfg.minFraction ?? 0.2,
-        macroFactor,
-      });
-      signals.set(symbol, vote);
-      prices.set(symbol, Number(candles.at(-1).close));
-      fractions.set(symbol, fraction);
-      vols.set(symbol, realizedVol);
-      logger.info(
-        `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (enter ≥${coreCfg.enterVotes ?? vote.needed}, stay ≥${coreCfg.stayVotes ?? vote.needed})` +
-        ` · vol ${realizedVol ? (realizedVol * 100).toFixed(0) + '%' : 'n/a'} → ×${fraction.toFixed(2)} · macro ${macroState}` +
-        `${vote.insufficientHistory ? ' [insufficient history → forced CASH votes]' : ''}`,
-      );
-    }
-
-    // Equal split of deploymentPct × total equity across core symbols; each
-    // slot then scales by its vol/macro fraction. Opens are additionally
-    // capped at available cash inside openCorePosition.
-    const perSlot = (currentEquity * Number(active.deploymentPct ?? 0.5)) / Math.max((active.symbols ?? []).length, 1);
-
-    const emit = (result) => {
-      dashboardState.pushTrade(result);
-      notifyTrade(result);
-      pushEvent('trade', result);
-    };
-
-    const actions = planCoreActions({
-      symbols: [...signals.keys()],
-      signals,
-      positions: status.positions,
-      enterVotes: coreCfg.enterVotes ?? null,
-      stayVotes: coreCfg.stayVotes ?? null,
-    });
-    let traded = 0;
-    for (const action of actions) {
-      const price = prices.get(action.symbol);
-      if (!Number.isFinite(price) || price <= 0) continue;
-      const result = action.type === 'open'
-        ? await trader.openCorePosition(action.key, price, perSlot * (fractions.get(action.symbol) ?? 1))
-        : await trader.closeCorePosition(action.key, price);
-      if (!result) {
-        if (action.type === 'close') {
-          // A stuck exit is unbounded exposure with no stop — alert the
-          // operator now and let the fast risk loop retry within minutes.
-          tsmCoreFailedCloses.add(action.key);
-          logger.error(`[TSM-CORE] ${action.key}: vote-flip CLOSE FAILED — retrying via fast risk loop`);
-          void notifyAlert(`TSM core: closing <b>${action.key}</b> failed — position stays open until the retry succeeds (checked every 2 min).`);
-        }
-        continue;
-      }
-      emit(result); traded++;
-    }
-
-    // ── Resize pass: drift held positions toward their vol/macro target ─────
-    // Uses the pre-action snapshot, so freshly opened/closed slots are skipped.
-    const acted = new Set(actions.map((a) => a.key));
-    const held = new Map((status.positions ?? []).filter((p) => p.isCore).map((p) => [p.symbol, p]));
-    for (const symbol of signals.keys()) {
-      const key = coreKey(symbol);
-      const pos = held.get(key);
-      if (!pos || acted.has(key)) continue;
-      const price = prices.get(symbol);
-      if (!Number.isFinite(price) || price <= 0) continue;
-      const deltaUsd = planCoreResize({
-        desiredUsd: perSlot * (fractions.get(symbol) ?? 1),
-        currentUsd: pos.qty * price,
-        perSlotUsd: perSlot,
-        thresholdPct: coreCfg.resizeThresholdPct ?? 0.15,
-      });
-      if (deltaUsd === null) continue;
-      const result = await trader.resizeCorePosition(key, price, deltaUsd);
-      if (!result) continue;
-      emit(result); traded++;
-    }
-
-    // Surface sleeve state to the dashboard (append-only `tsmCore` key)
-    const finalStatus = traded > 0 ? await trader.getStatus() : status;
-    dashboardState.setTsmCore({
-      enabled: true,
-      updatedAt: new Date().toISOString(),
-      deploymentPct: Number(active.deploymentPct ?? 0.5),
-      enterVotes: coreCfg.enterVotes ?? null,
-      stayVotes: coreCfg.stayVotes ?? null,
-      volTarget: coreCfg.volTarget ?? null,
-      macro: { state: macroState, factor: macroFactor },
-      symbols: [...signals.entries()].map(([symbol, vote]) => {
-        const pos = (finalStatus.positions ?? []).find((p) => p.symbol === coreKey(symbol));
-        const price = prices.get(symbol);
-        return {
-          symbol,
-          positive: vote.positive,
-          total: vote.total,
-          insufficientHistory: vote.insufficientHistory,
-          held: Boolean(pos),
-          realizedVol: vols.get(symbol) ?? null,
-          fraction: Number((fractions.get(symbol) ?? 1).toFixed(2)),
-          targetUsd: Math.round(perSlot * (fractions.get(symbol) ?? 1)),
-          currentUsd: pos && Number.isFinite(price) ? Math.round(pos.qty * price) : 0,
-        };
-      }),
-    });
-    if (traded > 0) {
-      dashboardState.updateStatus(finalStatus, riskManager.getDailyStats());
-    }
-  } catch (err) {
-    logger.error(`[TSM-CORE] cycle failed: ${err?.message ?? err}`);
-  }
-}
 
 function logStartup() {
   logger.info('Starting playAIStocks Phase 4 bot');
@@ -883,10 +656,10 @@ let riskCheckId = null;
               dashboardState.updatePrice(pos.symbol, price);
               await trader.checkRisk(pos.symbol, price);
 
-              if (tsmCoreFailedCloses.has(pos.symbol)) {
+              if (engine.state.tsmCoreFailedCloses.has(pos.symbol)) {
                 const retried = await trader.closeCorePosition(pos.symbol, price);
                 if (retried) {
-                  tsmCoreFailedCloses.delete(pos.symbol);
+                  engine.state.tsmCoreFailedCloses.delete(pos.symbol);
                   logger.info(`[RISK-LOOP] ${pos.symbol}: core close retry succeeded`);
                   dashboardState.pushTrade(retried);
                   notifyTrade(retried);

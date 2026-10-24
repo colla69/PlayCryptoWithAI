@@ -531,3 +531,11 @@ old); it now passes the price this cycle fetched — paper and the replay fill a
 given, live's market order was unaffected. After both: **26 of 26 identical, same realised P&L
 ($111.84)**; the live window stays 6 of 6. The backtester and the engine live runs now trade the
 same, trade for trade.
+
+**Slice 3c — the TSM sleeve moves into the engine.** `runTsmCoreCycle` and its state (failed-close
+retries, rung bookkeeping) moved from `main.js` into the engine the same way: verbatim, state in
+`state.*`, the clock through `now()` (freshness, `withFormingBar`, the dashboard timestamp), the
+equity history and the NASDAQ feed as deps. The risk loop's core branch reads
+`engine.state.tsmCoreFailedCloses`. Proof of no change: on the same 12h bar, the boot's
+`[TSM-CORE]` lines (votes, realized vol, size fraction, macro state for all four majors) are
+identical to the boot before the move.
