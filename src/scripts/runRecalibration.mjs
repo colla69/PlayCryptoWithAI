@@ -49,6 +49,8 @@ const WINDOWS = [
 // share of equity on today's rung.
 const STAGE = Number(arg('--stage', 1));
 const STAGE1_CELLS = 17;
+// Cells run before stage 3: stage 2 (10), the trailing sweep (20) and its plateau check (9).
+const BEFORE_STAGE3 = STAGE1_CELLS + 10 + 20 + 9;
 const GRID = [];
 if (STAGE === 1) {
   for (const [slots, pct] of [[4, 0.15], [3, 0.20], [2, 0.30], [2, 0.40]]) {
@@ -56,6 +58,11 @@ if (STAGE === 1) {
       for (const bump of [false, true]) GRID.push({ exits: 'new', slots, pct, minSize, bump });
     }
   }
+} else if (STAGE === 3) {
+  // Stage 3 (2026-10-25): the trailing-stop sweep's two best walk-forward cells
+  // (runStopSweep.mjs, data/trail_sweep.log) on the committed sizing and sleeve.
+  GRID.push({ exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false, trail: 0.10, arm: 0.05, id: 'trail 10% from +5%' });
+  GRID.push({ exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false, trail: 0.07, arm: 0.05, tpOff: true, id: 'TP off, trail 7% from +5%' });
 } else {
   for (const [slots, pct] of [[4, 0.15], [3, 0.20], [2, 0.30]]) {
     for (const sleeveDeployment of [0.5, 0.25, 0]) {
@@ -63,12 +70,13 @@ if (STAGE === 1) {
     }
   }
 }
-const isL1 = (c) => c.slots === 4 && c.pct === 0.15 && !c.minSize && !c.bump && (c.sleeveDeployment ?? 0.5) === 0.5;
-const CELLS = [{ exits: 'old', slots: 4, pct: 0.15, minSize: 0, bump: false, id: 'L0 live as deployed' }, ...GRID.map((c) => ({
+const isL1 = (c) => c.slots === 4 && c.pct === 0.15 && !c.minSize && !c.bump && (c.sleeveDeployment ?? 0.5) === 0.5 && !c.trail;
+const L1_CELL = { exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false };
+const CELLS = [{ exits: 'old', slots: 4, pct: 0.15, minSize: 0, bump: false, id: 'L0 live as deployed' }, ...[...(STAGE === 3 ? [L1_CELL] : []), ...GRID].map((c) => ({
   ...c,
-  id: isL1(c) ? 'L1 committed'
+  id: c.id ?? (isL1(c) ? 'L1 committed'
     : STAGE === 1 ? `${c.slots}×${c.pct * 100}% floor${c.minSize} bump${c.bump ? 'On' : 'Off'}`
-      : `${c.slots}×${c.pct * 100}% sleeve ${c.sleeveDeployment * 100}%`,
+      : `${c.slots}×${c.pct * 100}% sleeve ${c.sleeveDeployment * 100}%`),
 }))];
 
 /** Applies a cell to the in-memory config (this process only). */
@@ -92,6 +100,15 @@ function applyCell(cell) {
     config.tsmCore.equityLadder = config.tsmCore.equityLadder.map((r, i) => (i === 0 ? { ...r, deploymentPct: cell.sleeveDeployment } : r));
   }
   if (cell.breakEven != null) config.risk.breakEvenTriggerPct = cell.breakEven;
+  if (cell.trail) {
+    config.risk.trailingStopPct = cell.trail;
+    config.risk.trailArmPct = cell.arm ?? 0;
+  }
+  if (cell.tpOff) {
+    // As the sweep's TP scale 100: a target no trade reaches.
+    for (const ps of Object.values(config.perSymbol ?? {})) if (ps.takeProfitPct != null) ps.takeProfitPct *= 100;
+    config.risk.takeProfitPct *= 100;
+  }
 }
 
 /** Deposit-adjusted metrics from the per-cycle equity curve. */
@@ -141,7 +158,7 @@ async function worker(cell, from, to) {
   });
   const trades = r.trades;
   const out = {
-    ...metrics(r.equity, deposits, fromTs, PRIOR_TRIALS + (STAGE === 1 ? 0 : STAGE1_CELLS) + CELLS.length),
+    ...metrics(r.equity, deposits, fromTs, PRIOR_TRIALS + (STAGE === 1 ? 0 : STAGE === 2 ? STAGE1_CELLS : BEFORE_STAGE3) + CELLS.length),
     scalperTrades: trades.filter((t) => !t.symbol.endsWith('#core')).length,
     sleeveTrades: trades.filter((t) => t.symbol.endsWith('#core')).length,
     floorRejections: r.sim.minNotionalRejections,

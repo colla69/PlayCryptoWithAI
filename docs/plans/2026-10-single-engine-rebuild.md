@@ -642,3 +642,51 @@ Possible next research (not started, each needs a pre-registered grid): a sleeve
 drawdown (for example, a share cut when the sleeve's equity falls from its peak, or the sleeve on
 only in a BTC bull regime). That would attack the one trade-off stage 2 found, instead of trading
 one window against the other.
+
+## Trailing stop with an arm level (2026-10-25)
+
+**Engine change first (`ac88b4d`).** The arm level ("start trailing once the trade is +X% up") was a
+simulator-only research knob, so a backtest with it would not have been live. It is now the third
+argument of the shared `calcTrailingStop`, read from `risk.trailArmPct` (default 0) by live, paper
+and the simulator, and the live restore path checks it too. The walk-forward and baseline windows
+also forced `trailingStopPct` to 0 whatever the config said; they now read `config.risk` as live
+does. `orderContract.test.js` has an armed-trail scenario on all three handlers.
+
+**Sweep** (`runStopSweep.mjs`, pre-registered in `05962c7`): the committed stops and break-even
+(+10%), trail ∈ {4%, 7%, 10%} × arm ∈ {at entry, +5%, +10%} × take-profit {kept, off}, plus TP off
+without a trail and the reference: 20 cells, forward-only walk-forward at live sizing, 52 folds,
+DSR charged for 16,343 + 20 trials. Accept: ≥ 8 trades, DSR ≥ 0.5, DD at most 2 points worse than
+the reference, and Sharpe above it. The 14-bar aging exit stays on, as in live, so even with TP off
+a trade runs at most 7 days.
+
+| Cell | Return | Sharpe | Max DD | WR | Trades | DSR | Accept |
+|---|---|---|---|---|---|---|---|
+| TP kept, trail 10% from +5% | +66.10% | 1.46 | −3.49% | 66% | 79 | 0.67 | yes |
+| TP off, trail 7% from +5% | +63.80% | 1.39 | −3.49% | 66% | 79 | 0.56 | yes |
+| TP kept, trail 7% from +5% | +53.56% | 1.37 | −3.49% | 66% | 79 | 0.52 | yes |
+| TP kept, trail 10% from +10% | +62.54% | 1.37 | −4.28% | 69% | 78 | 0.51 | yes |
+| TP off, trail 10% from +5% | +71.96% | 1.37 | −3.51% | 66% | 79 | 0.51 | yes |
+| **reference (committed, no trail)** | +65.00% | 1.36 | −4.28% | 67% | 78 | 0.50 | — |
+| TP kept, trail 10% from entry | +60.46% | 1.33 | −5.31% | 63% | 79 | 0.47 | no |
+| TP off, no trail | +105.91% | 1.02 | −7.04% | 63% | 78 | 0.10 | no |
+| TP kept, trail 4% from entry | +15.41% | 0.74 | −2.40% | 51% | 83 | 0.01 | no |
+
+Full table in `data/trail_sweep.log`. The reference gives +65.00% / 1.36, not the +65.40% / 1.38
+of the stop sweep: the engine fixes since then (slot order, median ATR, bear-exit price) moved it;
+which one was not isolated. Reading:
+
+- **The arm level is what makes a trail work.** Every trail that starts at entry loses to the
+  reference; from +5% the 7% and 10% trails win with TP kept or off. A 4% trail loses everywhere.
+- **The gain is small but in the right place:** Sharpe 1.36 → 1.46 and DD −4.28% → −3.49%, return
+  about the same. The trail mostly protects trades that rose and then fell back.
+- **TP off without a trail** has the top return (+105.9%) and the worst DD (−7.0%) and Sharpe (1.02).
+- **The winner is at a corner** (the widest trail). Not accepted yet.
+
+**Pre-registered next (before either runs):**
+
+1. *Plateau check*, same sweep: TP kept, trail ∈ {10%, 12%, 15%} × arm ∈ {entry, +3%, +5%, +7.5%}
+   plus the reference (13 cells, 10 new; DSR charged for 16,363 + 13). The winner stands if its
+   neighbours stay at or above the reference's Sharpe and none collapses.
+2. *Live conditions*, `runRecalibration.mjs --stage 3`: the two best cells (TP kept, trail 10% from
+   +5%; TP off, trail 7% from +5%) with the committed sizing and sleeve, against L0 and L1, same
+   windows and rule as stage 2 (beat both on TWR and Sharpe in both windows, DD ≤ 10% in both).
