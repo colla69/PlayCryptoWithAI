@@ -18,6 +18,7 @@
  *
  * Usage:
  *   PAPER_MODE=true node src/scripts/runStopSweep.mjs [--out data/stop_sweep.json]
+ *   … --sl 1.5,2,2.5 --tp 1.5,2,2.5 --be 0 --prior-trials 16307 --current-dd 0.0456
  */
 
 import 'dotenv/config';
@@ -27,17 +28,21 @@ import { loadAllSymbols, loadMtfCandles, gitMeta } from '../backtester/baselineF
 import { generateFolds, runFold, aggregateFolds } from '../backtester/walkForward.js';
 import { loadFearGreedHistory } from '../data/fearGreed.js';
 
-const SL_SCALES = [0.75, 1, 1.5];
-const TP_SCALES = [0.75, 1, 1.5];
-const BE_TRIGGERS = [0, 0.05, 0.10];
-const PRIOR_TRIALS = 16280; // the search burden every baseline already charges
+const argv = process.argv.slice(2);
+const arg = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : null);
+const list = (name, fallback) => (arg(name) ? arg(name).split(',').map(Number) : fallback);
+// A follow-up grid (e.g. the plateau check past a corner) is pre-registered on the
+// command line, and --prior-trials charges every cell already run.
+const SL_SCALES = list('--sl', [0.75, 1, 1.5]);
+const TP_SCALES = list('--tp', [0.75, 1, 1.5]);
+const BE_TRIGGERS = list('--be', [0, 0.05, 0.10]);
+const PRIOR_TRIALS = Number(arg('--prior-trials') ?? 16280); // the search burden every baseline already charges
 const TRAIN_BARS = 365;
 const FORWARD_BARS = 90;
 const BUDGET = 1000;
 const CYCLE_MS = 12 * 60 * 60 * 1000;
 
-const argv = process.argv.slice(2);
-const outFile = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : 'data/stop_sweep.json';
+const outFile = arg('--out') ?? 'data/stop_sweep.json';
 
 const cells = SL_SCALES.flatMap((sl) => TP_SCALES.flatMap((tp) => BE_TRIGGERS.map((be) => ({ sl, tp, be }))));
 const nTrials = PRIOR_TRIALS + cells.length;
@@ -75,8 +80,8 @@ for (const fold of folds) {
     perCell[k].push(result);
   }
   // Reusing rows must be an identity: check the current cell against a plain run.
-  if (!skipped && fold.index < 2) {
-    const ref = cells.findIndex((c) => c.sl === 1 && c.tp === 1 && c.be === 0.05);
+  const ref = cells.findIndex((c) => c.sl === 1 && c.tp === 1 && c.be === 0.05);
+  if (!skipped && fold.index < 2 && ref >= 0) {
     const plain = runFold({ ...common, fold, filterOverrides: { breakEvenTriggerPct: 0.05 } });
     const same = JSON.stringify(plain.forward_trades) === JSON.stringify(perCell[ref].at(-1).forward_trades);
     if (!same) throw new Error(`fold ${fold.index}: reused rows differ from a plain run — sweep invalid`);
@@ -92,9 +97,11 @@ const results = cells.map((c, k) => {
     dsr: a.deflated_sharpe?.dsr ?? a.deflated_sharpe ?? null,
   };
 });
+// The acceptance DD limit is relative to the current config's walk-forward DD.
+const currentDD = Number(arg('--current-dd') ?? results.find((r) => r.sl === 1 && r.tp === 1 && r.be === 0.05)?.max_drawdown);
 const current = results.find((r) => r.sl === 1 && r.tp === 1 && r.be === 0.05);
 for (const r of results) {
-  r.accepted = r.total_trades >= 8 && Number(r.dsr) >= 0.5 && r.max_drawdown <= current.max_drawdown + 0.02;
+  r.accepted = r.total_trades >= 8 && Number(r.dsr) >= 0.5 && r.max_drawdown <= currentDD + 0.02;
 }
 
 console.log('\n| Cell | Return | Sharpe | Max DD | WR | PF | Trades | DSR | Accept |');

@@ -341,3 +341,31 @@ Full table in `data/stop_sweep.log`. Reading: the +5% break-even costs in almost
 real stop timing it closes winners at zero), and wider stops with wider targets help together.
 **The winner is a corner of the grid**, so it is not accepted yet: a plateau check past 1.5 and the
 two-window baseline (Y2 and Y1+Y2, WR gap) come first.
+
+**Plateau check (9 more cells, break-even off, DSR charged for 16,307 + 9).** `(1.5, 1.5)` reproduces
+its first-grid result exactly and is the top of a smooth plateau: SL ×2 / TP ×1.5 Sharpe 1.35, SL ×1.5 /
+TP ×2 1.34, SL ×2 / TP ×2 1.30, out to SL ×2.5 / TP ×2.5 1.15, with drawdown growing to −10.8%. Not a
+lucky corner.
+
+**Two-window baseline of the winner** (SL ×1.5, TP ×1.5, break-even off; applied in memory by a
+preload, the config file unchanged):
+
+| Window | Current | Winner |
+|---|---|---|
+| y2_365d (in-sample) | −1.15%, Sh −0.09, DD −7.46%, WR 33% | +12.88%, Sh 1.27, DD −2.71%, WR 64% |
+| y1y2_full (OOS) | +31.24%, Sh 1.22, DD −8.11%, WR 45% | +95.96%, Sh 2.21, DD −6.88%, WR 70% |
+| full_history | +37.30%, Sh 0.69, DD −8.11%, DSR 0.02 | +106.10%, Sh 1.17, DD −7.47%, DSR 0.31 |
+| y1_holdout | +29.93%, Sh 2.11, DD −4.09% | +66.15%, Sh 2.78, DD −6.88% |
+
+Better in every window; DD smaller in five of six (y1_holdout widens). WR gap Y1 75% vs Y2 64% =
+11pp: a warning (> 10pp), not a blocker (> 15pp). The baseline's DSR charges the standard 16,280
+trials, not the 36 sweep cells; the walk-forward DSR (0.53) charges them.
+
+**Candidate (not applied):** every per-symbol `stopLossPct` and `takeProfitPct` × 1.5, global ones
+too, `risk.breakEvenTriggerPct` 0. A risk change to the live config: applied only with the user's
+OK, as one change, with the previous config kept for a rollback.
+
+**Slippage calibration (measured, not changed).** Live's 24 fills at a cycle, against the bar's
+open: mean +1.0 bps worse, versus a mean tier of 11.7 bps. The tiers are about 10× conservative; the
+exception is PEPE (+22 bps = one 1e-8 price tick). Kept as they are (the rule says never flat);
+re-measure once live has more fills.
