@@ -99,7 +99,10 @@ are never used for exits. On a 12h bar this moves results both ways:
   inside the bar counts live and not in the backtest.
 
 The fast risk loop runs only when `!paperMode`, so paper mode does not have the 2-minute check
-either. What paper does between cycles was not checked.
+either. `PaperTrader.#checkRisk` is reached only through `execute()`, i.e. once per signal cycle
+(its own `markPrice` comment says so), and the 5 s price poll only marks positions. So paper
+matches the backtest on stop timing, not live. A paper run is therefore not a faithful shadow of
+live until the risk loop also runs in paper mode.
 
 **The stop logic also exists twice.** `paperTrader.js` and `liveTrader.js` import
 `calcTrailingStop` and `calcBreakEven` from `traderUtils.js`. `backtestSimulator.js` imports only
