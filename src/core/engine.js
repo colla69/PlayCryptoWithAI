@@ -239,8 +239,8 @@ export function createTradingEngine(deps) {
           // the newest bar in a fresh fetch is seconds old and still forming.
           const closedNow = (bars, tf) => {
             const ms = timeframeMs(tf) ?? 0;
-            const now = now();
-            return bars.filter((c) => Number(c.timestamp) + ms <= now);
+            const nowMs = now();
+            return bars.filter((c) => Number(c.timestamp) + ms <= nowMs);
           };
           const cachedFetchOHLCV = async (sym, tf, limit) => {
             if (tf === '15m' && mtf15mCache.has(sym)) return closedNow(mtf15mCache.get(sym), tf).slice(-(limit ?? 20));
@@ -627,11 +627,19 @@ export function createTradingEngine(deps) {
    * replay's 15m bars. A stop, target or trailing exit is recorded with the risk
    * manager like any other exit: the risk loop used to skip that, so the daily-loss
    * brake never saw the losses it most often exists for.
+   * @param {string} symbol
+   * @param {number} price
+   * @param {object} [bar] — a replay's 15m bar; live passes none
    * @returns {Promise<object|null>} the closing trade, if one fired
    */
-  async function onPriceTick(symbol, price) {
+  async function onPriceTick(symbol, price, bar = null) {
     dashboardState.updatePrice(symbol, price);
-    const result = await trader.checkRisk(symbol, price);
+    // A replay's tick source delivers a whole 15m bar; the simulator walks it
+    // (open, low, high, close) and fills a crossed stop at the stop, as live's
+    // 2-minute loop nearly does. Live and paper trade a single price.
+    const result = bar && trader.replayBar
+      ? await trader.replayBar(symbol, bar)
+      : await trader.checkRisk(symbol, price);
     if (result) {
       logger.info(`[RISK-LOOP] ${symbol}: position closed by risk check`);
       dashboardState.pushTrade(result);

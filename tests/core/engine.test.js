@@ -58,10 +58,10 @@ function fakeDashboard(candles) {
 }
 
 /** Builds an engine whose aggregators decide BUY at the given confidences. */
-function build({ confidences, maxOpenPositions }) {
+function build({ confidences, maxOpenPositions, configPatch = {}, bars15m = null }) {
   const candles = Object.fromEntries(SYMBOLS.map((s) => [s, series()]));
   const dashboardState = fakeDashboard(candles);
-  const cfg = engineConfig(maxOpenPositions);
+  const cfg = { ...engineConfig(maxOpenPositions), ...configPatch };
   const trader = new PaperTrader({ ...config.risk, initialBalance: 1000 });
   const symbolAggregators = Object.fromEntries(SYMBOLS.map((s) => [s, {
     aggregate: () => ({
@@ -75,7 +75,7 @@ function build({ confidences, maxOpenPositions }) {
     riskManager,
     regimeTracker: new RegimeTracker(config.regimeClassifier ?? {}),
     symbolAggregators, signalConfig: config.signals,
-    fetchOHLCV: async (s, tf) => (tf === config.timeframe ? candles[s] : []),
+    fetchOHLCV: async (s, tf) => (tf === config.timeframe ? candles[s] : tf === '15m' && bars15m ? bars15m : []),
     marketContext: { getBtcDominanceTrend: () => null, getEthBtcTrend: () => null },
     notifyTrade: () => {}, notifyAlert: async () => {}, pushEvent: () => {}, recordEquitySnapshot: () => {},
     runTsmCoreCycle: async () => {},
@@ -139,5 +139,28 @@ describe('engine: price ticks', () => {
     assert.equal(await engine.onPriceTick('AAA/USDC', pos.entryPrice), null);
     assert.equal(trader.getStatus().positions.length, 1);
     assert.equal(riskManager.getDailyStats().dailyPnL, 0);
+  });
+});
+
+describe('engine: the entry filters see their data', () => {
+  // The move into the engine once shadowed the clock inside the 15m/4h fetch
+  // ("Cannot access 'now' before initialization"); the filter failed open, so every
+  // MTF and 4h check passed. Found by the engine replay, never live.
+  test('bearish 15m bars block the BUY with the MTF reason', async () => {
+    const M15 = 15 * 60 * 1000;
+    const falling = Array.from({ length: 24 }, (_, k) => {
+      const open = 100 - k * 0.5;
+      return { timestamp: T - (24 - k) * M15, open, high: open, low: open - 0.5, close: open - 0.5, volume: 10 };
+    });
+    const { engine, trader, dashboardState } = build({
+      confidences: { 'AAA/USDC': 0.9, 'BBB/USDC': 0.1, 'CCC/USDC': 0.1 },
+      maxOpenPositions: 3,
+      configPatch: { mtfFilter: { ...config.mtfFilter, enabled: true } },
+      bars15m: falling,
+    });
+    await engine.runAllSymbols();
+    assert.equal(trader.getStatus().positions.find((p) => p.symbol === 'AAA/USDC'), undefined);
+    const rec = dashboardState.signals.find((x) => x.symbol === 'AAA/USDC');
+    assert.match(rec.blockReason ?? '', /MTF misaligned/);
   });
 });
