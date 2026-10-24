@@ -566,3 +566,46 @@ the cycle with live's two events (`runAllSymbols` on a bar close, `onPriceTick` 
 one side drifts (checked: a fill moved to the close on one side breaks it). `PortfolioBacktester`
 stays as the fast research engine — it precomputes the signal rows, the replay runs the cycle as
 live does.
+
+## Recalibration under live conditions (2026-10-24)
+
+`src/scripts/runRecalibration.mjs` runs each cell through the engine live runs (the replay): the TSM
+sleeve on and sharing the wallet, $190 to start and $10 every 7 days (the capital policy), the $11
+floor, fees and tiered slippage, the full Fear & Greed history (`data/fearGreed_full.json`, from the
+API with `limit=0`). Metric: deposit-adjusted time-weighted return (each cycle's growth net of that
+cycle's deposit, chained), max drawdown of that index, Sharpe of its daily returns (√252). Windows,
+both from $190: in-sample 2021-01-01 → 2024-12-31, holdout 2025-01-01 → 2026-08-10. Benchmarks: L0
+= the live system as deployed (old exits), L1 = the committed config.
+
+**Stage 1 — sizing for a small account** (16 cells + L0, pre-registered in the script):
+
+| Cell | In-sample TWR / Sharpe / DD | Holdout TWR / Sharpe / DD |
+|---|---|---|
+| L0 live as deployed | +68.8% / 1.18 / 9.2% | +9.9% / 0.60 / **11.3%** |
+| L1 committed | +81.9% / 1.28 / 9.2% | +24.5% / 1.24 / 9.7% |
+| 3×20% | +88.5% / 1.30 / 9.2% | +33.3% / 1.44 / 10.4% |
+| 2×30% | +101.7% / 1.31 / 9.3% | +42.4% / 1.52 / 11.6% |
+| 2×40% | +117.0% / 1.31 / 9.4% | +52.0% / 1.52 / 13.1% |
+
+(`minSizeMultiplier` 0.5 adds 0.2–1.2 points and up to 1.1 points of DD; the min-notional bump changes
+nothing.) Findings:
+
+- **The committed config beats the live system** in both windows (+13 and +15 points of TWR, higher
+  Sharpe, equal or lower DD); the live system breaches the 10% DD tolerance in the holdout.
+- **The $11 floor never bound** — 0 rejections, 0 bumps, in every cell and window. Checked directly
+  for the first half of 2021 ($190, sleeve active): 7 BUY signals, 6 stopped earlier by the 4h,
+  momentum and bear gates, the one that passed sized at $24.62. The BUYs that survive the gates are
+  sized well above the floor, and the deposits grow the account. Live's own logs (09-25 → 10-24) show
+  0 actual rejections; the "7% of signals under $11" from live's sizing logs counts every symbol every
+  cycle, holds included.
+- **Concentration gains return but breaks the DD tolerance in the holdout.** No cell passes the
+  pre-registered rule. DSR is 0.00–0.03 for every cell including both benchmarks: at account level
+  (sleeve included) the absolute 0.5 bar cannot separate anything.
+- **The sleeve carries the holdout drawdown.** L1 without the sleeve: holdout +29.4% / Sharpe 1.96 /
+  DD 2.4% (with it: +24.5% / 1.24 / 9.7%); 2×30% without it: +49.6% / 1.84 / 4.9%.
+
+**Stage 2 — concentration × the sleeve's share on today's rung** (pre-registered here and in the
+script before its first run): slots × size ∈ {4×15%, 3×20%, 2×30%} × sleeve share ∈ {50% (now), 25%,
+0% (off)}; same windows, benchmarks and acceptance (beat L0 and L1 on TWR and Sharpe in both windows,
+DD ≤ 10% in both); DSR reported, charged for every stage-1 and stage-2 cell, with the scalper's
+walk-forward DSR as the statistical check for a winner.

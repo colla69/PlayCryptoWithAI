@@ -42,14 +42,33 @@ const WINDOWS = [
   { id: 'holdout', from: '2025-01-01', to: '2026-08-10' },
 ];
 
+// Stage 1 (sizing for a small account) found no rejections at the floor and that
+// concentration gains return at the cost of drawdown; a check without the sleeve
+// showed the sleeve carrying most of the holdout drawdown. Stage 2, pre-registered
+// after stage 1 and before its own first run, crosses concentration with the sleeve's
+// share of equity on today's rung.
+const STAGE = Number(arg('--stage', 1));
+const STAGE1_CELLS = 17;
 const GRID = [];
-for (const [slots, pct] of [[4, 0.15], [3, 0.20], [2, 0.30], [2, 0.40]]) {
-  for (const minSize of [0, 0.5]) {
-    for (const bump of [false, true]) GRID.push({ exits: 'new', slots, pct, minSize, bump });
+if (STAGE === 1) {
+  for (const [slots, pct] of [[4, 0.15], [3, 0.20], [2, 0.30], [2, 0.40]]) {
+    for (const minSize of [0, 0.5]) {
+      for (const bump of [false, true]) GRID.push({ exits: 'new', slots, pct, minSize, bump });
+    }
+  }
+} else {
+  for (const [slots, pct] of [[4, 0.15], [3, 0.20], [2, 0.30]]) {
+    for (const sleeveDeployment of [0.5, 0.25, 0]) {
+      GRID.push({ exits: 'new', slots, pct, minSize: 0, bump: false, sleeveDeployment, sleeve: sleeveDeployment > 0 });
+    }
   }
 }
+const isL1 = (c) => c.slots === 4 && c.pct === 0.15 && !c.minSize && !c.bump && (c.sleeveDeployment ?? 0.5) === 0.5;
 const CELLS = [{ exits: 'old', slots: 4, pct: 0.15, minSize: 0, bump: false, id: 'L0 live as deployed' }, ...GRID.map((c) => ({
-  ...c, id: c.slots === 4 && c.pct === 0.15 && !c.minSize && !c.bump ? 'L1 committed' : `${c.slots}×${c.pct * 100}% floor${c.minSize} bump${c.bump ? 'On' : 'Off'}`,
+  ...c,
+  id: isL1(c) ? 'L1 committed'
+    : STAGE === 1 ? `${c.slots}×${c.pct * 100}% floor${c.minSize} bump${c.bump ? 'On' : 'Off'}`
+      : `${c.slots}×${c.pct * 100}% sleeve ${c.sleeveDeployment * 100}%`,
 }))];
 
 /** Applies a cell to the in-memory config (this process only). */
@@ -67,7 +86,12 @@ function applyCell(cell) {
   config.risk.maxPositionPct = cell.pct;
   config.risk.minSizeMultiplier = cell.minSize;
   config.risk.minNotionalBump = { ...(config.risk.minNotionalBump ?? {}), enabled: cell.bump };
-  config.tsmCore = { ...(config.tsmCore ?? {}), enabled: true }; // live runs TSM_CORE=true
+  config.tsmCore = { ...(config.tsmCore ?? {}), enabled: cell.sleeve !== false }; // live runs TSM_CORE=true
+  if (cell.sleeveDeployment != null && Array.isArray(config.tsmCore.equityLadder)) {
+    // The first rung (the account's size today): its share of equity in the sleeve.
+    config.tsmCore.equityLadder = config.tsmCore.equityLadder.map((r, i) => (i === 0 ? { ...r, deploymentPct: cell.sleeveDeployment } : r));
+  }
+  if (cell.breakEven != null) config.risk.breakEvenTriggerPct = cell.breakEven;
 }
 
 /** Deposit-adjusted metrics from the per-cycle equity curve. */
@@ -117,7 +141,7 @@ async function worker(cell, from, to) {
   });
   const trades = r.trades;
   const out = {
-    ...metrics(r.equity, deposits, fromTs, PRIOR_TRIALS + CELLS.length),
+    ...metrics(r.equity, deposits, fromTs, PRIOR_TRIALS + (STAGE === 1 ? 0 : STAGE1_CELLS) + CELLS.length),
     scalperTrades: trades.filter((t) => !t.symbol.endsWith('#core')).length,
     sleeveTrades: trades.filter((t) => t.symbol.endsWith('#core')).length,
     floorRejections: r.sim.minNotionalRejections,
@@ -137,7 +161,7 @@ async function driver() {
   const run = () => new Promise((resolve) => {
     const task = tasks[next++];
     if (!task) { resolve(); return; }
-    const child = spawn(process.execPath, [self, '--worker', JSON.stringify(task.cell), '--from', task.w.from, '--to', task.w.to], {
+    const child = spawn(process.execPath, [self, '--stage', String(STAGE), '--worker', JSON.stringify(task.cell), '--from', task.w.from, '--to', task.w.to], {
       env: { ...process.env, TSM_CORE: 'true', LOG_LEVEL: 'error', FILE_LOG_LEVEL: 'error' }, stdio: ['ignore', 'pipe', 'ignore'],
     });
     let buf = '';
