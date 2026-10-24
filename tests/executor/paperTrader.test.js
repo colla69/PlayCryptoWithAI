@@ -264,3 +264,25 @@ describe('PaperTrader: Position Sizing with Risk Override', () => {
     assert.ok(Math.abs(actualCost - expectedAlloc) < 1);
   });
 });
+
+describe('PaperTrader: checkRisk between cycles', () => {
+  // The 2-minute risk loop calls checkRisk(symbol, price) on both traders; paper used
+  // to have no public checkRisk, so its stops waited for the next 12h cycle.
+  test('a tick through the stop closes the position without a signal', () => {
+    const trader = new PaperTrader({ ...DEFAULT_RISK, initialBalance: 200 });
+    trader.execute('BTC/USDC', 'BUY', 50000, DEFAULT_RISK);
+    assert.equal(trader.checkRisk('BTC/USDC', 49000), null, 'above the stop: nothing');
+    const closed = trader.checkRisk('BTC/USDC', 46000);
+    assert.equal(closed.reason, 'stop_loss');
+    assert.equal(trader.getStatus().positions.length, 0);
+  });
+
+  test('a bad price or an unknown symbol does nothing', () => {
+    const trader = new PaperTrader({ ...DEFAULT_RISK, initialBalance: 200 });
+    trader.execute('BTC/USDC', 'BUY', 50000, DEFAULT_RISK);
+    assert.equal(trader.checkRisk('BTC/USDC', undefined), null);
+    assert.equal(trader.checkRisk('BTC/USDC', 0), null);
+    assert.equal(trader.checkRisk('ETH/USDC', 100), null);
+    assert.equal(trader.getStatus().positions.length, 1);
+  });
+});

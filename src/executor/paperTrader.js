@@ -69,10 +69,7 @@ export class PaperTrader {
 
   /**
    * Mark an open position to market. Mirrors LiveTrader.markPrice so paper and
-   * live value an open book the same way — see the note there. Paper needs it
-   * more, not less: the fast risk loop is live-only, and #checkRisk is private
-   * and only reached through execute(), so a paper core leg was never marked
-   * after it opened.
+   * live value an open book the same way — see the note there.
    *
    * @returns {boolean} whether a position was marked
    */
@@ -85,6 +82,19 @@ export class PaperTrader {
     if (!Number.isFinite(value) || value <= 0) return false;
     position.currentPrice = roundPrice(value);
     return true;
+  }
+
+  /**
+   * One price tick through the stop logic — the same call LiveTrader.checkRisk
+   * answers, so the 2-minute risk loop runs in paper mode too. It used to be
+   * live-only: a paper position met its stops once per 12h cycle, so a paper run
+   * was not a shadow of live (follow-ups item 4; plan step 4, one order interface).
+   * @returns {TradeResult|null} the closing trade, if a stop or target fired
+   */
+  checkRisk(symbol, currentPrice) {
+    const value = Number(currentPrice);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return this.#checkRisk(symbol, roundPrice(value));
   }
 
   #checkRisk(symbol, currentPrice) {

@@ -1368,9 +1368,11 @@ pricePollId = setInterval(() => void refreshOpenPositionPrices(), PRICE_POLL_MS)
 // ── Fast risk-check loop ────────────────────────────────────────────────────
 // Evaluates stop-loss / trailing / break-even every 2 minutes using ticker prices.
 // The main signal cycle only runs every 12h — this catches stop events in between.
+// Runs in every mode: paper skipped it, so a paper run met its stops once per cycle
+// and could not shadow live (both traders answer checkRisk(symbol, price)).
 const RISK_CHECK_MS = 2 * 60_000;
 let riskCheckId = null;
-if (!paperMode) {
+{
   async function runRiskChecks() {
     try {
       const status = await trader.getStatus();
