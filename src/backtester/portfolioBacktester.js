@@ -30,18 +30,17 @@
  */
 
 import SignalAggregator from '../engine/signalAggregator.js';
-import { applySizeFloor } from '../core/positionSizing.js';
+import { applySizeFloor, computePositionSize } from '../core/positionSizing.js';
+import { evaluateEntryGates, resolveDecision } from '../core/decisionCore.js';
 import { BacktestSimulator } from './backtestSimulator.js';
 import { calculateMetrics } from './metrics.js';
 import { calculateADX, isBullTrend, computeATRPct } from '../utils/indicators.js';
 import { getFearGreedValue } from '../data/fearGreed.js';
-import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex, mtf4hMomentumScore } from '../utils/mtfAlignment.js';
+import { buildMtfIndex, mtfAlignScore, buildMtf4hIndex } from '../utils/mtfAlignment.js';
 import { trailingReturn } from '../utils/momentum.js';
 import { buildCorrelationMatrix } from '../utils/correlation.js';
 import signalBus from '../signals/signalBus.js';
 import {
-  calcCorrelationCap,
-  calcWeeklyDDBreaker,
   calcPositionAgingExit,
   calcEquityFromStatus,
 } from '../risk/portfolioRisk.js';
@@ -238,6 +237,39 @@ export class PortfolioBacktester {
       : 1 / this.maxOpenPositions;
     // Brake-product floor — parity with live's computePositionSize(). Default 0 = off.
     this.minSizeMultiplier = Number(this.config.risk?.minSizeMultiplier) || 0;
+
+    // The backtester's knobs, in the config shape live's shared functions read.
+    const gateConfig = {
+      risk: {
+        weeklyDDBreaker: {
+          enabled: this.weeklyDDBreaker,
+          lossThreshold: this.weeklyDDLossThreshold,
+          cooldownHours: this.weeklyDDCooldownHours,
+        },
+      },
+      btcDominance: { enabled: this.btcDominanceGate, blockThresholdPp: this.btcDominanceThresholdPp },
+      regime: { enabled: this.regimeFilter, adxPeriod: 14, adxThreshold: this.regimeADXThreshold },
+      correlation: { enabled: this.correlationFilter, threshold: this.correlationThreshold },
+      mtfFilter: {
+        enabled: this.mtfFilter, alignBars: this.mtfAlignBars,
+        minAlignScore: this.mtfMinScore, reduceFactor: this.mtfReduceFactor,
+      },
+      mtf4hFilter: { enabled: this.mtf4hFilter, minScore: this.mtf4hMinScore, lookback: this.mtf4hLookback },
+      momentumFilter: {
+        enabled: this.momentumMinPct != null, minPct: this.momentumMinPct, lookback: this.momentumLookback,
+      },
+    };
+    const sizingConfig = {
+      atr: { enabled: this.atrPositionSizing, period: this.atrPeriod },
+      macroFilter: { enabled: this.macroFilter, sizeReduceFactor: this.macroSizeReduceFactor },
+      regimeSizing: {
+        enabled: this.regimeSizing, adxPeriod: 14,
+        boostThresh: this.regimeBoostThresh, boostFactor: this.regimeBoostFactor,
+        penaltyThresh: this.regimePenaltyThresh, penaltyFactor: this.regimePenaltyFactor,
+      },
+      confSizing: { enabled: this.confSizing, mid: this.confSizingMid, max: this.confSizingMax, min: this.confSizingMin },
+      risk: { minSizeMultiplier: this.minSizeMultiplier },
+    };
 
     const simulator = new BacktestSimulator({
       ...this.config.risk,
@@ -488,16 +520,18 @@ export class PortfolioBacktester {
         stepSignals[sym] = d;
         simulator.setTimestamp(d.timestamp);
 
-        // Asymmetric exit (main.js, "Easier SELL for open positions"): a held
-        // symbol with a SELL majority exits at 0.7× its entry threshold (item 8).
-        let decision = d.decision;
-        if (decision === 'HOLD' && d.sellMajority && simulator.positions.has(sym)) {
-          const minConf = this.symbolMinConfidence[sym] ?? this.config.signals?.minConfidence ?? 0.7;
-          if (d.confidence >= minConf * 0.7) {
-            decision = 'SELL';
-            filtersApplied.asymmetricExit = (filtersApplied.asymmetricExit ?? 0) + 1;
-          }
-        }
+        // Asymmetric exit, shared with live (decisionCore.resolveDecision): a held
+        // symbol with a SELL majority exits at 0.7× its entry threshold.
+        const resolved = resolveDecision({
+          decision: d.decision,
+          confidence: d.confidence,
+          sellVotes: d.sellVotes,
+          totalVotes: d.totalVotes,
+          held: simulator.positions.has(sym),
+          minConfidence: this.symbolMinConfidence[sym] ?? this.config.signals?.minConfidence,
+        });
+        const { decision } = resolved;
+        if (resolved.asymmetricExit) filtersApplied.asymmetricExit = (filtersApplied.asymmetricExit ?? 0) + 1;
 
         if (decision === 'BUY') {
           simulator.execute(sym, 'HOLD', d.price);
@@ -524,7 +558,7 @@ export class PortfolioBacktester {
       // Check ONCE per step (not per candidate) so all queued buys see the
       // same gate decision. When triggered, every BUY at this step is
       // rejected; existing positions are still managed normally.
-      let weeklyDDBlock = null;
+      let weeklyDDInputs = null;
       if (this.weeklyDDBreaker && buyQueue.length > 0) {
         const nowTs = stepTs;
         // Reference equity mirrors live: current simulated equity (cash +
@@ -542,21 +576,14 @@ export class PortfolioBacktester {
         // the shape of live's trade log. Simulator trades are round trips (side
         // 'LONG', exitTime), so they are mapped here; passed as-is, every one
         // was filtered out and the backtest breaker could never fire.
-        const breaker = calcWeeklyDDBreaker({
+        weeklyDDInputs = {
           recentTrades: simulator.getTrades().map((t) => ({ side: 'SELL', timestamp: t.exitTime, pnl: t.pnl })),
           referenceEquity: equity > 0 ? equity : initialBalance,
-          lossThreshold: this.weeklyDDLossThreshold,
-          cooldownHours: this.weeklyDDCooldownHours,
           nowMs: nowTs,
-        });
-        if (breaker.blocked) weeklyDDBlock = breaker;
+        };
       }
 
       for (const { sym, d } of buyQueue) {
-        if (weeklyDDBlock) {
-          filtersApplied.weeklyDDBreaker = (filtersApplied.weeklyDDBreaker ?? 0) + 1;
-          continue;
-        }
 
         // Phase 6a: bear policy hard block on new entries
         if (bearPolicy.shouldBlockEntries) {
@@ -573,25 +600,6 @@ export class PortfolioBacktester {
           continue;
         }
 
-        // Momentum-leader filter: skip BUYs in relative-strength laggards (weak
-        // trailing return) even if they signalled — concentrate on the leaders.
-        if (this.momentumMinPct != null && Number(d.mom ?? 0) < this.momentumMinPct) {
-          filtersApplied.momentum = (filtersApplied.momentum ?? 0) + 1;
-          continue;
-        }
-
-        // BTC Dominance gate (Phase 3) — block alt BUYs when BTC.D rising
-        if (this.btcDominanceGate && !sym.startsWith('BTC/')) {
-          const ctx = getContextAsOf(d.timestamp);
-          if (ctx?.btcDominance?.sma7d != null) {
-            const delta = ctx.btcDominance.value - ctx.btcDominance.sma7d;
-            if (delta >= this.btcDominanceThresholdPp) {
-              filtersApplied.btcDominance = (filtersApplied.btcDominance ?? 0) + 1;
-              continue;
-            }
-          }
-        }
-
         // Fear & Greed modulator (Phase 3): tighten conf in greed, loosen in fear.
         // The aggregator already evaluated against the base minConfidence; we
         // re-check with the adjusted value here. Skips silently when no F&G data.
@@ -605,11 +613,6 @@ export class PortfolioBacktester {
             filtersApplied.fearGreed = (filtersApplied.fearGreed ?? 0) + 1;
             continue;
           }
-        }
-
-        if (this.regimeFilter && !d.isTrending) {
-          filtersApplied.regime++;
-          continue;
         }
 
         if (this.volumeFilter && !d.volumeOk) {
@@ -628,96 +631,82 @@ export class PortfolioBacktester {
         const status = simulator.getStatus();
         if (status.positions.some((p) => p.symbol === sym)) continue;
 
-        if (this.correlationFilter) {
-          // Live's matrix builder over each symbol's trailing window as of this
-          // step. It used to be one static matrix from the first half of each
-          // symbol's history — future bars for the whole first half of a run,
-          // stale ones for the second, and paired across symbols by array end.
-          const trailing = (s) => {
-            const k = closedIdx(s, stepTs);
-            return symbolCandles[s].slice(Math.max(0, k - this.correlationPeriod), k + 1);
-          };
-          const correlationMatrix = buildCorrelationMatrix(
-            [sym, ...status.positions.map((p) => p.symbol)],
-            trailing,
-            { enabled: true, period: this.correlationPeriod },
-          );
-          const cap = calcCorrelationCap({
-            candidateSymbol: sym,
+        // Live's entry gates, in live's order, through the shared core
+        // (decisionCore.evaluateEntryGates). Each input is what live reads at the
+        // cycle: the decision series, bars closed by T, the as-of BTC.D sample.
+        const i12 = rowIdx[sym] + MIN_WARMUP; // this bar in the 12h array
+        const c12 = symbolCandles[sym];
+        const open12 = Number(c12[i12].open);
+        const atCycle = [...c12.slice(0, i12), {
+          timestamp: Number(c12[i12].timestamp), open: open12, high: open12, low: open12, close: open12, volume: 0,
+        }];
+        const closedBars = (bars, lastIdx, n) => (bars?.length && lastIdx >= 0
+          ? bars.slice(Math.max(0, lastIdx - n + 1), lastIdx + 1) : null);
+        const btcd = this.btcDominanceGate ? getContextAsOf(d.timestamp)?.btcDominance : null;
+        const gate = evaluateEntryGates({
+          symbol: sym,
+          config: gateConfig,
+          weeklyDD: weeklyDDInputs,
+          btcDominance: btcd?.sma7d != null
+            ? { ...btcd, deltaPct: Number((btcd.value - btcd.sma7d).toFixed(3)) } // live rounds the same way
+            : null,
+          candles: atCycle,
+          correlation: this.correlationFilter ? {
             openPositions: status.positions,
-            correlationMatrix,
-            threshold: this.correlationThreshold,
-          });
-          if (cap.blocked) {
-            filtersApplied.correlation++;
-            continue;
-          }
+            // Live's matrix builder over each symbol's trailing window, closed by T.
+            matrix: buildCorrelationMatrix(
+              [sym, ...status.positions.map((p) => p.symbol)],
+              (s) => {
+                const k = closedIdx(s, stepTs);
+                return symbolCandles[s].slice(Math.max(0, k - this.correlationPeriod), k + 1);
+              },
+              { enabled: true, period: this.correlationPeriod },
+            ),
+          } : null,
+          // Live reads 20 closed 15m bars and 29 closed 4h bars; the scores only use
+          // the newest alignBars / lookback of them, but the 4h score needs more
+          // than `lookback` bars or it reads neutral.
+          bars15m: mtfIndex[sym] ? closedBars(this.mtfSymbolCandles[sym], mtfIndex[sym][i12 - 1], this.mtfAlignBars + 4) : null,
+          bars4h: mtf4hIndex[sym] ? closedBars(this.mtf4hSymbolCandles[sym], mtf4hIndex[sym][i12 - 1], this.mtf4hLookback + 9) : null,
+        });
+        if (gate.blockReason) {
+          filtersApplied[gate.gate] = (filtersApplied[gate.gate] ?? 0) + 1;
+          continue;
         }
 
         const openCount = status.positions.length;
-        let positionPct = this.#computePositionPct(
-          d,
-          basePct,
-          medianATR,
-          simulator.getTrades(),
-        );
-        // Macro bear filter: halve position size when BTC is below its EMA
-        if (this.macroFilter && !macroBull) {
-          positionPct *= this.macroSizeReduceFactor;
-        }
-
-        // Regime-aware sizing: boost in trends, reduce in chop
-        if (this.regimeSizing && d.adxValue != null) {
-          if (d.adxValue >= this.regimeBoostThresh) {
-            positionPct *= this.regimeBoostFactor;
-          } else if (d.adxValue < this.regimePenaltyThresh) {
-            positionPct *= this.regimePenaltyFactor;
+        let positionPct;
+        if (this.kellyEnabled) {
+          // Research-only (Kelly is not a live rule): the backtester's own chain.
+          positionPct = this.#computePositionPct(d, basePct, medianATR, simulator.getTrades());
+          if (this.macroFilter && !macroBull) positionPct *= this.macroSizeReduceFactor;
+          if (this.regimeSizing && d.adxValue != null) {
+            if (d.adxValue >= this.regimeBoostThresh) positionPct *= this.regimeBoostFactor;
+            else if (d.adxValue < this.regimePenaltyThresh) positionPct *= this.regimePenaltyFactor;
           }
+          if (gate.mtfSizeFactor < 1.0) positionPct *= gate.mtfSizeFactor;
+          positionPct = applySizeFloor(positionPct, basePct, this.minSizeMultiplier);
+        } else {
+          // Live's sizing chain (positionSizing.computePositionSize) on live's series.
+          positionPct = computePositionSize({
+            basePct,
+            candles: atCycle,
+            medianATRPct: medianATR,
+            btcMacroBull: macroBull,
+            confidence: d.confidence,
+            mtfSizeFactor: gate.mtfSizeFactor,
+            config: sizingConfig,
+          });
         }
 
-        // Regime-LABEL exposure tilt (concentrate deployment where the edge lives:
-        // attribution shows BULL_TREND carries P&L, bears bleed). Off unless configured.
+        // Regime-LABEL exposure tilt (research, off unless configured): concentrate
+        // deployment where the edge lives — attribution shows BULL_TREND carries P&L.
         if (this.regimeSizeMult && currentRegimeLabel && this.regimeSizeMult[currentRegimeLabel] != null) {
           positionPct *= Number(this.regimeSizeMult[currentRegimeLabel]);
         }
 
-        // MTF alignment filter: check if last 4h of 15m candles are constructive
-        if (this.mtfFilter && mtfIndex[sym]) {
-          const candle12hIdx = rowIdx[sym] + MIN_WARMUP - 1; // closed by T
-          const last15mIdx = candle12hIdx >= 0 ? mtfIndex[sym][candle12hIdx] : -1;
-          const score = mtfAlignScore(
-            this.mtfSymbolCandles[sym],
-            last15mIdx,
-            this.mtfAlignBars,
-          );
-          if (score < this.mtfMinScore) {
-            if (this.mtfReduceFactor > 0) {
-              positionPct *= this.mtfReduceFactor;
-            } else {
-              filtersApplied.mtf = (filtersApplied.mtf ?? 0) + 1;
-              continue;
-            }
-          }
-        }
-
-        // 4h momentum filter: EMA crossover + RSI on 4h candles
-        if (this.mtf4hFilter && mtf4hIndex[sym]) {
-          const candle12hIdx = rowIdx[sym] + MIN_WARMUP - 1; // closed by T
-          const last4hIdx = candle12hIdx >= 0 ? mtf4hIndex[sym][candle12hIdx] : -1;
-          const score = mtf4hMomentumScore(
-            this.mtf4hSymbolCandles[sym],
-            last4hIdx,
-            this.mtf4hLookback,
-          );
-          if (score < this.mtf4hMinScore) {
-            filtersApplied.mtf4h = (filtersApplied.mtf4h ?? 0) + 1;
-            continue;
-          }
-        }
-        // Floor the compounded brake product — parity with the live sizing chain
-        // (src/core/positionSizing.js). Default 0 = disabled.
         const entryOpts = {
-          positionPct: applySizeFloor(positionPct, basePct, this.minSizeMultiplier),
+          positionPct,
           // Live fills the market order seconds after the cycle on T: at the open
           // of bar T (follow-ups item 1; it used to wait for bar T + 1).
           fillPrice: d.price,
@@ -886,11 +875,11 @@ export class PortfolioBacktester {
           // opens (follow-ups item 1). `close` is bar i's close, 12 h later.
           price: open,
           close: Number(candle.close),
-          // main.js's asymmetric exit reads the raw votes: SELL majority.
-          sellMajority: sellVotes > (result.signals?.length ?? 0) / 2,
+          // The asymmetric exit reads the raw votes (decisionCore.resolveDecision).
+          sellVotes,
+          totalVotes: result.signals?.length ?? 0,
           timestamp: Number(candle.timestamp),
           atrPct: this.#computeATRpct(atCycle),
-          isTrending: this.#computeIsTrending(atCycle),
           adxValue: this.#computeADX(atCycle),
           volumeOk: this.#computeVolumeOk(atCycle),
           mom: this.#computeMomentum(atCycle), // trailing-return relative strength (no lookahead)
@@ -912,19 +901,6 @@ export class PortfolioBacktester {
     return computeATRPct(candles, this.atrPeriod);
   }
 
-  #computeIsTrending(candles) {
-    if (!this.regimeFilter) return true;
-    if (candles.length < 30) return true;
-
-    const recent = candles.slice(-ADX_LOOKBACK);
-    const highs = recent.map((c) => Number(c.high));
-    const lows = recent.map((c) => Number(c.low));
-    const closes = recent.map((c) => Number(c.close));
-
-    const adxValues = calculateADX(highs, lows, closes, 14);
-    const lastADX = adxValues.at(-1)?.adx;
-    return Number.isFinite(lastADX) ? lastADX >= this.regimeADXThreshold : true;
-  }
 
   #computeADX(candles) {
     if (candles.length < 30) return null;

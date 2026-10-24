@@ -297,3 +297,25 @@ means the edge the bot was deployed on is much smaller than every earlier baseli
 **Next (step 2, as planned):** re-run the optimizer. The per-symbol SL/TP and the +5% break-even were
 chosen under close-only exits, and the optimizer now replays stops (on 12h OHLC). Any new config is a
 strategy change: walk-forward, MIN_TRADES ≥ 8, DSR, then one change at a time to live.
+
+## Step 3 result — one decision core (2026-10-24)
+
+`src/core/decisionCore.js` holds the per-cycle decisions both sides call: `evaluateEntryGates`
+(weekly DD, BTC.D, regime, correlation, MTF 15m, 4h, momentum — in live's order, with live's
+messages) and `resolveDecision` (the asymmetric exit). Sizing goes through the existing
+`computePositionSize` on both sides; exits through `traderUtils.js` (step 2). Each side keeps only
+its data access: `core/filters.js` fetches and logs, `PortfolioBacktester` slices its arrays.
+Research-only knobs (Kelly, the regime-label tilt, skip-bear, the volume and F&G filters) stay in
+the backtester, labelled as such. The inventory rows for these rules are pinned to the core
+functions, and `tests/core/decisionCore.test.js` pins their behaviour.
+
+**No behaviour change, proven:**
+
+- Live: the old `runEntryFilters` (frozen from `HEAD`) and the new one on 4,000 random scenarios with
+  every gate on or off and random thresholds — 2,378 blocked across all six gates, **0 differ**.
+  BTC.D gate swept across the file's delta: 1,202 cases, 291 blocked, 0 differ. Asymmetric exit:
+  20,000 scenarios, 949 fired, 0 differ. Boot test: 33 decisions, 0 errors.
+- Backtester: the golden in `timeAlignment.test.js` is unchanged (trades, equity and counters). The
+  reconciliation's three layers are identical; only the replay's filter counters move to live's
+  order (momentum 18 → 4, MTF 5 → 9, 4h 1 → 11, same 24 blocks), and `positionPct` differs in the
+  16th digit from the multiplication order. Deep baseline (`runBaseline.mjs`): every window identical to the step-2 engine.

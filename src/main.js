@@ -23,6 +23,7 @@ import { recordEquitySnapshot, loadEquityHistory } from './dashboard/equityHisto
 import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
 import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { runEntryFilters } from './core/filters.js';
+import { resolveDecision } from './core/decisionCore.js';
 import { calcFearGreedAdjustedThreshold } from './core/filters.js';
 import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
 import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
@@ -264,15 +265,19 @@ async function runCycle(symbol) {
     // If we already hold this symbol and the aggregator says SELL but confidence
     // fell below minConfidence (decision forced to HOLD), re-check at a lower bar.
     // Exiting a position requires less conviction than entering one.
-    if (hasPosition && result.decision === 'HOLD') {
-      const sellVotes = result.signals.filter((s) => s.signal === 'SELL').length;
-      const totalStrategies = result.signals.length;
-      const sellMajority = totalStrategies > 0 && sellVotes > totalStrategies / 2;
-      const sellThreshold = (symSignalConfig.minConfidence ?? 0.7) * 0.7; // 30% lower bar for exits
-      if (sellMajority && result.confidence >= sellThreshold) {
-        result.decision = 'SELL';
-        logger.info(`${symbol}: SELL threshold lowered for exit (conf=${result.confidence.toFixed(2)} ≥ ${sellThreshold.toFixed(2)})`);
-      }
+    // Shared with the backtester (decisionCore.resolveDecision); the core decides
+    // from the SELL majority (sellMajority) and the 0.7× threshold.
+    const resolved = resolveDecision({
+      decision: result.decision,
+      confidence: result.confidence,
+      sellVotes: result.signals.filter((s) => s.signal === 'SELL').length,
+      totalVotes: result.signals.length,
+      held: hasPosition,
+      minConfidence: symSignalConfig.minConfidence,
+    });
+    if (resolved.asymmetricExit) {
+      result.decision = 'SELL';
+      logger.info(`${symbol}: SELL threshold lowered for exit (conf=${result.confidence.toFixed(2)} ≥ ${resolved.sellThreshold.toFixed(2)})`);
     }
 
     // ── Entry filters: regime, correlation, MTF ──────────────────────────────

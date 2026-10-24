@@ -283,3 +283,13 @@ sizing (`runWalkForward.mjs --live-sizing`): +80.82% / Sharpe 1.20 / DD −4.00%
 +68.69% / 1.21 / −3.81% / 0.23, 75 trades both. Returns fall about a sixth, risk-adjusted metrics
 are equal or slightly better. This is the measurement getting honest — live already sizes this
 way — so it is kept, not reverted. Every earlier baseline number overstates live's return by that much.
+
+## 13. The optimizer gates at the raw threshold (added 2026-10-24) — open
+
+`perSymbolOptimizer.mjs` compares the vote confidence with `minConf` ∈ {0.55, 0.70} as is; it
+never calls `scaleMinConfidence()`. Live and the backtester gate at 0.65× that (0.358 / 0.455). So
+every combination it picked was chosen under a stricter threshold than the one it trades at — the
+"threshold read raw" break, in the tool that writes the config. `aggregatorParity.test.js` checks
+only that the optimizer imports `aggregateVotes`. It also skips break-even, every entry filter and
+the live sizing. **Plan:** the stop retune (next) runs on `PortfolioBacktester` instead; the
+optimizer gets the scale (or is retired) before it is used to change a live config again.

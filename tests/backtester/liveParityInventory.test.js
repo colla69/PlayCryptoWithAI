@@ -70,9 +70,9 @@ const PARITY_INVENTORY = [
   },
   {
     rule: 'Momentum-leader filter',
-    live: { file: 'src/core/filters.js', symbol: 'momentum' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'momentum' },
-    shared: 'src/utils/momentum.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     rule: 'Bear-regime policy (cash exit + entry block)',
@@ -82,15 +82,15 @@ const PARITY_INVENTORY = [
   },
   {
     rule: '15m MTF alignment',
-    live: { file: 'src/core/filters.js', symbol: 'mtfAlignScore' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtf' },
-    shared: 'src/utils/mtfAlignment.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     rule: '4h momentum filter',
-    live: { file: 'src/core/filters.js', symbol: 'mtf4hMomentumScore' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtf4h' },
-    shared: 'src/utils/mtfAlignment.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     // Pinned to the matrix builder, not the word "correlation": the backtester
@@ -106,9 +106,9 @@ const PARITY_INVENTORY = [
     // never fire (simulator trades lacked the SELL/timestamp shape it reads).
     // The behavioural guard is tests/backtester/timeAlignment.test.js.
     rule: 'Weekly drawdown breaker',
-    live: { file: 'src/core/filters.js', symbol: 'calcWeeklyDDBreaker' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'weeklyDDBreaker' },
-    shared: 'src/risk/portfolioRisk.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     rule: 'Position aging exit',
@@ -163,7 +163,7 @@ const PARITY_INVENTORY = [
     // the backtest read the bars inside the period starting at T (items 1 and 9).
     rule: '15m / 4h filters read bars closed by the cycle time',
     live: { file: 'src/main.js', symbol: 'closedNow(' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'MIN_WARMUP - 1; // closed by T' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtfIndex[sym][i12 - 1]' },
   },
   {
     // The decision fills seconds after the cycle; the backtest waited for bar T + 1.
@@ -196,8 +196,9 @@ const PARITY_INVENTORY = [
   {
     // Live-only until the 2026-10 reconciliation (follow-ups item 8).
     rule: 'Asymmetric exit (0.7× threshold on a SELL majority while held)',
-    live: { file: 'src/main.js', symbol: 'sellMajority' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'sellMajority' },
+    live: { file: 'src/main.js', symbol: 'resolveDecision' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'resolveDecision' },
+    shared: 'src/core/decisionCore.js',
   },
 ];
 
