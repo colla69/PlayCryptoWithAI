@@ -53,14 +53,19 @@ const CYCLE_MS = 12 * 60 * 60 * 1000;
 
 const outFile = arg('--out') ?? 'data/stop_sweep.json';
 
-const cells = SL_SCALES.flatMap((sl) => TP_SCALES.flatMap((tp) => BE_TRIGGERS.flatMap((be) => TRAILS.flatMap((trail) =>
-  ARMS.filter((arm) => trail > 0 || arm === 0).map((arm) => ({ sl, tp, be, trail, arm }))))));
+// --cells '<json array>' lists cells explicitly instead of the cross product, e.g.
+// [{"sl":1,"tp":1,"be":0.1,"aging":false}] (aging false = no 7-day aging exit).
+const cells = arg('--cells')
+  ? JSON.parse(arg('--cells')).map((c) => ({ sl: 1, tp: 1, be: 0, trail: 0, arm: 0, ...c }))
+  : SL_SCALES.flatMap((sl) => TP_SCALES.flatMap((tp) => BE_TRIGGERS.flatMap((be) => TRAILS.flatMap((trail) =>
+    ARMS.filter((arm) => trail > 0 || arm === 0).map((arm) => ({ sl, tp, be, trail, arm }))))));
 const nTrials = PRIOR_TRIALS + cells.length;
-const label = (c) => `SL×${c.sl} ${c.tp >= 100 ? 'TP off' : `TP×${c.tp}`} BE ${c.be ? `${c.be * 100}%` : 'off'}`
-  + (c.trail ? ` trail ${c.trail * 100}%${c.arm ? ` from +${c.arm * 100}%` : ''}` : '');
+const label = (c) => `SL×${+c.sl.toFixed(3)} ${c.tp >= 100 ? 'TP off' : `TP×${+c.tp.toFixed(3)}`} BE ${c.be ? `${+(c.be * 100).toFixed(1)}%` : 'off'}`
+  + (c.trail ? ` trail ${+(c.trail * 100).toFixed(1)}%${c.arm ? ` from +${+(c.arm * 100).toFixed(1)}%` : ''}` : '')
+  + (c.aging === false ? ' no 7-day exit' : '');
 // The reference is the committed config: scales 1, its break-even, no trailing stop.
 const REF_BE = Number(config.risk?.breakEvenTriggerPct ?? 0.05);
-const isRef = (c) => c.sl === 1 && c.tp === 1 && c.be === REF_BE && !c.trail;
+const isRef = (c) => c.sl === 1 && c.tp === 1 && c.be === REF_BE && !c.trail && c.aging !== false;
 
 // Live sizing, as runWalkForward.mjs --live-sizing.
 config.risk.basePctOverride = config.risk.maxPositionPct;
@@ -83,7 +88,10 @@ const common = {
 const cellArgs = (c) => ({
   riskScale: { stopLoss: c.sl, takeProfit: c.tp },
   filterOverrides: { breakEvenTriggerPct: c.be },
-  riskOverrides: { trailingStopPct: c.trail, trailArmPct: c.arm },
+  riskOverrides: {
+    trailingStopPct: c.trail, trailArmPct: c.arm,
+    ...(c.aging === false && { positionAgingExit: { ...(config.risk?.positionAgingExit ?? {}), enabled: false } }),
+  },
 });
 const perCell = cells.map(() => []);
 const t0 = Date.now();
@@ -99,7 +107,7 @@ for (const fold of folds) {
   }
   // Reusing rows must be an identity: check the reference and one trailing cell
   // against a plain run.
-  for (const k of [cells.findIndex(isRef), cells.findIndex((c) => c.trail > 0)]) {
+  for (const k of [cells.findIndex(isRef), cells.findIndex((c) => c.trail > 0), cells.findIndex((c) => c.aging === false)]) {
     if (skipped || fold.index >= 2 || k < 0) continue;
     const plain = runFold({ ...common, fold, ...cellArgs(cells[k]) });
     const same = JSON.stringify(plain.forward_trades) === JSON.stringify(perCell[k].at(-1).forward_trades);

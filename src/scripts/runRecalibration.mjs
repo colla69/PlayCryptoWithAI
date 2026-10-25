@@ -62,8 +62,16 @@ const STAGE1_CELLS = 17;
 // Cells run before stage 3: stage 2 (10), the trailing sweep (20) and its plateau check (9).
 const BEFORE_STAGE3 = STAGE1_CELLS + 10 + 20 + 9;
 const GRID = [];
-if (LIVE) {
-  GRID.push({ exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false, trail: 0.10, arm: 0.05, id: 'trail 10% from +5%' });
+// Stage 4 (2026-10-25, asked by the user "just to be sure"): L0, L1 and the trail
+// without the 7-day aging exit (risk.positionAgingExit), next to the same with it.
+const TRAIL_CELL = { exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false, trail: 0.10, arm: 0.05, id: 'trail 10% from +5%' };
+const NO_AGING = [
+  { exits: 'old', slots: 4, pct: 0.15, minSize: 0, bump: false, aging: false, id: 'L0, no 7-day exit' },
+  { exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false, aging: false, id: 'L1, no 7-day exit' },
+  { ...TRAIL_CELL, aging: false, id: 'trail 10% from +5%, no 7-day exit' },
+];
+if (LIVE || STAGE === 4) {
+  GRID.push(TRAIL_CELL, ...NO_AGING);
 } else if (STAGE === 1) {
   for (const [slots, pct] of [[4, 0.15], [3, 0.20], [2, 0.30], [2, 0.40]]) {
     for (const minSize of [0, 0.5]) {
@@ -84,7 +92,7 @@ if (LIVE) {
 }
 const isL1 = (c) => c.slots === 4 && c.pct === 0.15 && !c.minSize && !c.bump && (c.sleeveDeployment ?? 0.5) === 0.5 && !c.trail;
 const L1_CELL = { exits: 'new', slots: 4, pct: 0.15, minSize: 0, bump: false };
-const CELLS = [{ exits: 'old', slots: 4, pct: 0.15, minSize: 0, bump: false, id: 'L0 live as deployed' }, ...[...(STAGE === 3 || LIVE ? [L1_CELL] : []), ...GRID].map((c) => ({
+const CELLS = [{ exits: 'old', slots: 4, pct: 0.15, minSize: 0, bump: false, id: 'L0 live as deployed' }, ...[...(STAGE >= 3 || LIVE ? [L1_CELL] : []), ...GRID].map((c) => ({
   ...c,
   id: c.id ?? (isL1(c) ? 'L1 committed'
     : STAGE === 1 ? `${c.slots}×${c.pct * 100}% floor${c.minSize} bump${c.bump ? 'On' : 'Off'}`
@@ -115,6 +123,9 @@ function applyCell(cell) {
   if (cell.trail) {
     config.risk.trailingStopPct = cell.trail;
     config.risk.trailArmPct = cell.arm ?? 0;
+  }
+  if (cell.aging === false) {
+    config.risk.positionAgingExit = { ...(config.risk.positionAgingExit ?? {}), enabled: false };
   }
   if (cell.tpOff) {
     // As the sweep's TP scale 100: a target no trade reaches.
