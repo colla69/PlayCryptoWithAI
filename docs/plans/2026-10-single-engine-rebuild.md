@@ -771,6 +771,6 @@ exit); L1's larger loss there comes from the sleeve: the account stays under the
 sleeve keeps 50% and loses more on ETH in October.
 
 **Verdict: the 7-day exit stays.** Without it the walk-forward gains 5–8 points, but both
-candidates hit the WR-gap blocker (> 15pp): the win rate in Y2 falls to 46% / 54%, because trades
-the aging exit closed at a small gain now run on to a stop. L1 without it also falls under L1's
+candidates hit the WR-gap blocker (> 15pp): the win rate in Y2 falls to 46% / 54% (likely trades
+the aging exit closed at a small gain running on to a stop; not checked trade by trade). L1 without it also falls under L1's
 holdout Sharpe in live conditions. No config change; L1 stays.
