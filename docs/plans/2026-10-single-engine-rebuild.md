@@ -748,3 +748,29 @@ the setups ($1.83). Its scalper made more than live (DOGE sized larger, the know
 gap); its sleeve made less (resizes follow equity, which a replay only approximates). Two exits land
 on other cycles than live's (BTC 12 h earlier, PEPE 45 h earlier, both near zero P&L). Twelve
 weeks and six trades cannot rank the setups; the trail leads the replays by $1.27.
+
+## Without the 7-day aging exit (2026-10-25)
+
+Asked by the user "just to be sure": L0, L1 and the trail (10% from +5%) with
+`risk.positionAgingExit` off, next to the same with it. Both sides read the one setting
+(`engine.js` and `portfolioBacktester.js`). Commit `4b73f97`.
+
+| Test | L0 with / without | L1 with / without | Trail with / without |
+|---|---|---|---|
+| Walk-forward (52 folds, DSR for 16,376 + 6) | +25.8% Sh 0.86 / +28.2% Sh 0.90 | +65.0% Sh 1.36 DD −4.28% / +72.1% Sh 1.41 DD −4.28% | +66.1% Sh 1.46 DD −3.49% / +73.6% Sh 1.52 DD −4.27%, DSR 0.73 |
+| Live conditions 2021–2024 | +68.8% Sh 1.18 / +65.5% Sh 1.13 | +81.9% Sh 1.28 / +84.9% Sh 1.30 | +83.5% Sh 1.31 / +87.3% Sh 1.34 |
+| Live conditions 2025–2026 | +9.9% Sh 0.60 DD 11.3% / +13.9% Sh 0.80 DD 10.9% | +24.5% Sh 1.24 / +24.9% Sh 1.20 | +25.0% Sh 1.28 / +26.0% Sh 1.26 |
+| Live window (replay, final equity) | $306.78 / $306.33 | $306.22 / $299.50 | $308.05 / $307.59 |
+| Baseline Y2 (in-sample) | — | +17.75% Sh 1.51 WR 62% / +19.57% Sh 1.56 WR 46% | +15.67% Sh 1.37 WR 61% / +16.00% Sh 1.38 WR 54% |
+| Baseline Y1+Y2 (OOS) | — | +97.63% Sh 2.20 / +94.36% Sh 2.13 | +100.02% Sh 2.40 / +94.60% Sh 2.29 |
+| WR gap Y1 vs Y2 | — | 12pp / **21pp** | 13pp / **19pp** |
+
+(L0's walk-forward is +25.8% / 0.86 now, +23.3% / 0.80 at the stop sweep: the engine fixes since.)
+In the live window only BTC changes (held to the 09-28 strategy sell instead of the 09-26 aging
+exit); L1's larger loss there comes from the sleeve: the account stays under the $320 rung, so the
+sleeve keeps 50% and loses more on ETH in October.
+
+**Verdict: the 7-day exit stays.** Without it the walk-forward gains 5–8 points, but both
+candidates hit the WR-gap blocker (> 15pp): the win rate in Y2 falls to 46% / 54%, because trades
+the aging exit closed at a small gain now run on to a stop. L1 without it also falls under L1's
+holdout Sharpe in live conditions. No config change; L1 stays.
