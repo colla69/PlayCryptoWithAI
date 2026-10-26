@@ -1231,9 +1231,10 @@ risk-off, total P&L −$5 — the rule would move ~$3 in six years.
 
 **C8 — shared vs per-coin settings: a measurement, and the main finding of the section.**
 
-1. *Half of the per-coin settings never trade.* Only combos with a trend part (EMA, PSAR,
-   HeikinAshi, ADX, MACD, Supertrend, S&R) pass the entry filters; the dip-buying combos (BB, CCI,
-   RSI, Stoch, MFI, WilliamsR alone) are always blocked. 18 of 37 coins made 0 trades in six years.
+1. *Most per-coin settings never trade.* 21 of 37 coins made 0 trades in six years. Every coin that
+   trades has a trend part in its combo (EMA, PSAR, HeikinAshi, ADX, MACD or Supertrend; 16 coins);
+   all 14 dip-buying combos (BB, CCI, RSI, Stoch, MFI, WilliamsR, OBV, S&R only) never pass the
+   entry filters, and 7 combos with a trend part do not either.
    Cause: `perSymbolOptimizer.mjs`'s `runWindow` scores combos on raw votes — no 15m/4h/momentum/
    macro/regime filters, no multi-bar confirmation — against the rule "the optimizer runs the same
    filters as the live bot". It picks combos the live bot never trades.
