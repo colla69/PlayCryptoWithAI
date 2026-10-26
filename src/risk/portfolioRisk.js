@@ -31,7 +31,8 @@ export function calcEquityFromStatus(status = {}) {
   const balance = Number(status.balance ?? 0);
   const positionsValue = (Array.isArray(status.positions) ? status.positions : []).reduce(
     (sum, p) => sum + Number(p.qty ?? 0) * Number(p.currentPrice ?? p.entryPrice ?? 0), 0);
-  const equity = balance + positionsValue;
+  // Cash locked by resting limit orders (satellite entries) is the account's, though not free.
+  const equity = balance + positionsValue + Number(status.reserved ?? 0);
   return Number.isFinite(equity) && equity > 0 ? equity : 0;
 }
 

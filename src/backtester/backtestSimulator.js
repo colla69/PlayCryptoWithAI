@@ -6,6 +6,10 @@ import {
   calcPartialExit, calcATRStopPrices, calcTrailingStop, calcBreakEven, calcExitSignal,
 } from '../executor/traderUtils.js';
 import { FALLBACK_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
+import { shouldTierExit } from '../engine/satellites.js';
+
+const HOUR_MS = 3_600_000;
+const M15_MS = 900_000;
 
 export class BacktestSimulator {
   constructor(riskConfig = {}) {
@@ -30,6 +34,11 @@ export class BacktestSimulator {
     // position marked (markEquity); the per-execute points it used to read
     // valued all but one position at entry. Single-symbol callers keep them.
     this.recordEquityOnExecute = riskConfig.recordEquityOnExecute !== false;
+    // Satellite limit orders resting on the book, and the cash they lock (as the
+    // exchange locks a resting buy's quote balance: no other order can spend it).
+    this.pendingSatellite = new Map();
+    this.reserved = 0;
+    this.satelliteStats = { placed: 0, filled: 0, expired: 0 };
   }
 
   setTimestamp(timestamp) {
@@ -168,6 +177,113 @@ export class BacktestSimulator {
     return true;
   }
 
+  // ── Satellite strategies ('<symbol>#bo' / '<symbol>#rs', src/engine/satellites.js) ──
+  // A resting limit buy that locks its cash until it fills or expires; a filled
+  // position exits by its plan on 15m bars (replaySatelliteBar). Costs per side as the
+  // exchange charges them: a limit buy, a limit target and a limit time exit pay the
+  // fee only; a stop-limit stop and a tier exit sell into the bid and pay fee + slippage.
+
+  /** @returns {object|null} the resting order, or null (already held or pending, no cash) */
+  placeSatelliteOrder(key, { limitPrice, validUntil, sizeUsd, stopPrice, plan, slippagePct } = {}) {
+    if (this.positions.has(key) || this.pendingSatellite.has(key)) return null;
+    const reserve = roundMoney(Math.min(Number(sizeUsd) || 0, this.balance));
+    if (reserve < this.minNotional) { this.minNotionalRejections += 1; return null; }
+    const order = {
+      key, limitPrice: roundPrice(Number(limitPrice)), validUntil: Number(validUntil), reserve,
+      stopPrice: roundPrice(Number(stopPrice)), plan, placedAt: this.currentTimestamp,
+      slippagePct: slippagePct != null ? Number(slippagePct) : this.slippagePct,
+    };
+    this.balance = roundMoney(this.balance - reserve);
+    this.reserved = roundMoney(this.reserved + reserve);
+    this.pendingSatellite.set(key, order);
+    this.satelliteStats.placed += 1;
+    return { ...order };
+  }
+
+  hasPendingSatellite(key) { return this.pendingSatellite.has(key); }
+
+  /** Cancels a resting satellite order and frees its cash. */
+  cancelSatelliteOrder(key) {
+    const order = this.pendingSatellite.get(key);
+    if (!order) return false;
+    this.pendingSatellite.delete(key);
+    this.reserved = roundMoney(this.reserved - order.reserve);
+    this.balance = roundMoney(this.balance + order.reserve);
+    return true;
+  }
+
+  /**
+   * One 15m bar for a satellite order or position. A resting limit fills in the first
+   * bar that trades down to it (at the limit, or the open on a gap below) and expires
+   * at `validUntil`. In the fill bar only the stop is checked: the bar's high may have
+   * come before the fill. After that, in order: the time limit (sell at the open), a
+   * pending tier exit (sell at the open), the stop (at the stop, or the open on a gap),
+   * the target (at the target, or the open on a gap up), the break-even step, and at
+   * each hour's close the tier rule on that hour's RSI.
+   * @param {string} key
+   * @param {{timestamp:number, open:number, high:number, low:number, close:number}} bar
+   * @param {{rsi?: number|null}} [ctx] — RSI of the 1h bar this 15m bar closes, if it closes one
+   * @returns {object|null} a fill (side 'BUY', no exitTime), a closing trade, or null
+   */
+  replaySatelliteBar(key, bar, { rsi = null } = {}) {
+    const t = Number(bar.timestamp);
+    const open = Number(bar.open); const low = Number(bar.low); const high = Number(bar.high); const close = Number(bar.close);
+    this.setTimestamp(t);
+    const order = this.pendingSatellite.get(key);
+    if (order) {
+      if (t < order.placedAt) return null;
+      if (t >= order.validUntil) {
+        this.cancelSatelliteOrder(key);
+        this.satelliteStats.expired += 1;
+        return null;
+      }
+      if (!(low <= order.limitPrice)) return null;
+      this.pendingSatellite.delete(key);
+      this.reserved = roundMoney(this.reserved - order.reserve);
+      this.balance = roundMoney(this.balance + order.reserve);
+      const fill = roundPrice(Math.min(order.limitPrice, open));
+      const qty = roundQty(order.reserve / (fill * (1 + this.feePct)));
+      const cost = roundMoney(qty * fill * (1 + this.feePct));
+      const R = fill - order.stopPrice;
+      if (qty <= 0 || cost > this.balance || !(R > 0)) return null;
+      const plan = order.plan ?? {};
+      const position = {
+        isSatellite: true, qty, entryPrice: fill, entryFillPrice: fill, entrySignalPrice: fill,
+        entryFee: roundMoney(qty * fill * this.feePct), costBasis: cost,
+        initialStopLoss: order.stopPrice, stopLoss: order.stopPrice,
+        takeProfit: plan.targetR ? roundPrice(fill + plan.targetR * R) : Infinity,
+        breakEvenAt: plan.breakEvenAtR ? fill + plan.breakEvenAtR * R : null,
+        timeLimitAt: t + Number(plan.timeLimitMs ?? Infinity), tiers: plan.tiers ?? null, pendingTierExit: false,
+        highWaterMark: fill, entryTime: t, fillBarTs: t, slippagePct: order.slippagePct,
+        lastPrice: close, positionPct: null, partialExitDone: false,
+      };
+      this.balance = roundMoney(this.balance - cost);
+      this.totalFees = roundMoney(this.totalFees + position.entryFee);
+      this.positions.set(key, position);
+      this.satelliteStats.filled += 1;
+      if (low <= position.stopLoss) return this.#closePosition(key, position.stopLoss, 'sat_stop', { slippagePct: order.slippagePct });
+      position.highWaterMark = Math.max(fill, close);
+      return { ...position, symbol: key, side: 'BUY' };
+    }
+
+    const pos = this.positions.get(key);
+    if (!pos?.isSatellite || t <= pos.fillBarTs) return null;
+    const slip = pos.slippagePct;
+    if (t >= pos.timeLimitAt) return this.#closePosition(key, open, 'sat_time', { slippagePct: 0 });
+    if (pos.pendingTierExit) return this.#closePosition(key, open, 'sat_tier', { slippagePct: slip });
+    if (low <= pos.stopLoss) {
+      const reason = pos.stopLoss >= pos.entryPrice ? 'sat_breakeven' : 'sat_stop';
+      return this.#closePosition(key, Math.min(pos.stopLoss, open), reason, { slippagePct: slip });
+    }
+    if (high >= pos.takeProfit) return this.#closePosition(key, Math.max(pos.takeProfit, open), 'sat_target', { slippagePct: 0 });
+    pos.lastPrice = close;
+    pos.highWaterMark = Math.max(pos.highWaterMark, high);
+    if (pos.breakEvenAt != null && pos.highWaterMark >= pos.breakEvenAt) pos.stopLoss = Math.max(pos.stopLoss, pos.entryPrice);
+    if (pos.tiers && (t + M15_MS) % HOUR_MS === 0 && rsi != null
+      && shouldTierExit({ profitPct: close / pos.entryPrice - 1, rsi, tiers: pos.tiers })) pos.pendingTierExit = true;
+    return null;
+  }
+
   /**
    * Replays one bar's price path through the stop logic, the way live's 2-minute
    * risk loop meets it: open, low, high, close (the stop before the target when a
@@ -204,7 +320,7 @@ export class BacktestSimulator {
       if (Number.isFinite(mark) && mark > 0) position.lastPrice = mark;
       open += position.qty * (position.lastPrice ?? position.entryPrice);
     }
-    this.equityCurve.push({ timestamp: this.currentTimestamp, balance: roundMoney(this.balance + open) });
+    this.equityCurve.push({ timestamp: this.currentTimestamp, balance: roundMoney(this.balance + this.reserved + open) });
   }
 
   getTrades() {
@@ -226,7 +342,9 @@ export class BacktestSimulator {
         takeProfit: roundPrice(position.takeProfit),
         highWaterMark: roundPrice(position.highWaterMark),
         ...(position.isCore && { isCore: true }),
+        ...(position.isSatellite && { isSatellite: true }),
       })),
+      ...(this.reserved > 0 && { reserved: roundMoney(this.reserved) }),
       totalPnL: roundMoney(this.totalPnL),
       totalFees: roundMoney(this.totalFees),
     };
@@ -243,8 +361,9 @@ export class BacktestSimulator {
       return null;
     }
     position.lastPrice = currentPrice;
-    // TSM core positions exit only on the vote flip (closeCore), as live's checkRisk.
-    if (position.isCore) return null;
+    // TSM core positions exit only on the vote flip (closeCore), as live's checkRisk;
+    // satellite positions only by their own plan (replaySatelliteBar).
+    if (position.isCore || position.isSatellite) return null;
 
     this.checkAndUpdateTrailingStop(symbol, currentPrice);
 
