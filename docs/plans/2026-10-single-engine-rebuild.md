@@ -893,3 +893,46 @@ Verdict: 4h breakouts on large coins with a limit entry carry a real, small edge
 trade after costs, plateau-stable, holds out of sample). Alone it is weaker than the committed bot
 (Sharpe ~1.0 vs 1.59); the money sits in USDC ~90% of the time. Not applied. Open: run it next to
 the committed bot on its idle cash; limit orders need live and simulator support (parity) first.
+
+### Wider setup search under a fixed protocol (2026-10-26)
+
+Asked by the user ("the more we look the higher the chance we find something"; also "research the
+internet for ideas"). Protocol fixed before any run: discovery 2020-06 → 2023-12, validation
+2024-01 → 2025-08-10, final year 2025-08-10 → 2026-08-10 read once for the passes only. Pass =
+discovery n ≥ 100, net/trade > 0 and t ≥ 2.5; at least half of the family's cells positive; the
+same cell positive in validation. Costs per side: market entry fee + slippage, limit entry fee;
+target/time exits fee (limit sells); stops fee + slippage (stop-limit). Scripts in the scratchpad:
+`fast/setups.mjs`, `fast/calendar.mjs`, `fast/libAnalyze.mjs`, `fast/passCheck.mjs`, `fast/finalCheck.mjs`.
+
+Batch 1, chart setups (4h and 12h, all coins and large coins, market or limit entry, 1R/2R/trail,
+two time limits; 1,848 tests, about 11 expected to pass discovery by luck): RSI(2) dip, EMA20/50
+pullback, Bollinger squeeze, NR4/NR7/inside bar, break of structure, spring, volatility contraction,
+relative strength, 1-year high, previous day/week high, RSI divergence, wide momentum bar, three-bar
+pullback, and the volume breakout as a control. 30 passed discovery, 11 also validation: RSI
+divergence (7 variants), the 4h breakout on large coins (3), the wide bar (1). Two clear false finds
+were cut by validation: RSI(2) dip (discovery +0.95% t 2.85, validation −1.22% t −4.5) and EMA50
+pullback on 12h (discovery +3.25% t 4.2, validation −0.17%).
+
+Batch 2, published ideas (304 tests, none passed): intraday momentum (Shen, Urquhart & Wang 2022),
+21–23 UTC (Quantpedia; −0.36%/trade after costs), near the 1-week high and 7-day momentum on large
+coins (Fičura 2023; +2.67%/week but holding all large coins made +2.36% — beta), daily momentum
+(Zaremba et al. 2021), volatility breakout (Larry Williams), big-drop bounce (Caporale & Plastun
+2019, as they found: not profitable). BTC funding as a filter (Binance public history): negative
+regimes too rare (< 15 trades), "not crowded" made discovery worse.
+
+Control: entering on every uptrend bar with the same stop and exit made about 0% in discovery and
+−0.4%/trade in validation. All 11 passes beat it in both blocks (+0.85–1.39% and +0.40–1.01%).
+
+Final year, read once:
+
+| Pass | Final year net/trade | Control | Excess |
+|---|---|---|---|
+| Breakout 48 bars, large, limit 0.5%, 2R/48 h | +0.35% (41) | −0.36% | +0.72% |
+| Breakout 96 bars, large, limit, 2R/48 h and /120 h | +0.12% / +0.05% (27) | −0.36% / −0.43% | +0.48% |
+| RSI divergence, 7 variants | −0.27% to −0.88% | −0.36% to −0.79% | −0.19% to +0.16% |
+| Wide momentum bar | −0.54% (55) | −0.34% | −0.21% |
+
+Verdict: of about 2,150 tests only the large-coin 4h volume breakout survives all three blocks. The
+final year was already read once for that family (candidate A above), so its pass is not a fresh
+test; the divergence and wide-bar failures are. Price-pattern setups at 4h/12h look mined out in
+this data; new ideas likely need new data (order book, listings, news), not new patterns.
