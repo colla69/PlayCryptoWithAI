@@ -828,6 +828,57 @@ export default {
     },
   },
 
+  // ── Satellite strategies (2026-10-26) — short trades on the idle cash ─────────
+  // Two strategies that survived the setup search (plan 2026-10 single-engine
+  // rebuild, "Combining the streams"): the 4h volume breakout and the strongest-coin
+  // breakout, each 12.5% of equity per trade on cash the scalper and the sleeve leave
+  // free. Entries are resting limit buys (no fill → no trade), stops are stop-limit
+  // sells, targets and time exits limit sells. Pure logic in src/engine/satellites.js.
+  // OFF by default: the replay runs them; live order support is not built yet.
+  satellites: {
+    enabled: process.env.SATELLITES === 'true',
+    // The 8 large coins of the symbol list: on all 37 the breakout loses (small coins
+    // fail more often and pay 0.20–0.35% slippage a side).
+    symbols: ['BTC/USDC', 'ETH/USDC', 'BNB/USDC', 'SOL/USDC', 'XRP/USDC', 'DOGE/USDC', 'ADA/USDC', 'AVAX/USDC'],
+    breakout: {
+      enabled: true,
+      timeframe: '4h',
+      trend: { fast: 50, slow: 200 },   // on 12h bars
+      lookbackBars: 48,                  // the plateau centre of the 27-setting grid
+      volumeMult: 1.5,
+      volumeAvgBars: 48,
+      closeInRangeMin: 0.7,
+      stopAtr: 1.5,                      // a 1.0 ATR stop lost almost everywhere
+      limitOffsetPct: 0.005,             // 0.5% under: fills ~78%, best of the order types
+      entryValidMs: 4 * 3_600_000,       // the limit rests one 4h bar
+      maxStopPct: 0.10,                  // the user's rule: no trade risks more than 10%
+      perTradePct: 0.125,
+      maxOpen: 2,
+      breakEvenAtR: 1,
+      targetR: null,                     // no 2R target: winners run (tiered-exit test)
+      timeLimitMs: 48 * 3_600_000,
+      tiers: [{ minProfit: 0.01, rsiBelow: 35 }, { minProfit: 0.02, rsiBelow: 45 }, { minProfit: 0.04, rsiBelow: 55 }],
+    },
+    strongest: {
+      enabled: true,
+      timeframe: '12h',
+      trend: { fast: 100, slow: 400 },   // on 12h bars (≈ the daily 50/200)
+      rankBars: 14,                      // 7-day return
+      topN: 3,                           // ranked among every symbol in config.symbols
+      lookbackBars: 24,
+      stopAtr: 1.5,
+      limitOffsetPct: 0.002,
+      entryValidMs: 12 * 3_600_000,
+      maxStopPct: 0.10,
+      perTradePct: 0.125,
+      maxOpen: 2,
+      breakEvenAtR: 1,
+      targetR: 2,
+      timeLimitMs: 120 * 3_600_000,
+      tiers: null,
+    },
+  },
+
   // ── Confidence-proportional position sizing ────────────────────────────────
   // Scales position size linearly based on signal confidence:
   //   conf ≥ mid (0.65)  → linear from 1.0× to max (1.5×)
