@@ -860,7 +860,9 @@ export default {
       tiers: [{ minProfit: 0.01, rsiBelow: 35 }, { minProfit: 0.02, rsiBelow: 45 }, { minProfit: 0.04, rsiBelow: 55 }],
     },
     strongest: {
-      enabled: true,
+      // Off: in the engine walk-forward (2026-10-26) it lowered the Sharpe alone (1.91 → 1.78)
+      // and next to the breakout (2.13 → 1.96). Its research estimate carried selection bias.
+      enabled: false,
       timeframe: '12h',
       trend: { fast: 100, slow: 400 },   // on 12h bars (≈ the daily 50/200)
       rankBars: 14,                      // 7-day return
