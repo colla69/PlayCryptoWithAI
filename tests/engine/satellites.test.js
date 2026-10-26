@@ -4,13 +4,15 @@
  * Live scenarios covered: a 4h breakout on a volume spike (and the near misses: no new
  * high, no spike, a close at the bottom of its range), the 7-day ranking that ignores a
  * frozen pair, a strongest-coin entry only inside the top N, hourly RSI that never reads
- * a part hour, the profit tiers, and an entry refused for a stop that risks over 10%.
+ * a part hour, the profit tiers, an entry refused for a stop that risks over 10%, and the
+ * shared exit rules on single price ticks (how PaperTrader and LiveTrader call them).
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   satelliteKey, satelliteKind, isSatelliteSymbol, isTrendUp, detectBreakout, rankByReturn,
   detectStrongest, hourlyRsiByClose, tierExitThreshold, shouldTierExit, satelliteOrderSize, planSatelliteEntry,
+  stepSatellitePosition, satellitePositionPlan,
 } from '../../src/engine/satellites.js';
 
 const H4 = 4 * 3_600_000;
@@ -127,5 +129,32 @@ describe('satellites: sizing and entry plan', () => {
   test('refused: stop over 10% under the limit, or not under it', () => {
     assert.equal(planSatelliteEntry({ signal: { stopPrice: 85 }, refPrice: 100, kindCfg, equity: 1000, freeBalance: 1000, now: 0 }).refused, 'stop too far');
     assert.equal(planSatelliteEntry({ signal: { stopPrice: 99.5 }, refPrice: 100, kindCfg, equity: 1000, freeBalance: 1000, now: 0 }).refused, 'stop not under the limit');
+  });
+});
+
+describe('satellites: stepSatellitePosition on price ticks', () => {
+  const tick = (t, p, extra = {}) => ({ t, open: p, low: p, high: p, close: p, ...extra });
+  const fresh = (plan = {}) => ({ entryPrice: 100, ...satellitePositionPlan({ fillPrice: 100, stopPrice: 97, plan: { breakEvenAtR: 1, targetR: null, timeLimitMs: 48 * 3_600_000, ...plan }, filledAt: 0 }) });
+  test('the plan from the fill: R = 3, break-even at 103, no target, 48 h limit', () => {
+    const p = fresh();
+    assert.equal(p.breakEvenAt, 103);
+    assert.equal(p.takeProfit, Infinity);
+    assert.equal(p.timeLimitAt, 48 * 3_600_000);
+  });
+  test('a tick under the stop exits at that tick price', () => {
+    assert.deepEqual(stepSatellitePosition(fresh(), tick(1, 96.5)), { reason: 'sat_stop', price: 96.5 });
+  });
+  test('after +1R the stop is at entry: a fall back exits as break-even', () => {
+    const p = fresh();
+    assert.equal(stepSatellitePosition(p, tick(1, 103.2)), null);
+    assert.equal(p.stopLoss, 100);
+    assert.equal(stepSatellitePosition(p, tick(2, 99.9)).reason, 'sat_breakeven');
+  });
+  test('the target with a 2R plan, the time limit, and a tier exit at the next tick', () => {
+    assert.equal(stepSatellitePosition(fresh({ targetR: 2 }), tick(1, 106.1)).reason, 'sat_target');
+    assert.equal(stepSatellitePosition(fresh(), tick(48 * 3_600_000, 101)).reason, 'sat_time');
+    const p = fresh({ tiers: [{ minProfit: 0.01, rsiBelow: 35 }] });
+    assert.equal(stepSatellitePosition(p, tick(1, 101.5, { rsi: 30, hourClosed: true })), null);
+    assert.deepEqual(stepSatellitePosition(p, tick(2, 101.4)), { reason: 'sat_tier', price: 101.4 });
   });
 });

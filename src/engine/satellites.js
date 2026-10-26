@@ -155,6 +155,51 @@ export function shouldTierExit({ profitPct, rsi, tiers }) {
 }
 
 /**
+ * A held satellite position meets one price observation — a replay's 15m bar, or a live
+ * or paper price tick (open = low = high = close = the price). The one copy of the exit
+ * rules, used by the simulator, PaperTrader and LiveTrader. In order: the time limit
+ * (out at the open), a tier exit set at the previous hour close (out at the open), the
+ * stop (at the stop, or the open on a gap through it), the target (at the target, or the
+ * open on a gap up); then the high-water mark and the break-even step, and at an hour's
+ * close the tier rule on that hour's RSI (the exit follows at the next observation).
+ * Mutates `pos` (stopLoss, highWaterMark, pendingTierExit, lastPrice).
+ * @param {{entryPrice:number, stopLoss:number, takeProfit:number, breakEvenAt:number|null,
+ *   timeLimitAt:number, tiers:Array|null, pendingTierExit:boolean, highWaterMark:number}} pos
+ * @param {{t:number, open:number, low:number, high:number, close:number, rsi?:number|null, hourClosed?:boolean}} obs
+ * @returns {{reason:'sat_time'|'sat_tier'|'sat_stop'|'sat_breakeven'|'sat_target', price:number}|null}
+ */
+export function stepSatellitePosition(pos, { t, open, low, high, close, rsi = null, hourClosed = false }) {
+  if (t >= pos.timeLimitAt) return { reason: 'sat_time', price: open };
+  if (pos.pendingTierExit) return { reason: 'sat_tier', price: open };
+  if (low <= pos.stopLoss) {
+    return { reason: pos.stopLoss >= pos.entryPrice ? 'sat_breakeven' : 'sat_stop', price: Math.min(pos.stopLoss, open) };
+  }
+  if (high >= pos.takeProfit) return { reason: 'sat_target', price: Math.max(pos.takeProfit, open) };
+  pos.lastPrice = close;
+  pos.highWaterMark = Math.max(pos.highWaterMark, high);
+  if (pos.breakEvenAt != null && pos.highWaterMark >= pos.breakEvenAt) pos.stopLoss = Math.max(pos.stopLoss, pos.entryPrice);
+  if (pos.tiers && hourClosed && rsi != null && shouldTierExit({ profitPct: close / pos.entryPrice - 1, rsi, tiers: pos.tiers })) {
+    pos.pendingTierExit = true;
+  }
+  return null;
+}
+
+/**
+ * The exit plan's fields on a filled satellite position (stop, target, break-even level,
+ * time limit, tiers), from the fill price and the order's plan.
+ */
+export function satellitePositionPlan({ fillPrice, stopPrice, plan = {}, filledAt }) {
+  const R = fillPrice - stopPrice;
+  return {
+    initialStopLoss: stopPrice, stopLoss: stopPrice,
+    takeProfit: plan.targetR ? fillPrice + plan.targetR * R : Infinity,
+    breakEvenAt: plan.breakEvenAtR ? fillPrice + plan.breakEvenAtR * R : null,
+    timeLimitAt: filledAt + Number(plan.timeLimitMs ?? Infinity),
+    tiers: plan.tiers ?? null, pendingTierExit: false, highWaterMark: fillPrice,
+  };
+}
+
+/**
  * Dollar size of one satellite entry: `perTradePct` of equity, capped at the free
  * balance; null when that is under the exchange floor.
  */

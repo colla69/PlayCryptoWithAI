@@ -6,7 +6,7 @@ import {
   calcPartialExit, calcATRStopPrices, calcTrailingStop, calcBreakEven, calcExitSignal,
 } from '../executor/traderUtils.js';
 import { FALLBACK_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
-import { shouldTierExit } from '../engine/satellites.js';
+import { stepSatellitePosition, satellitePositionPlan } from '../engine/satellites.js';
 
 const HOUR_MS = 3_600_000;
 const M15_MS = 900_000;
@@ -179,9 +179,10 @@ export class BacktestSimulator {
 
   // ── Satellite strategies ('<symbol>#bo' / '<symbol>#rs', src/engine/satellites.js) ──
   // A resting limit buy that locks its cash until it fills or expires; a filled
-  // position exits by its plan on 15m bars (replaySatelliteBar). Costs per side as the
-  // exchange charges them: a limit buy, a limit target and a limit time exit pay the
-  // fee only; a stop-limit stop and a tier exit sell into the bid and pay fee + slippage.
+  // position exits by its plan on 15m bars (replaySatelliteBar). Costs as live pays
+  // them: the resting limit buy is a maker fill (fee only); every exit — stop,
+  // break-even, target, tier, time — is a marketable limit sell into the bid, as
+  // LiveTrader sends it (fee + slippage), with a market sell only as the fallback.
 
   /** @returns {object|null} the resting order, or null (already held or pending, no cash) */
   placeSatelliteOrder(key, { limitPrice, validUntil, sizeUsd, stopPrice, plan, slippagePct } = {}) {
@@ -213,8 +214,8 @@ export class BacktestSimulator {
   }
 
   /**
-   * One 15m bar for a satellite order or position. A resting limit fills in the first
-   * bar that trades down to it (at the limit, or the open on a gap below) and expires
+   * One 15m bar for a satellite order or position. A resting limit fills at its price
+   * in the first bar that trades down to it, and expires
    * at `validUntil`. In the fill bar only the stop is checked: the bar's high may have
    * come before the fill. After that, in order: the time limit (sell at the open), a
    * pending tier exit (sell at the open), the stop (at the stop, or the open on a gap),
@@ -241,20 +242,16 @@ export class BacktestSimulator {
       this.pendingSatellite.delete(key);
       this.reserved = roundMoney(this.reserved - order.reserve);
       this.balance = roundMoney(this.balance + order.reserve);
-      const fill = roundPrice(Math.min(order.limitPrice, open));
+      // A resting buy fills at its own price: sellers crossing it take the bid there.
+      const fill = order.limitPrice;
       const qty = roundQty(order.reserve / (fill * (1 + this.feePct)));
       const cost = roundMoney(qty * fill * (1 + this.feePct));
-      const R = fill - order.stopPrice;
-      if (qty <= 0 || cost > this.balance || !(R > 0)) return null;
-      const plan = order.plan ?? {};
+      if (qty <= 0 || cost > this.balance || !(fill > order.stopPrice)) return null;
       const position = {
         isSatellite: true, qty, entryPrice: fill, entryFillPrice: fill, entrySignalPrice: fill,
         entryFee: roundMoney(qty * fill * this.feePct), costBasis: cost,
-        initialStopLoss: order.stopPrice, stopLoss: order.stopPrice,
-        takeProfit: plan.targetR ? roundPrice(fill + plan.targetR * R) : Infinity,
-        breakEvenAt: plan.breakEvenAtR ? fill + plan.breakEvenAtR * R : null,
-        timeLimitAt: t + Number(plan.timeLimitMs ?? Infinity), tiers: plan.tiers ?? null, pendingTierExit: false,
-        highWaterMark: fill, entryTime: t, fillBarTs: t, slippagePct: order.slippagePct,
+        ...satellitePositionPlan({ fillPrice: fill, stopPrice: order.stopPrice, plan: order.plan, filledAt: t }),
+        entryTime: t, fillBarTs: t, slippagePct: order.slippagePct,
         lastPrice: close, positionPct: null, partialExitDone: false,
       };
       this.balance = roundMoney(this.balance - cost);
@@ -268,20 +265,9 @@ export class BacktestSimulator {
 
     const pos = this.positions.get(key);
     if (!pos?.isSatellite || t <= pos.fillBarTs) return null;
-    const slip = pos.slippagePct;
-    if (t >= pos.timeLimitAt) return this.#closePosition(key, open, 'sat_time', { slippagePct: 0 });
-    if (pos.pendingTierExit) return this.#closePosition(key, open, 'sat_tier', { slippagePct: slip });
-    if (low <= pos.stopLoss) {
-      const reason = pos.stopLoss >= pos.entryPrice ? 'sat_breakeven' : 'sat_stop';
-      return this.#closePosition(key, Math.min(pos.stopLoss, open), reason, { slippagePct: slip });
-    }
-    if (high >= pos.takeProfit) return this.#closePosition(key, Math.max(pos.takeProfit, open), 'sat_target', { slippagePct: 0 });
-    pos.lastPrice = close;
-    pos.highWaterMark = Math.max(pos.highWaterMark, high);
-    if (pos.breakEvenAt != null && pos.highWaterMark >= pos.breakEvenAt) pos.stopLoss = Math.max(pos.stopLoss, pos.entryPrice);
-    if (pos.tiers && (t + M15_MS) % HOUR_MS === 0 && rsi != null
-      && shouldTierExit({ profitPct: close / pos.entryPrice - 1, rsi, tiers: pos.tiers })) pos.pendingTierExit = true;
-    return null;
+    // The shared exit rules (src/engine/satellites.js), as PaperTrader and LiveTrader run them.
+    const exit = stepSatellitePosition(pos, { t, open, low, high, close, rsi, hourClosed: (t + M15_MS) % HOUR_MS === 0 });
+    return exit ? this.#closePosition(key, exit.price, exit.reason, { slippagePct: pos.slippagePct }) : null;
   }
 
   /**

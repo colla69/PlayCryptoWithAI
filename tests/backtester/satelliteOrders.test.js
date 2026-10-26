@@ -2,8 +2,8 @@
  * Satellite orders in the backtest simulator — the order model of the satellite strategies.
  *
  * Live scenarios covered: a resting limit buy locks its cash (equity still counts it) and
- * frees it on expiry; a fill at the limit or on a gap below it; a stop inside the fill bar;
- * the 2R target (a limit sell: fee only), the stop (fee + slippage), the break-even step,
+ * frees it on expiry; a fill at the limit price, also under a lower open; a stop inside the fill bar;
+ * the 2R target and the stop (both sold into the bid: fee + slippage), the break-even step,
  * the time limit, the RSI-tier exit at the next bar, and the scalper's risk check leaving
  * satellite positions alone.
  */
@@ -42,14 +42,14 @@ describe('satellite orders: resting limit', () => {
     assert.equal(s.satelliteStats.expired, 1);
   });
 
-  test('fills at the limit, fee only; on a gap below, at the open', () => {
+  test('fills at the limit, fee only — also when the bar opens below it', () => {
     const s = sim(); place(s);
     const f = s.replaySatelliteBar('BTC/USDC#bo', bar(1, 100, 100.2, 98.5, 99.8));
     assert.equal(f.side, 'BUY');
     assert.equal(f.entryPrice, 99);
     assert.equal(f.costBasis, 125); // the reserved $125 buys qty at 99 × (1 + fee)
     const s2 = sim(); place(s2);
-    assert.equal(s2.replaySatelliteBar('BTC/USDC#bo', bar(1, 98, 99, 97.5, 98.5)).entryPrice, 98);
+    assert.equal(s2.replaySatelliteBar('BTC/USDC#bo', bar(1, 98, 99, 97.5, 98.5)).entryPrice, 99);
   });
 
   test('a stop inside the fill bar stops the trade at the stop', () => {
@@ -63,12 +63,12 @@ describe('satellite orders: resting limit', () => {
 describe('satellite orders: exits after the fill', () => {
   const filled = (over) => { const s = sim(); place(s, over); s.replaySatelliteBar('BTC/USDC#bo', bar(1, 100, 100, 98.9, 99.5)); return s; };
 
-  test('2R target: a limit sell, fee only, no slippage', () => {
+  test('2R target: sold into the bid, fee + slippage', () => {
     const s = filled();
     const t = s.replaySatelliteBar('BTC/USDC#bo', bar(2, 100, 106, 99.5, 105));
     assert.equal(t.reason, 'sat_target');
     assert.equal(t.exitPrice, 105); // 99 + 2 × 3
-    assert.equal(t.exitFillPrice, Number((105 * 0.999).toFixed(8)));
+    assert.equal(t.exitFillPrice, Number((105 * 0.998).toFixed(8)));
   });
 
   test('stop: fee + slippage; a gap under it fills at the open', () => {
@@ -87,12 +87,13 @@ describe('satellite orders: exits after the fill', () => {
     assert.equal(t.exitPrice, 99);
   });
 
-  test('time limit: sold at the open of the first bar past it, fee only', () => {
+  test('time limit: sold at the open of the first bar past it, fee + slippage', () => {
     const s = filled({ plan: plan({ timeLimitMs: 2 * H }) });
     assert.equal(s.replaySatelliteBar('BTC/USDC#bo', bar(5, 100, 100.5, 99.5, 100)), null);
     const t = s.replaySatelliteBar('BTC/USDC#bo', bar(9, 100.3, 101, 100, 100.8));
     assert.equal(t.reason, 'sat_time');
     assert.equal(t.exitPrice, 100.3);
+    assert.equal(t.exitFillPrice, Number((100.3 * 0.998).toFixed(8)));
   });
 
   test('tier exit: an hour close at +1.5% with RSI under 35 sells at the next open', () => {
