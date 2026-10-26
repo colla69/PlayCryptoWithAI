@@ -848,3 +848,48 @@ type, BTC trend, VWAP, "in play" strength or hour beat the costs; the best (brea
 coins, +0.19% ±0.15 gross) is below the 0.4% round trip. The holdout was not read: nothing passed.
 
 Verdict: on 1h/15m bars these chart patterns carry no edge in this data; more trades only add costs.
+
+### Bigger bars and limit orders (2026-10-26)
+
+The same scanner at 4h and 12h (`fast/gen2.mjs <out> <1h|4h|12h>`; trend from 12h EMA50/200, or
+EMA100/400 on 12h for 12h bars; the 1h rerun matches the first run trade for trade). Gross edge by bar
+size for breakouts on large coins: 1h +0.19%, 4h +0.86% ±0.53, 12h +1.2% ±1.2 per trade. Bounces,
+retests and flags stay at about zero at every size. All 37 coins: breakouts lose on 4h (small coins
+fail more and cost more), so large coins only (BTC ETH BNB SOL XRP DOGE ADA AVAX ZEC FTM XLM).
+
+Order types (user: limit orders, market only in a catastrophe). On Binance spot base tier maker and
+taker are both 0.1% (0.075% with BNB), so a limit mainly saves slippage. Modelled on 15m bars: a
+resting limit buy fills only if price trades down to it, else no trade; target and time exits are
+limit sells (fee only); stops are stop-limit sells into the bid (fee + tier slippage).
+
+Plateau grid (`BO_GRID`, `fast/gridAnalyze.mjs`): 48-bar high lookback 24/48/96 × volume 1.2/1.5/2.0×
+× stop 1.0/1.5/2.0 ATR × entry (market; limit 0.2% or 0.5% under the open for one bar; limit at the
+broken level for two bars) × exit (2R or trail) × time limit. 4h large coins, in-sample:
+- a 1.0 ATR stop loses almost everywhere; all 18 cells with 1.5–2.0 ATR are positive (market, 2R);
+- limit 0.5% under the open: fills 78%, positive in 21/27 cells, median +0.40% per trade (market 0.36%);
+- the misses are the best trades (+2.35% each vs +0.22% for the fills), but the price and the saved
+  slippage still win; a limit at the broken level fills 46% and loses — it misses the runners;
+- 12h large: 26/27 cells positive with market, median about +0.9–1.0%, but only ~35 trades a year.
+
+Candidates fixed before any money run or holdout read — the plateau centre, 48 bars / 1.5× / 1.5 ATR /
+2R: A = 4h, limit 0.5% under, 48 h limit; B = 12h, limit 0.2% under, 120 h limit.
+Money (`fast/portfolio.mjs`: one position per coin, size = equity / max positions, $11 floor, valued
+at every 4h close, drawdown on time-weighted returns):
+
+| In-sample 2020-06-23 → 2025-08-10, $1,000 | Yearly | Worst drop | Sharpe | Trades/wk | In a trade |
+|---|---|---|---|---|---|
+| A, 4 at a time (25% each) | 9.6% | 11.8% | 0.99 | 1.3 | 10% |
+| A, 2 at a time (50% each) | 18.7% | 22.3% | 1.01 | 1.2 | 10% |
+| A, 1 at a time (100%) | 29.7% | 37.0% | 0.94 | 0.9 | 9% |
+| B, 2 at a time | 11.4% | 23.4% | 0.62 | 0.5 | 12% |
+| Hold BTC | ~53% | 73.7% | — | — | — |
+| BTC above its 100-day average | ~46% | 44.9% | — | — | — |
+
+Holdout 2025-08-10 → 2026-08-10, read once: A (2 at a time) +6.2%, drop 8.3%, 34 trades; B +3.1%,
+14 trades; hold BTC −44%, BTC 100-day rule −29%. Per trade the holdout matches in-sample: 4h grid
+27/27 cells positive with market (median +0.41%), 22/24 with the 0.5% limit (median +0.49%).
+
+Verdict: 4h breakouts on large coins with a limit entry carry a real, small edge (about +0.4–0.5% a
+trade after costs, plateau-stable, holds out of sample). Alone it is weaker than the committed bot
+(Sharpe ~1.0 vs 1.59); the money sits in USDC ~90% of the time. Not applied. Open: run it next to
+the committed bot on its idle cash; limit orders need live and simulator support (parity) first.
