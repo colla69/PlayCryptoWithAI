@@ -11,6 +11,8 @@
  * Usage (the replay reads data/candles, so swap the deep set in first and back after):
  *   PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot+bo+rs --out /tmp/sb_all.json
  *     cells: bot | bot+bo | bot+rs | bot+bo+rs   [--from 2020-06-01] [--to 2026-08-10] [--start 190] [--weekly 10]
+ *     [--bo '{"lookbackBars":24,"stopAtr":2}']   — breakout settings over config.satellites.breakout (research grids)
+ *     [--label <name>]                           — the cell's name in the report (default: the cell)
  *   node src/scripts/runSuperbot.mjs --report /tmp/sb_bot.json,/tmp/sb_all.json [--fold-months 6]
  */
 import fs from 'fs';
@@ -99,7 +101,7 @@ const cfg = {
   satellites: {
     ...config.satellites,
     enabled: cell !== 'bot',
-    breakout: { ...config.satellites.breakout, enabled: parts.includes('bo') },
+    breakout: { ...config.satellites.breakout, ...JSON.parse(arg('bo', '{}')), enabled: parts.includes('bo') },
     strongest: { ...config.satellites.strongest, enabled: parts.includes('rs') },
   },
 };
@@ -115,7 +117,7 @@ const r = await replayEngine({
 const byReason = {};
 for (const t of r.trades) { const k = t.reason ?? '?'; byReason[k] = (byReason[k] ?? 0) + 1; }
 fs.writeFileSync(out, JSON.stringify({
-  cell, from: arg('from', '2020-06-01'), to: arg('to', '2026-08-10'), start, weekly, deposits,
+  cell: arg('label', cell), from: arg('from', '2020-06-01'), to: arg('to', '2026-08-10'), start, weekly, deposits,
   deposited: start + deposits.length * weekly,
   equity: r.equity.map((p) => ({ timestamp: p.timestamp, balance: Number(p.balance.toFixed(2)) })),
   trades: r.trades.map((t) => ({ s: t.symbol, o: t.openedAt, c: t.timestamp, why: t.reason, pnl: t.pnl })),
