@@ -1176,3 +1176,31 @@ breakout with 3,100 trials counted: 0.969 — mostly the bot's own strength, not
 Verdict: the breakout adds return with confidence and a likely but unproven Sharpe gain; its
 settings are on a plateau; most of the gain comes from trend periods (the 2020-12 fold). Next: the
 paper soak and its reconciliation.
+
+## Limit orders everywhere (2026-10-26)
+
+User: "limit orders everywhere please". First the question whether a resting limit buy under the
+price would earn money on the scalper's entries, as it does on the breakout. Estimate, per trade, on
+the committed bot's six-year engine replay (deep set, $190 + $10 a week, sleeve on, satellites off;
+final $5,644 as before): 77 scalper round trips, mean +5.2%; a limit buy at offset x under the cycle's
+open, resting V hours, fills when a 15m low reaches it (strictly under the open for x = 0); exits as
+replayed. Scripts in the session scratchpad (`lim/dump.mjs`, `lim/estimate.mjs`).
+
+| Offset · rests | Filled | Sum of returns (market: 402%) | Missed trades' mean return |
+|---|---|---|---|
+| 0 · 4 h | 74 | 405% | +3.5% |
+| 0.2% · 4 h | 66 | 376% | +4.8% |
+| 0.5% · 12 h | 61 | 404% | +2.7% |
+| 1.0% · 12 h | 48 | 313% | +5.2% |
+
+Every offset breaks even or loses: the scalper trades rarely and wins big, so a few missed winners
+cost more than 0.2–0.7% saved on each fill. The ceiling is small anyway: modelled slippage over the six
+years was $137 for the scalper and $29 for the sleeve, against $2,213 of profit.
+
+Built instead: no naked market orders on any live path. Every scalper and sleeve order is an IOC limit
+capped `risk.limitCapPct` (0.5%) past the price — a buy fills at the book within the cap and buys
+nothing past it; a sell's unfilled rest goes to market (the catastrophe fallback, logged as an error,
+the satellites' existing rule). 0.5% sits above the highest slippage tier the backtests charge (micro
+0.35%), so the backtest model is unchanged and the baselines stay valid. A buy the cap refuses is
+live-only (no order book in history) and listed under `INTENTIONALLY_LIVE_ONLY`.
+Tests: `tests/executor/liveLimitOrders.test.js`.

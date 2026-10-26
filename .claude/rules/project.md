@@ -91,7 +91,7 @@ fix belongs in the engine.
 - **Portfolio risk gates** (`risk/portfolioRisk.js`): correlation cap (0.85), weekly DD breaker (−10%→72h), position-aging exit (14 bars). Daily-loss + weekly-DD %-limits scale off LIVE equity (`calcEquityFromStatus`), not static `initialBalance` (fallback only).
 - **Asymmetric exit**: open positions exit at 70% of normal threshold when SELL majority exists.
 - **MTF filter**: 15m recency-weighted alignment score blocks entries when score < 0.5.
-- **TSM core sleeve** (`engine/tsmCore.js`): majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL market orders in live) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
+- **TSM core sleeve** (`engine/tsmCore.js`): majors trending overlay (default OFF, `TSM_CORE` env var; simulates in paper, REAL orders in live (capped IOC limits, `risk.limitCapPct`)) — majority-vote trailing momentum with slow-in hysteresis, long-only while positive, exit on vote flip; failed live closes alert + retry via fast risk loop.
 - **Sleeve sizing = HWM equity ladder** (`tsmCore.equityLadder`, 2026-07-29): rungs select between
   individually validated static profiles by the account's all-time-high equity (from
   `data/equity_history.json`). **Never key sizing off current equity — that is martingale** (sizes

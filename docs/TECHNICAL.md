@@ -60,7 +60,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | Risk Manager | `risk/riskManager.js` (re-exported by `risk/index.js`) | `canTrade()`: scaled entry threshold, daily loss limit; daily P&L re-seeded from persisted history on restart |
 | Portfolio Risk | `risk/portfolioRisk.js` | Correlation cap, weekly DD breaker, position-aging exit (pure fns, shared live/backtest) |
 | Paper Trader | `executor/paperTrader.js` | Simulated order execution |
-| Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking, position state persistence |
+| Live Trader | `executor/liveTrader.js` | Real Binance orders (IOC limits capped `risk.limitCapPct` past the price; market only for what a sell leaves), position tracking, position state persistence |
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
 | OCO Orders | `exchange/ocoOrders.js` | Server-side SL/TP for Lambda deployment |
 | Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache; merge-preserving saves keep deep research history intact |
@@ -174,12 +174,12 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
       → notifyTrade() → Telegram alert (if configured)
 
 7. Risk check (existing positions):
-    price ≤ stopLoss?     → market sell (stop_loss)
-    price ≥ takeProfit?   → market sell (take_profit)
+    price ≤ stopLoss?     → IOC limit sell, rest at market (stop_loss)
+    price ≥ takeProfit?   → IOC limit sell, rest at market (take_profit)
     price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
     All closes → notifyTrade() → Telegram alert (if configured)
 
-8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real market orders):
+8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real orders (capped IOC limits)):
    runTsmCoreCycle() reads closed 12h candles from dashboardState (no lookahead)
    For each core symbol: computeTsmVote(trailing momentum) → majority vote
    If vote flips: openCorePosition / closeCorePosition → position tracked with isCore flag
@@ -194,7 +194,7 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 1. For each open position:
    fetchTicker(symbol) → current price
 2. Evaluate: trailing stop, break-even, stop-loss, take-profit
-3. If triggered → market sell, update dashboard, persist state
+3. If triggered → IOC limit sell (rest at market), update dashboard, persist state
 4. Reduces market exposure window from 12h to ~2 min
 5. TSM core positions get NO stop evaluation, but they are still marked-to-market
    every pass. Marking matters because position.currentPrice is what
@@ -335,7 +335,7 @@ docker logs -f <container> 2>&1 | grep TSM-CORE   # watch sleeve cycles
 ```
 
 The sleeve runs inside the main bot process — no separate container. In
-`PAPER_MODE` it simulates; on the LIVE bot it places **real market orders**
+`PAPER_MODE` it simulates; on the LIVE bot it places **real orders** (capped IOC limits)
 sized to `tsmCore.deploymentPct` of the account (default 50%), so enabling
 `TSM_CORE` on live is a deliberate capital-deployment decision. Expect
 `[TSM-CORE]` log lines each 12h cycle (votes, vol fraction, macro risk-on/off)
@@ -428,7 +428,7 @@ config
 | Next-open fills | No execution lookahead — realistic fill simulation |
 | Tiered slippage | Large caps 0.10%, mid 0.20%, micro 0.35% |
 | Fixed SL/TP over trailing | Trailing gives back profits on retracements |
-| Market orders | Guaranteed fill; slippage acceptable on 12h timeframe |
+| Capped IOC limit orders | Fill at once like a market order, never worse than 0.5% past the price (`risk.limitCapPct`); a buy buys nothing past the cap, a sell sends only the unfilled rest to market. A resting limit under the price was tested and lost: the misses are the winners |
 | No database | JSON files sufficient for <100 trades/month; simple backup (git) |
 | Position state persistence | SL/HWM/entry saved to disk on every change; survives restarts without losing break-even protection |
 | DailyRotateFile logging | 50 MB max per file, 30-day retention; dashboard reads today's dated file with 512 KB tail for speed |

@@ -136,8 +136,8 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | Entry | Daily loss > −5% | All trades blocked |
 | Entry | BTC < EMA(200) | Size halved |
 | Entry | ADX < 15 (chop) | Size halved |
-| In-trade | Stop-loss (5%) | Market sell |
-| In-trade | Take-profit (12%) | Market sell |
+| In-trade | Stop-loss (5%) | IOC limit sell, rest at market |
+| In-trade | Take-profit (12%) | IOC limit sell, rest at market |
 | In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
 | In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
 | Ops | Cycle watchdog (30 min) | Telegram alert when the loop stops deciding |

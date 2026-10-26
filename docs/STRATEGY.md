@@ -209,7 +209,7 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 BTC+ETH+BNB+SOL) sized as a fixed sleeve (default 50% of equity, split equally) 
 that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
-env var; runs in **paper and live** — on the live bot it places real market orders sized to 
+env var; runs in **paper and live** — on the live bot it places real orders (IOC limits capped 0.5% past the price) sized to 
 `deploymentPct` of the account, so enabling it is a deliberate capital-deployment decision. A 
 vote-flip close that fails on the exchange fires a Telegram alert and is retried by the fast risk 
 loop (~2 min) until it fills.

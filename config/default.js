@@ -80,6 +80,15 @@ export default {
     // buy the floor instead of skipping. A small account loses 7–14% of signals to the
     // floor (2026-09/10 live sizing). Off until the 2026-10 recalibration measures it.
     minNotionalBump: { enabled: false, minRatio: 0.5 },
+    // Live sends every scalper and sleeve order as an IOC limit at most this far past
+    // the price: a buy fills now at no more than price × (1 + cap) and buys nothing past
+    // it; a sell fills at no less than price × (1 − cap), and only what that leaves sells
+    // at market (the catastrophe fallback, logged as an error). 0.5% sits above the
+    // highest slippage tier the backtests charge (micro 0.35%), so the cap binds only on
+    // a fill worse than the model assumes. A resting limit under the price was tested
+    // instead (2026-10-26, six-year replay): every offset broke even or lost — the misses
+    // are the scalper's winners. Satellites keep their own 0.3% cap (large coins only).
+    limitCapPct: 0.005,
     maxDailyLossPct: 0.05,
     maxOpenPositions: 4,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
                               //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%

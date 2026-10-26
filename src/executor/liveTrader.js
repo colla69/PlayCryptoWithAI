@@ -34,6 +34,8 @@ const SATELLITE_ORDERS_FILE = path.join(runtimeDir('data'), 'satellite_orders.js
 // A satellite exit sells with an IOC limit at most this far under the price (a stop-limit);
 // what that does not fill sells at market — the catastrophe fallback, logged as an error.
 const SATELLITE_EXIT_CAP_PCT = 0.003;
+// Scalper and sleeve orders: IOC limits capped this far past the price (config.risk.limitCapPct).
+const DEFAULT_LIMIT_CAP_PCT = 0.005;
 
 export class LiveTrader {
   /**
@@ -469,7 +471,7 @@ export class LiveTrader {
   }
 
   /**
-   * Open a TSM core sleeve position with a fixed USD allocation (real market
+   * Open a TSM core sleeve position with a fixed USD allocation (real IOC limit
    * order). `symbol` is the core key ('BTC/USDC#core'); orders go to the
    * underlying market. No SL/TP — the only exit is closeCorePosition on a
    * momentum-vote flip; sizing drifts via resizeCorePosition.
@@ -507,10 +509,11 @@ export class LiveTrader {
         return null;
       }
 
-      const order = await this.exchange.createOrder(market, 'market', 'buy', qty);
-      const entryPrice = await this.#resolveTradePrice(order, market, price);
-      const reportedQty = Number(order.filled ?? order.amount ?? qty);
-      const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
+      const { order, filled: filledQty, price: entryPrice } = await this.#limitBuy(market, qty, price, freeQuote);
+      if (!(filledQty > 0)) {
+        logger.warn(`[LIVE] ${symbol}: core BUY not filled within ${(this.#capPct * 100).toFixed(1)}% of ${price} — no position`);
+        return null;
+      }
       const timestamp = new Date().toISOString();
 
       const position = {
@@ -548,7 +551,7 @@ export class LiveTrader {
     }
   }
 
-  /** Close a TSM core position on a momentum-vote flip (real market sell). */
+  /** Close a TSM core position on a momentum-vote flip (real IOC limit sell). */
   async closeCorePosition(symbol, referencePrice) {
     return this.#closePosition(symbol, roundPrice(referencePrice), 'tsm_core_flip', '🧲 tsm-core');
   }
@@ -578,10 +581,11 @@ export class LiveTrader {
           logger.info(`[LIVE] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below minimums)`);
           return null;
         }
-        const order = await this.exchange.createOrder(market, 'market', 'buy', qty);
-        const fillPrice = await this.#resolveTradePrice(order, market, price);
-        const reported = Number(order.filled ?? order.amount ?? qty);
-        const addQty = roundQty(reported > 0 ? reported : qty);
+        const { order, filled: addQty, price: fillPrice } = await this.#limitBuy(market, qty, price, freeQuote);
+        if (!(addQty > 0)) {
+          logger.warn(`[LIVE] ${symbol}: core resize BUY not filled within ${(this.#capPct * 100).toFixed(1)}% of ${price}`);
+          return null;
+        }
         const newQty = roundQty(position.qty + addQty);
         position.entryPrice = roundPrice((position.entryPrice * position.qty + fillPrice * addQty) / newQty);
         position.qty = newQty;
@@ -618,12 +622,16 @@ export class LiveTrader {
           // Never let a resize silently liquidate — full exits are the vote's job
           return this.closeCorePosition(symbol, price);
         }
-        const order = await this.exchange.createOrder(market, 'market', 'sell', sellQty);
-        const fillPrice = await this.#resolveTradePrice(order, market, price);
+        const sale = await this.#limitSell(market, sellQty, price, 'core resize');
+        if (!(sale.soldQty > 0)) {
+          logger.error(`[LIVE] ${symbol}: core resize SELL filled nothing`);
+          return null;
+        }
+        const order = { id: sale.orderId };
         // Deduct what actually filled, not what we asked for — a partial fill
         // must not desync the tracked qty from the wallet.
-        const reportedSold = Number(order.filled ?? order.amount ?? sellQty);
-        const actualSold = roundQty(reportedSold > 0 ? Math.min(reportedSold, position.qty) : sellQty);
+        const actualSold = roundQty(Math.min(sale.soldQty, position.qty));
+        const fillPrice = roundPrice(sale.proceeds / sale.soldQty);
         const pnl = roundMoney((fillPrice - position.entryPrice) * actualSold);
         position.qty = roundQty(position.qty - actualSold);
         position.currentPrice = fillPrice;
@@ -714,11 +722,12 @@ export class LiveTrader {
         return null;
       }
 
-      const order = await this.exchange.createOrder(symbol, 'market', 'buy', qty);
+      const { order, filled: filledQty, price: entryPrice } = await this.#limitBuy(symbol, qty, referencePrice, freeQuote);
       logger.debug(`[LIVE] ${symbol}: BUY order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
-      const entryPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
-      const reportedQty = Number(order.filled ?? order.amount ?? qty);
-      const filledQty = roundQty(reportedQty > 0 ? reportedQty : qty);
+      if (!(filledQty > 0)) {
+        logger.warn(`[LIVE] ${symbol}: BUY not filled within ${(this.#capPct * 100).toFixed(1)}% of ${referencePrice} — no position`);
+        return null;
+      }
 
       // ── ATR-based stops (Phase 1) ─────────────────────────────────────────
       let derivedSL = null;
@@ -914,24 +923,7 @@ export class LiveTrader {
       } catch {
         // stored qty
       }
-      const cap = price * (1 - SATELLITE_EXIT_CAP_PCT);
-      const capPrice = await this.exchange.priceToPrecision(market, cap).catch(() => roundPrice(cap));
-      const limitOrder = await this.exchange.createOrder(market, 'limit', 'sell', sellQty, capPrice, { timeInForce: 'IOC' });
-      let soldQty = roundQty(Number(limitOrder.filled ?? 0));
-      let proceeds = soldQty * Number(limitOrder.average ?? limitOrder.price ?? capPrice);
-      let rest = await this.exchange.amountToPrecision(market, sellQty - soldQty).catch(() => roundQty(sellQty - soldQty));
-      if (rest > 0 && rest * price >= FALLBACK_MIN_NOTIONAL) {
-        logger.error(`[LIVE] ${key}: ${reason} limit sell filled ${soldQty}/${sellQty} — selling ${rest} at market (catastrophe fallback)`);
-        try {
-          const marketOrder = await this.exchange.createOrder(market, 'market', 'sell', rest);
-          const got = roundQty(Number(marketOrder.filled ?? rest));
-          proceeds += got * (await this.#resolveTradePrice(marketOrder, market, price));
-          soldQty = roundQty(soldQty + got);
-          rest = roundQty(rest - got);
-        } catch (err) {
-          logger.error(`[LIVE] ${key}: market fallback failed - ${this.#formatError(err)} — retrying next tick`);
-        }
-      }
+      const { soldQty, proceeds, rest } = await this.#limitSell(market, sellQty, price, `${key} ${reason}`, SATELLITE_EXIT_CAP_PCT);
       if (!(soldQty > 0)) {
         logger.error(`[LIVE] ${key}: ${reason} sell filled nothing — retrying next tick`);
         return null;
@@ -981,8 +973,14 @@ export class LiveTrader {
       return null;
     }
 
-    const order = await this.exchange.createOrder(symbol, 'market', 'sell', sellQty);
-    const exitPrice = await this.#resolveTradePrice(order, symbol, referencePrice);
+    const sale = await this.#limitSell(symbol, sellQty, referencePrice, reason);
+    if (!(sale.soldQty > 0)) {
+      logger.error(`[LIVE] ${symbol}: ${reason} sell filled nothing — retrying next tick`);
+      return null;
+    }
+    const order = { id: sale.orderId };
+    sellQty = sale.soldQty;
+    const exitPrice = roundPrice(sale.proceeds / sale.soldQty);
     const proceeds = roundMoney(sellQty * exitPrice);
     const portionEntryCost = roundMoney(sellQty * position.entryPrice);
     const pnl = roundMoney(proceeds - portionEntryCost);
@@ -1051,22 +1049,32 @@ export class LiveTrader {
         // fetchBalance/amountToPrecision failed — fall back to stored qty
       }
 
-      const order = await this.exchange.createOrder(market, 'market', 'sell', sellQty);
-      logger.debug(`[LIVE] ${symbol}: SELL order response id=${order.id ?? 'n/a'} status=${order.status ?? 'n/a'} filled=${order.filled ?? 'n/a'} avg=${order.average ?? order.price ?? 'n/a'}`);
-      const exitPrice = await this.#resolveTradePrice(order, market, referencePrice);
+      const sale = await this.#limitSell(market, sellQty, referencePrice, reason);
+      logger.debug(`[LIVE] ${symbol}: SELL id=${sale.orderId ?? 'n/a'} sold=${sale.soldQty}/${sellQty} rest=${sale.rest}`);
+      if (!(sale.soldQty > 0)) {
+        logger.error(`[LIVE] ${symbol}: ${reason} sell filled nothing — retrying next tick`);
+        return null;
+      }
+      const order = { id: sale.orderId };
+      // The market fallback can fail too: keep what is left as the position, as a
+      // satellite does, so the tracked qty never runs ahead of the wallet.
+      const closed = !(sale.rest > 0 && sale.rest * referencePrice >= FALLBACK_MIN_NOTIONAL);
+      sellQty = sale.soldQty;
+      const exitPrice = roundPrice(sale.proceeds / sale.soldQty);
       const proceeds = roundMoney(sellQty * exitPrice);
-      const costBasis = roundMoney(position.qty * position.entryPrice);
+      const costBasis = roundMoney((closed ? position.qty : sellQty) * position.entryPrice);
       const pnl = roundMoney(proceeds - costBasis);
       const pnlPct = position.entryPrice > 0 ? ((exitPrice - position.entryPrice) / position.entryPrice * 100).toFixed(2) : '0.00';
       const timestamp = new Date().toISOString();
       const balanceAfter = await this.#fetchQuoteBalance();
 
       this.totalPnL = roundMoney(this.totalPnL + pnl);
-      this.positions.delete(symbol);
+      if (closed) this.positions.delete(symbol);
+      else position.qty = roundQty(position.qty - sellQty);
       this.#savePositionState();
 
       logger.info(
-        `[LIVE] SELL ${symbol} qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} pnl%=${pnlPct}% reason=${reason} held=${durationHrs}h balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}`,
+        `[LIVE] SELL ${symbol} qty=${sellQty.toFixed(8)} price=${exitPrice.toFixed(8)} pnl=${pnl.toFixed(2)} pnl%=${pnlPct}% reason=${reason} held=${durationHrs}h balance=${balanceAfter.toFixed(2)} orderId=${order.id ?? 'n/a'}${closed ? '' : ` (${position.qty} left)`}`,
       );
 
       appendTrade({
@@ -1099,6 +1107,73 @@ export class LiveTrader {
       logger.error(`[LIVE] ${symbol}: SELL failed - ${this.#formatError(error)}`);
       return null;
     }
+  }
+
+  // ── Limit orders on every path ──────────────────────────────────────────────
+  // No naked market orders: a buy is an IOC limit capped over the price, a sell an IOC
+  // limit capped under it. The backtests charge fee + tier slippage on every fill; the
+  // cap sits above the highest tier, so it binds only on a fill worse than the model.
+
+  get #capPct() {
+    const cap = Number(this.config.limitCapPct);
+    return Number.isFinite(cap) && cap > 0 ? cap : DEFAULT_LIMIT_CAP_PCT;
+  }
+
+  async #toPricePrecision(market, price) {
+    try {
+      return await this.exchange.priceToPrecision(market, price);
+    } catch {
+      return roundPrice(price);
+    }
+  }
+
+  /**
+   * Buys up to `qty` with an IOC limit at price × (1 + cap). What the book cannot fill
+   * at or under the cap is not bought — there is no market fallback on a buy. The qty
+   * shrinks if the cap would lock more quote than is free (Binance rejects that).
+   * @returns {Promise<{order: object, filled: number, price: number}>} filled 0 → nothing bought
+   */
+  async #limitBuy(market, qty, referencePrice, freeQuote = Infinity) {
+    const capPrice = await this.#toPricePrecision(market, referencePrice * (1 + this.#capPct));
+    let orderQty = qty;
+    if (qty * capPrice > freeQuote) {
+      // 0.05% under the free balance, so a precision step rounding up cannot overshoot it.
+      const fit = (freeQuote / capPrice) * 0.9995;
+      orderQty = await this.exchange.amountToPrecision(market, fit).catch(() => roundQty(fit));
+    }
+    const order = await this.exchange.createOrder(market, 'limit', 'buy', orderQty, capPrice, { timeInForce: 'IOC' });
+    const filled = roundQty(Number(order.filled ?? 0));
+    const price = filled > 0 ? await this.#resolveTradePrice(order, market, referencePrice) : 0;
+    if (filled > 0 && filled < orderQty) {
+      logger.warn(`[LIVE] ${market}: limit buy filled ${filled}/${orderQty} at ≤ ${capPrice} — the rest is not bought`);
+    }
+    return { order, filled, price };
+  }
+
+  /**
+   * Sells `qty` with an IOC limit at price × (1 − cap); what that leaves sells at market,
+   * the catastrophe fallback (logged as an error).
+   * @returns {Promise<{orderId: string|null, soldQty: number, proceeds: number, rest: number}>}
+   */
+  async #limitSell(market, qty, referencePrice, reason, capPct = this.#capPct) {
+    const capPrice = await this.#toPricePrecision(market, referencePrice * (1 - capPct));
+    const limitOrder = await this.exchange.createOrder(market, 'limit', 'sell', qty, capPrice, { timeInForce: 'IOC' });
+    let soldQty = roundQty(Number(limitOrder.filled ?? 0));
+    let proceeds = soldQty > 0 ? soldQty * await this.#resolveTradePrice(limitOrder, market, capPrice) : 0;
+    let rest = await this.exchange.amountToPrecision(market, qty - soldQty).catch(() => roundQty(qty - soldQty));
+    if (rest > 0 && rest * referencePrice >= FALLBACK_MIN_NOTIONAL) {
+      logger.error(`[LIVE] ${market}: ${reason} limit sell filled ${soldQty}/${qty} — selling ${rest} at market (catastrophe fallback)`);
+      try {
+        const marketOrder = await this.exchange.createOrder(market, 'market', 'sell', rest);
+        const got = roundQty(Number(marketOrder.filled ?? rest));
+        proceeds += got * (await this.#resolveTradePrice(marketOrder, market, referencePrice));
+        soldQty = roundQty(soldQty + got);
+        rest = roundQty(rest - got);
+      } catch (err) {
+        logger.error(`[LIVE] ${market}: market fallback failed - ${this.#formatError(err)} — retrying next tick`);
+      }
+    }
+    return { orderId: limitOrder.id ?? null, soldQty, proceeds, rest };
   }
 
   async #resolveTradePrice(order, symbol, fallbackPrice) {

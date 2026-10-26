@@ -276,6 +276,14 @@ const INTENTIONALLY_LIVE_ONLY = [
           + "sleeve's own ETH as a phantom position, inflating equity ~25% and sizing the sleeve "
           + 'off capital that did not exist (observed live 2026-08-03).',
   },
+  {
+    rule: 'Capped IOC limit orders (risk.limitCapPct): a buy the book cannot fill within the cap',
+    reason: 'Every live scalper and sleeve order is an IOC limit capped 0.5% past the price; a buy '
+          + 'that cannot fill within the cap buys nothing (a sell sends the rest to market). The '
+          + 'simulator fills every order at fee + tier slippage (0.10/0.20/0.35%), all under the '
+          + 'cap, so the refusal fires only when the real book is worse than the model assumes — '
+          + 'history has no order book to replay that from. liveLimitOrders.test.js pins the path.',
+  },
 ];
 
 describe('live ≡ backtest inventory', () => {
