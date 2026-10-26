@@ -1012,3 +1012,40 @@ Verdict: for the breakout, use loose tiers with no 2R target. It makes more mone
 year; the in-sample drop is deeper and the Sharpe is unchanged. On the bot, "TP off" was already
 tested in the trailing sweep (+106% but Sharpe 1.02 vs 1.36, rejected); RSI tiers there need 1h RSI
 in the live risk loop and a shared helper (parity), so they are a build, not a test.
+
+### Combining the streams: why each works, and a first "superbot" (2026-10-26)
+
+Asked by the user: combine what works a little, at different times, and find out why.
+`super/super.mjs` (scratchpad) builds daily time-weighted returns for each stream with its own money
+run: the committed bot; the scalper alone (engine replay, sleeve off, `hodlRun.mjs S0`); the trend
+sleeve alone (`runTrendCore.mjs`, live's vote 30/45/60, slow-in, vol target 0.6, BTC/ETH/BNB/SOL);
+the 4h breakout with the tiered exit; strongest coins (12h, top 3 by 7-day return making a 24-bar
+high); RSI divergence; wide bar; 1-year high; hold BTC; BTC above its 200-day average. Regime per
+day from BTC/USDT as of the previous close: trend (200-day average) × volatility (30-day vol above
+its 365-day median). Deep set swapped in with the restore trap; fingerprint checked after (live set).
+
+Why (Sharpe by regime, discovery → validation): almost everything works in calm uptrends and keeps
+working there (bot, scalper, sleeve, breakout, strongest coins). The breakout is a calm-uptrend
+strategy (1.63 → 1.80; negative in validation elsewhere). The sleeve and strongest coins earn most
+in volatile uptrends. The scalper is the steadiest (positive in three regimes in both periods).
+RSI divergence has no repeatable regime: noise. Validation has only 108 downtrend days.
+Correlation (discovery): scalper 0.07 with the breakout, 0.10 with strongest coins, 0.16 with the
+sleeve.
+
+| Combination (capital splits sum to 1; overlays assume free cash) | Discovery | Validation | Final year |
+|---|---|---|---|
+| Bot as committed | 18.2% / Sh 1.72 / DD 6.0% | 28.9% / 2.39 / 6.7% | 7.6% / 1.16 / 6.4% |
+| Equal parts (scalper, sleeve, breakout, strongest) | 31.5% / 1.72 / 13.5% | 31.4% / 1.86 / 8.6% | 7.3% / 0.82 / 9.3% |
+| Inverse volatility, same four | 8.4% / 1.64 / 2.5% | 25.4% / 2.04 / 5.1% | 8.1% / 1.53 / 3.1% |
+| Regime-switched (weights from discovery Sharpe per regime) | 43.2% / 2.10 / 8.9% | 32.6% / 1.74 / 9.5% | 13.1% / 1.55 / 5.8% |
+| Bot + breakout overlay 12.5% | 29.1% / 1.95 / 10.0% | 31.5% / 2.19 / 8.8% | 11.9% / 1.51 / 7.2% |
+| Bot + breakout + strongest, 12.5% each | 38.2% / 1.95 / 10.8% | 42.6% / 2.17 / 9.6% | 14.4% / 1.63 / 7.5% |
+
+Read: the committed bot is already a combination and the hardest to beat on Sharpe in validation;
+the regime switch overfits (best where its weights were set, worst in validation). The two overlays
+on idle cash beat the bot on return in all three periods and on Sharpe in two (discovery, final
+year), for about 3 points more drop. Caveats: overlays are estimates (cash assumed free); strongest
+coins narrowly missed the discovery bar (t 2.47) and entered the pool after its validation was seen;
+the final year was read once before for the breakout entries. Candidate "superbot v1": committed bot
++ breakout (tiered exit) + strongest coins at 12.5% of equity per trade on idle cash, limit orders.
+Next: a shared-cash replay in the engine, which needs a second and third entry rule and limit orders.
