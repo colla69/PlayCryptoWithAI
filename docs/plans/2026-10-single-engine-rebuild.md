@@ -1049,3 +1049,56 @@ coins narrowly missed the discovery bar (t 2.47) and entered the pool after its 
 the final year was read once before for the breakout entries. Candidate "superbot v1": committed bot
 + breakout (tiered exit) + strongest coins at 12.5% of equity per trade on idle cash, limit orders.
 Next: a shared-cash replay in the engine, which needs a second and third entry rule and limit orders.
+
+## Satellite strategies in the engine (2026-10-26)
+
+User: "let's start building so we can run real walk forward tests with the engine". Built on the
+backtest side first, with the logic shared so live can call the same code later. Commits:
+
+1. `fca9705` — `src/engine/satellites.js` (pure): `detectBreakout`, `detectStrongest`,
+   `rankByReturn`, `isTrendUp`, `hourlyRsiByClose`, the tier exit, `satelliteOrderSize`,
+   `planSatelliteEntry`. Config `satellites` (off; `SATELLITES=true`), 8 large coins of the list.
+   Shared indicators (`calculateEMA`, `calculateRSI`, `computeATRPct`), so values differ slightly
+   from the research scripts (EMA seeding, simple-average ATR); the engine is now the reference.
+2. `859a50a` — `BacktestSimulator`: `placeSatelliteOrder` (a resting limit buy that locks its cash,
+   as the exchange does), `replaySatelliteBar` (fill at the limit or a gap below; expiry; exits in
+   the research order: time, pending tier, fill-bar stop, stop, target, break-even, tier at the
+   hour close), `cancelSatelliteOrder`. Costs: limit buy / limit target / limit time exit fee only,
+   stop and tier exits fee + slippage. `calcEquityFromStatus` counts `status.reserved`.
+3. `162c79d` — engine: `runSatelliteCycle(kind)` (breakout at 4h closes; strongest at the 12h
+   close, after the scalper and the sleeve), `onSatelliteBar`. Satellites never take scalper
+   slots, the correlation cap's positions or the bear cash-exit; their PnL feeds the daily-loss
+   brake. The replay steps the 12h interval in 4h windows when satellites are on (breakout cycle,
+   then scalper ticks, then satellite bars), so no satellite sees cash from a later scalper exit;
+   off, the loop is unchanged (`engineReplayParity` green). Inventory row: satellite entry plan.
+   A trader without `placeSatelliteOrder` (LiveTrader, PaperTrader today) leaves satellites idle.
+4. `207c2f7` — `src/scripts/runSuperbot.mjs`: one replay per cell (bot, bot+bo, bot+rs,
+   bot+bo+rs) at live money ($190 + $10 a week), then rolling 6-month folds against the bot.
+
+Not built yet (the live slice): `LiveTrader`/`PaperTrader` limit orders (place, poll fills,
+cancel on expiry, stop-limit with a market fallback), the 4h scheduler and the hourly RSI feed in
+`main.js`, restore of satellite positions and resting orders after a restart, and the inventory
+row for the order path itself.
+
+### First engine walk-forward (2026-10-26)
+
+`runSuperbot.mjs` per cell, 2020-06-01 → 2026-08-10, $190 + $10 a week, deep set swapped in
+(fingerprint checked after). The first `bot+rs` run had the breakout on too (`'bot+rs'.includes('bo')`
+— "bot" contains "bo"); fixed to match whole parts and rerun.
+
+| Cell | Final | Yearly | Sharpe | Worst drop | Satellite orders placed / filled / expired |
+|---|---|---|---|---|---|
+| bot (committed) | $5,644 | 20.2% | 1.91 | 6.7% | — |
+| bot + breakout | $6,725 | 30.3% | 2.13 | 9.1% | 349 / 257 / 92 |
+| bot + strongest | $5,923 | 22.1% | 1.78 | 9.0% | 165 / 153 / 12 |
+| bot + both | $7,062 | 32.1% | 1.96 | 11.3% | 514 / 410 / 104 |
+
+Six-month folds against the bot: breakout beats it on return in 6/13 and on Sharpe in 3/13;
+strongest 5/13 and 3/13; both 7/13 and 5/13. The gain is concentrated: the Dec 2020 → May 2021
+fold (bot +33.5%, bot + breakout +86.6%). Without it the breakout adds about +2.3% a year; in the
+2021-12 → 2023-06 folds (bear, flat, and the USDC gap) it costs 0.5–1.5 points a fold.
+
+Verdict: the breakout satellite holds in the engine (better than the overlay estimate, 28.3% /
+Sharpe 2.00); the strongest-coins satellite does not (it lowers the Sharpe alone and with the
+breakout) and stays off — its estimate carried the selection bias noted above. Candidate:
+bot + breakout. Its edge is mostly trend periods; next is the live slice, then a paper run.

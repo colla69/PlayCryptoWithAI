@@ -92,14 +92,15 @@ const fromTs = Date.parse(arg('from', '2020-06-01'));
 const toTs = Date.parse(arg('to', '2026-08-10'));
 const start = Number(arg('start', 190));
 const weekly = Number(arg('weekly', 10));
+const parts = cell.split('+'); // 'bot' itself contains 'bo': match whole parts only
 const cfg = {
   ...config,
   tsmCore: { ...config.tsmCore, enabled: true },
   satellites: {
     ...config.satellites,
     enabled: cell !== 'bot',
-    breakout: { ...config.satellites.breakout, enabled: cell.includes('bo') },
-    strongest: { ...config.satellites.strongest, enabled: cell.includes('rs') },
+    breakout: { ...config.satellites.breakout, enabled: parts.includes('bo') },
+    strongest: { ...config.satellites.strongest, enabled: parts.includes('rs') },
   },
 };
 const deposits = [];
