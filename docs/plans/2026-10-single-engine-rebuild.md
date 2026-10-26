@@ -1204,3 +1204,63 @@ the satellites' existing rule). 0.5% sits above the highest slippage tier the ba
 0.35%), so the backtest model is unchanged and the baselines stay valid. A buy the cap refuses is
 live-only (no order book in history) and listed under `INTENTIONALLY_LIVE_ONLY`.
 Tests: `tests/executor/liveLimitOrders.test.js`.
+
+## Section C: tier exit, Nasdaq risk-off, shared vs per-coin settings (2026-10-26)
+
+Same six-year engine replay as above (deep set, $190 + $10 a week, sleeve on). Scripts in the
+session scratchpad (`c6/`, `c8/`). Pass rule for C6 and C7, fixed before any run: beat the committed
+bot's Sharpe over six years and in at least half of the 6-month folds. Each first had to pass a
+per-trade estimate; neither did, so neither was built.
+
+**C6 — loose RSI-tier exit on the scalper: rejected.** The breakout's tiers (exit when open profit ≥
+1/2/4% and RSI < 35/45/55), and the same tiers at ×2 and ×4 profit, on the 77 scalper round trips
+(gross sum 441%):
+
+| Tiers | RSI 1h: Δ sum · fired (better/worse) | RSI 4h: Δ sum · fired |
+|---|---|---|
+| 1/2/4% | −147 pts · 29 (10/19) | −32 pts · 11 (3/8) |
+| 2/4/8% | −81 pts · 19 (7/12) | −11 pts · 3 (1/2) |
+| 4/8/16% | −56 pts · 8 (2/6) | 0 · never fires |
+
+The scalper holds for days and wins big; a momentum dip cuts trades that go on to the 18% target.
+
+**C7 — NASDAQ risk-off (M1, half size while NASDAQ < 100d EMA): rejected.** Scalper: the 15 trades
+opened in risk-off averaged +7.45% net (win 73%) against +4.69% (63%) for the other 62 — halving them
+costs money. Breakout (bot + breakout replay, $6,699 as before): 10 of 257 trades opened in
+risk-off, total P&L −$5 — the rule would move ~$3 in six years.
+
+**C8 — shared vs per-coin settings: a measurement, and the main finding of the section.**
+
+1. *Half of the per-coin settings never trade.* Only combos with a trend part (EMA, PSAR,
+   HeikinAshi, ADX, MACD, Supertrend, S&R) pass the entry filters; the dip-buying combos (BB, CCI,
+   RSI, Stoch, MFI, WilliamsR alone) are always blocked. 18 of 37 coins made 0 trades in six years.
+   Cause: `perSymbolOptimizer.mjs`'s `runWindow` scores combos on raw votes — no 15m/4h/momentum/
+   macro/regime filters, no multi-bar confirmation — against the rule "the optimizer runs the same
+   filters as the live bot". It picks combos the live bot never trades.
+2. *The per-coin edge is in-sample.* The settings were tuned 2026-05-24/29 on 1,460 12h candles —
+   2024-05 → 2026-05, both halves used for selection. Shared settings (one combo for every coin, SL
+   7.5% / TP 18% / conf 0.55; six trend combos, fixed before the runs):
+
+| Setup | 2020-06 → 2024-05 (unseen by both) | 2024-05 → 2026-05 (bot's tuning window) | 2026-05 → 08 (unseen) |
+|---|---|---|---|
+| bot, per-coin | 20.2%/yr · Sharpe 1.82 · DD 6.0% | 22.8% · 2.23 · 6.7% | −3.5% · −1.54 |
+| EMA+HeikinAshi+PSAR | 28.4% · 2.36 · 5.9% | 0.6% · 0.11 · 13.1% | −9.1% · −2.67 |
+| ADX+MACD+Supertrend | 33.5% · 2.24 · 8.5% | −6.3% · −0.43 · 17.0% | −8.9% · −1.82 |
+| ADX+EMA+MACD | 31.9% · 2.22 · 10.2% | −13.3% · −1.10 · 31.2% | −8.7% · −2.18 |
+| MFI+SR+Supertrend | 21.2% · 1.94 · 7.6% | 1.1% · 0.19 · 7.8% | −8.7% · −4.21 |
+| ADX+EMA+SR | 21.0% · 1.70 · 10.3% | 3.8% · 0.32 · 18.1% | −11.7% · −3.07 |
+| HeikinAshi+SR+WilliamsR | 19.1% · 1.80 · 8.5% | −1.8% · −0.25 · 10.1% | −3.2% · −1.63 |
+
+   Over the four years neither side was fitted on, every shared trend combo matches or beats the
+   per-coin settings. In 2024-05 → 2026-05 every shared combo is flat or losing; the per-coin bot made
+   22.8% a year there because it was chosen there. The six-year bot figure (Sharpe 1.91) includes
+   two in-sample years, so it overstates what to expect live.
+3. *Re-fitting does not help.* Every 6 months, pick the menu combo with the best Sharpe over the
+   prior 24 months and trade it for the next 6: 2022-06 → 2026-08 gives 2.4%/yr, Sharpe 0.33, DD
+   16.0% (bot 13.0% / 1.65 / 6.7%, in-sample for half of it; fixed EMA+HeikinAshi+PSAR 4.1% / 0.53).
+   It beats the bot in 3 of 9 folds. It picks yesterday's winner.
+
+What C8 means: the scalper's trend-following edge was strong in 2020 → mid-2024 and has been near zero
+since, on every setting nobody fitted to that period. Its only money-making setting since 2024 is the
+in-sample one. Nothing is changed in the bot from this; an honest per-coin re-fit needs the optimizer
+to run the filter stack first (`runSuperbot.mjs --per-symbol` reruns the shared cells).

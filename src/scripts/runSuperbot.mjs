@@ -13,6 +13,7 @@
  *     cells: bot | bot+bo | bot+rs | bot+bo+rs   [--from 2020-06-01] [--to 2026-08-10] [--start 190] [--weekly 10]
  *     [--bo '{"lookbackBars":24,"stopAtr":2}']   — breakout settings over config.satellites.breakout (research grids)
  *     [--label <name>]                           — the cell's name in the report (default: the cell)
+ *     [--per-symbol '{"minConfidence":0.55}']    — one shared override for every coin ('{}' = the global defaults)
  *   node src/scripts/runSuperbot.mjs --report /tmp/sb_bot.json,/tmp/sb_all.json [--fold-months 6]
  */
 import fs from 'fs';
@@ -95,6 +96,11 @@ const toTs = Date.parse(arg('to', '2026-08-10'));
 const start = Number(arg('start', 190));
 const weekly = Number(arg('weekly', 10));
 const parts = cell.split('+'); // 'bot' itself contains 'bo': match whole parts only
+// --per-symbol: one shared override for every coin in place of the tuned per-coin ones. Set
+// on the imported config itself: strategyBuilder reads strategies and thresholds from it.
+if (arg('per-symbol') != null) {
+  config.perSymbol = Object.fromEntries(config.symbols.map((s) => [s, JSON.parse(arg('per-symbol'))]));
+}
 const cfg = {
   ...config,
   tsmCore: { ...config.tsmCore, enabled: true },
