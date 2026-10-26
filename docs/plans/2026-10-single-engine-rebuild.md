@@ -970,3 +970,11 @@ trade ~10% of the time):
 Caveats: an estimate, not a shared-cash simulation; the final year was already read for the
 breakout family. Next: a shared-cash run in the engine replay (breakout as a second entry rule with
 limit entries), which needs limit-order support on both sides (live parity) first.
+
+### Data gap found while building the report (2026-10-26)
+
+The deep candle set has no USDC bars from 2022-09-28 for 165 days (to March 2023): Binance converted
+USDC balances to BUSD in September 2022 and USDC pairs stopped trading. Every USDC-pair replay in
+this plan (the six-year replay, bot vs holding BTC, the setup searches) has no trades in that gap and
+marks the whole price change at its end. It is why 2022 shows almost no trades. Report: the
+"Setup search and breakout overlay" dashboard (data built by `fast/buildFast.mjs`).
