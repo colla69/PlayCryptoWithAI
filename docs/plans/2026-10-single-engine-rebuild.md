@@ -799,3 +799,52 @@ money in any window. The bots win the windows that end after a fall (2023, 2026)
 those that end near a top (2024–25). The sleeve's rules come from a study that covers these years,
 so the trend-heavy rows are in-sample. Nothing applied: the sleeve share is a risk decision for the
 user (stated limit about 10%).
+
+Correction (2026-10-26): the user's "10% rule" is a max loss per trade, not an account drawdown
+limit. The framing above ("stated limit about 10%") is wrong on that point.
+
+## Is the 100% sleeve just BTC? (2026-10-26)
+
+Asked by the user. From the full-period 100% sleeve run (`btcLine.mjs` in the scratchpad). The
+sleeve held a coin 64% of the time (1.7 coins on average), BTC 48%. Profit by source: BNB +$1,995,
+scalper +$1,306, ETH +$1,102, BTC +$506, SOL −$576. Weekly correlation with BTC 0.66, beta 0.35;
+it caught 42% of BTC's up weeks and 29% of its down weeks.
+
+Simple rules with the same money (12h opens, 0.1% a side, so drops read a little low):
+
+| Rule | Final | Worst drop |
+|---|---|---|
+| Hold BTC/ETH/BNB/SOL, equal parts | $8,976 | 73% |
+| BTC above its 100-day average, else cash | $8,080 | 37% |
+| BTC above its 50-day average, else cash | $8,052 | 47% |
+| Bot, 100% sleeve | $7,832 | 27% |
+
+The sleeve is a trend switch on the majors; its long-run money is market exposure. The fair
+benchmark for any sleeve-heavy setup is "BTC above its 100-day average, else cash", not holding.
+
+## Fast chart-pattern trader (2026-10-26)
+
+The user's goal: many short trades (hours to 2 days), entries from trend, support/resistance and
+candles, quick exits, at most 10% loss per trade, money in USDC most of the time. Model: Warrior
+Trading's momentum style. Research only, no engine change. Scripts in the scratchpad: `fast/gen.mjs`
+(scanner + 15m replay), `fast/analyze.mjs`, `fast/buckets.mjs`.
+
+- Data: deep set, 1h bars built from 15m, trend from 4h (close > EMA200, EMA50 > EMA200).
+  Swing points need 3 bars each side and are used only after that (no lookahead).
+- Setups: bounce at a swing-low support (and a strict hammer/engulfing form); retest of a broken
+  swing high; 2-day-high breakout on 1.5× volume; Warrior-style 15m bull flag (in play: up ≥ 3% in
+  24h, volume ≥ 1.5×; pole ≥ 2%; pullback ≤ half on lighter volume; buy-stop above the last bar,
+  stop under the pullback low, 6 h limit).
+- Exits: next resistance, 2R, or a 1-ATR trail after +1R; break-even at +1R; 48 h limit.
+  Replayed on 15m bars; a bar that touches stop and target counts as the stop.
+- Costs: 0.1% fee + tier slippage per side (round trip 0.4% large, 0.6% mid, 0.9% micro).
+- One trade at a time per coin. In-sample 2020-06 → 2025-08-10; the last 12 months stay locked.
+
+Result: every setup, exit and coin set lost money, in every year: −0.18% to −0.64% per trade.
+Before costs the edge is zero (bounce −0.03% ±0.04, retest −0.02% ±0.04, flag −0.05% ±0.04,
+breakout +0.03% ±0.12 per trade). The 2R exit split 52% stop, 23% break-even, 24% target — the
+coin-flip split is 50/25/25. No slice by stop width, trend distance, volume spike, ATR, candle
+type, BTC trend, VWAP, "in play" strength or hour beat the costs; the best (breakouts on large
+coins, +0.19% ±0.15 gross) is below the 0.4% round trip. The holdout was not read: nothing passed.
+
+Verdict: on 1h/15m bars these chart patterns carry no edge in this data; more trades only add costs.
