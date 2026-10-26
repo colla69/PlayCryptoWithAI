@@ -241,9 +241,23 @@ export async function fetchBalance() {
   return withRetry(() => client.fetchBalance(), { label: 'fetchBalance(live)' });
 }
 
-export async function createOrder(symbol, type, side, amount, price = undefined) {
+/**
+ * @param {object} [params] — exchange order parameters, e.g. { timeInForce: 'GTC' | 'IOC' } for a
+ *   limit order (satellite strategies: a resting GTC buy, an IOC sell with a price cap)
+ */
+export async function createOrder(symbol, type, side, amount, price = undefined, params = {}) {
   await ensureMarketsLoaded();
-  return client.createOrder(symbol, type, side, amount, price);
+  return client.createOrder(symbol, type, side, amount, price, params);
+}
+
+/** Rounds a limit price to the market's tick size (PRICE_FILTER), as the exchange requires. */
+export async function priceToPrecision(symbol, price) {
+  await ensureMarketsLoaded();
+  try {
+    return Number(client.priceToPrecision(symbol, Number(price)));
+  } catch {
+    return Number(Number(price).toFixed(8));
+  }
 }
 
 /**
@@ -336,6 +350,7 @@ export default {
   fetchBalance,
   createOrder,
   amountToPrecision,
+  priceToPrecision,
   getMarketLimits,
   cancelOrder,
   fetchOpenOrders,

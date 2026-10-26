@@ -165,11 +165,13 @@ export function calcPartialExit(position, currentPrice, firstStagePctOfTp, first
   return { shouldExit: false };
 }
 
-const isCoreRecord = (key, record) => record?.isCore === true && String(key).endsWith('#core');
+const isCoreRecord = (key, record) => (record?.isCore === true && String(key).endsWith('#core'))
+  || (record?.isSatellite === true && /#(bo|rs)$/.test(String(key)));
 const baseOfCoreKey = (key) => String(key).split('#')[0].split('/')[0];
 
 /**
- * Reserve the wallet coins the TSM core sleeve already owns, per base asset.
+ * Reserve the wallet coins the TSM core sleeve and the satellite strategies already own,
+ * per base asset (satellite legs and the coins a resting satellite buy may have filled).
  *
  * The wallet asset is fungible: free ETH may back BOTH a core and a scalper
  * position on the same market. Every core leg must reserve its coins before the
@@ -186,6 +188,8 @@ const baseOfCoreKey = (key) => String(key).split('#')[0].split('/')[0];
  * @param {Map|Array|object} [args.livePositions] positions currently in memory
  * @param {object} [args.freeBalances]   free wallet balance per base asset
  * @param {number} [args.now]            clock override for openedAt validation
+ * @param {Map|object} [args.pendingOrders] resting satellite buys (key → {qty}); a part fill
+ *   lands in the wallet before the order is done, so its order qty is reserved too
  * @returns {{
  *   claimsByBase: Map<string, number>,
  *   restorable: Array<{key: string, market: string, base: string, savedQty: number, entryPrice: number, saved: object}>,
@@ -197,6 +201,7 @@ export function calcCoreClaims({
   livePositions = new Map(),
   freeBalances = {},
   now = Date.now(),
+  pendingOrders = new Map(),
 } = {}) {
   const claimsByBase = new Map();
   const restorable = [];
@@ -222,6 +227,8 @@ export function calcCoreClaims({
     if (!isCoreRecord(key, position)) continue;
     claim(baseOfCoreKey(key), Number(position?.qty ?? 0));
   }
+  const pendingEntries = pendingOrders instanceof Map ? [...pendingOrders.entries()] : Object.entries(pendingOrders ?? {});
+  for (const [key, order] of pendingEntries) claim(baseOfCoreKey(key), Number(order?.qty ?? 0));
 
   for (const [key, saved] of Object.entries(savedState ?? {})) {
     if (!isCoreRecord(key, saved)) continue;

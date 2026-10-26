@@ -213,13 +213,19 @@ const PARITY_INVENTORY = [
   },
   {
     // The satellite strategies' entry gate and sizing (limit price, the 10% stop cap,
-    // 12.5% of equity, the exchange floor) run in the engine on both sides. The order
-    // itself is replay-only until LiveTrader gains placeSatelliteOrder; until then the
-    // engine leaves satellites idle on a trader without it (tests/core/satelliteCycle.test.js),
-    // and that live slice adds its own row here.
+    // 12.5% of equity, the exchange floor) run in the engine on both sides.
     rule: 'Satellite entry plan (limit price, stop cap, size, floor)',
     live: { file: 'src/core/engine.js', symbol: 'planSatelliteEntry' },
     backtest: { file: 'src/backtester/engineReplay.js', symbol: 'runSatelliteCycle' },
+    shared: 'src/engine/satellites.js',
+  },
+  {
+    // The satellite order and its exits: a resting limit buy that locks its cash, and one
+    // copy of the exit rules (stepSatellitePosition) — on 15m bars in the simulator, on
+    // risk-loop ticks live (behaviour: liveSatellite.test.js, satelliteOrders.test.js).
+    rule: 'Satellite order path (resting limit buy, exit rules)',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'stepSatellitePosition' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'stepSatellitePosition' },
     shared: 'src/engine/satellites.js',
   },
   {

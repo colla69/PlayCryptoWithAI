@@ -1,13 +1,20 @@
 import '../types.js'; // JSDoc type definitions
 import fs from 'fs';
 import path from 'path';
-import { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits } from '../exchange/binanceClient.js';
+import {
+  createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, priceToPrecision, getMarketLimits,
+  cancelOrder, fetchOrderStatus,
+} from '../exchange/binanceClient.js';
 
-const BINANCE = { createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, getMarketLimits };
+const BINANCE = {
+  createOrder, fetchBalance, fetchOpenOrders, fetchTicker, amountToPrecision, priceToPrecision, getMarketLimits,
+  cancelOrder, fetchOrderStatus,
+};
 import { FALLBACK_MIN_NOTIONAL as SHARED_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
 import logger, { appendTrade } from '../utils/logger.js';
 import { runtimeDir } from '../utils/runtimePaths.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit, calcCoreClaims } from './traderUtils.js';
+import { stepSatellitePosition, satellitePositionPlan } from '../engine/satellites.js';
 
 // Minimum notional for new BUY orders — must clear Binance's $10 minimum with buffer
 // Re-exported from the shared module so the backtester enforces the identical
@@ -21,6 +28,12 @@ const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
 const roundQty = (value) => Number(Number(value ?? 0).toFixed(8));
 
 const POSITION_STATE_FILE = path.join(runtimeDir('data'), 'position_state.json');
+// Resting satellite limit buys, so a restart neither forgets an order on the book nor
+// lets the scalper restore adopt the coins a part fill already bought.
+const SATELLITE_ORDERS_FILE = path.join(runtimeDir('data'), 'satellite_orders.json');
+// A satellite exit sells with an IOC limit at most this far under the price (a stop-limit);
+// what that does not fill sells at market — the catastrophe fallback, logged as an error.
+const SATELLITE_EXIT_CAP_PCT = 0.003;
 
 export class LiveTrader {
   /**
@@ -44,6 +57,7 @@ export class LiveTrader {
     this.positions = new Map();
     this.initialBalance = null;
     this.totalPnL = 0;
+    this.pendingSatellite = new Map(Object.entries(LiveTrader.loadSatelliteOrders()));
   }
 
   /**
@@ -86,8 +100,9 @@ export class LiveTrader {
       }
 
       // TSM core positions exit ONLY on the momentum-vote flip — no SL/TP,
-      // trailing, break-even, or two-stage exits. Track price and bail.
-      if (position.isCore) {
+      // trailing, break-even, or two-stage exits; satellites only by their own plan
+      // (satelliteTick). Track price and bail.
+      if (position.isCore || position.isSatellite) {
         position.currentPrice = roundPrice(currentPrice);
         return null;
       }
@@ -183,15 +198,23 @@ export class LiveTrader {
       highWaterMark: roundPrice(position.highWaterMark),
       openedAt: position.openedAt,
       isCore: position.isCore === true,
+      ...(position.isSatellite && { isSatellite: true }),
     }));
+  }
+
+  /** Cash the resting satellite buys lock (free balance excludes it; equity counts it). */
+  #reservedQuote() {
+    return roundMoney([...this.pendingSatellite.values()].reduce((sum, o) => sum + Number(o.reserve ?? 0), 0));
   }
 
   async getStatus() {
     try {
       const quoteBalance = await this.#fetchQuoteBalance();
+      const reserved = this.#reservedQuote();
       return {
         balance: quoteBalance,
         positions: this.#positionRows(),
+        ...(reserved > 0 && { reserved }),
         totalPnL: roundMoney(this.totalPnL),
       };
     } catch (error) {
@@ -226,6 +249,7 @@ export class LiveTrader {
         savedState,
         livePositions: this.positions,
         freeBalances: balance.free ?? {},
+        pendingOrders: this.pendingSatellite,
       });
 
       for (const { key, reason } of coreDropped) {
@@ -244,6 +268,22 @@ export class LiveTrader {
             continue;
           }
 
+          if (saved.isSatellite) {
+            // A satellite keeps its exit plan, its moved stop and its high-water mark.
+            this.positions.set(key, {
+              qty, entryPrice, currentPrice, isSatellite: true, partialExitDone: false, trailingStopPct: undefined,
+              initialStopLoss: Number(saved.initialStopLoss ?? 0), stopLoss: Number(saved.stopLoss ?? 0),
+              takeProfit: Number(saved.takeProfit) > 0 ? Number(saved.takeProfit) : Infinity, // JSON null = no target
+              breakEvenAt: saved.breakEvenAt ?? null,
+              timeLimitAt: Number.isFinite(Number(saved.timeLimitAt)) ? Number(saved.timeLimitAt) : Date.now(),
+              tiers: saved.tiers ?? null, pendingTierExit: saved.pendingTierExit === true,
+              highWaterMark: Math.max(Number(saved.highWaterMark ?? 0), entryPrice),
+              openedAt: saved.openedAt ?? new Date().toISOString(),
+            });
+            restored++;
+            logger.info(`[LIVE] Restored SATELLITE position: ${key} qty=${qty} entry=${entryPrice} stop=${saved.stopLoss}`);
+            continue;
+          }
           this.positions.set(key, {
             qty,
             entryPrice,
@@ -615,7 +655,7 @@ export class LiveTrader {
 
       // Core sleeve positions have their own capital budget (deploymentPct)
       // and must not consume the scalper's concurrent-position slots.
-      const scalperCount = [...this.positions.values()].filter((p) => !p.isCore).length;
+      const scalperCount = [...this.positions.values()].filter((p) => !p.isCore && !p.isSatellite).length;
       if (scalperCount >= this.config.maxOpenPositions) {
         logger.warn(`[LIVE] ${symbol}: BUY skipped, max open positions reached`);
         return null;
@@ -755,6 +795,164 @@ export class LiveTrader {
       };
     } catch (error) {
       logger.error(`[LIVE] ${symbol}: BUY failed - ${this.#formatError(error)}`);
+      return null;
+    }
+  }
+
+  // ── Satellite strategies ('<symbol>#bo' / '#rs', src/engine/satellites.js) ──────
+  // A real GTC limit buy rests on the book; each risk-loop tick polls it until it fills or
+  // expires (cancel, then keep any part fill). A filled position exits by the shared rules
+  // (stepSatellitePosition), selling with an IOC limit capped SATELLITE_EXIT_CAP_PCT under
+  // the price, and at market only for what that does not fill.
+
+  /** @returns {Promise<object|null>} the resting order, or null */
+  async placeSatelliteOrder(key, { limitPrice, validUntil, sizeUsd, stopPrice, plan } = {}) {
+    try {
+      if (this.positions.has(key) || this.pendingSatellite.has(key)) return null;
+      const market = key.split('#')[0];
+      const freeQuote = await this.#fetchQuoteBalance();
+      const spend = Math.min(Number(sizeUsd) || 0, freeQuote);
+      const price = await this.exchange.priceToPrecision(market, limitPrice).catch(() => roundPrice(limitPrice));
+      const qty = await this.exchange.amountToPrecision(market, spend / price).catch(() => roundQty(spend / price));
+      let minQty = 0;
+      let minNotional = FALLBACK_MIN_NOTIONAL;
+      try {
+        const limits = await this.exchange.getMarketLimits(market);
+        minQty = limits.minQty ?? 0;
+        minNotional = Math.max(limits.minNotional ?? 0, FALLBACK_MIN_NOTIONAL);
+      } catch {
+        // fallback values
+      }
+      if (!(qty > 0) || qty < minQty || qty * price < minNotional) {
+        logger.info(`[LIVE] ${key}: satellite order skipped, $${spend.toFixed(2)} → qty ${qty} below exchange minimums`);
+        return null;
+      }
+      const order = await this.exchange.createOrder(market, 'limit', 'buy', qty, price, { timeInForce: 'GTC' });
+      const pending = {
+        orderId: order.id, market, qty, limitPrice: price, reserve: roundMoney(qty * price),
+        validUntil: Number(validUntil), stopPrice: roundPrice(stopPrice), plan, placedAt: Date.now(),
+      };
+      this.pendingSatellite.set(key, pending);
+      this.#saveSatelliteOrders();
+      logger.info(`[LIVE] SATELLITE LIMIT BUY ${key} qty=${qty} price=${price} stop=${pending.stopPrice} until=${new Date(pending.validUntil).toISOString()} orderId=${order.id}`);
+      return { key, ...pending };
+    } catch (error) {
+      logger.error(`[LIVE] ${key}: satellite limit buy failed - ${this.#formatError(error)}`);
+      return null;
+    }
+  }
+
+  pendingSatelliteKeys() { return [...this.pendingSatellite.keys()]; }
+
+  /**
+   * One risk-loop tick for a satellite order or position.
+   * @param {{now?: number, rsi?: number|null, hourClosed?: boolean}} [ctx]
+   * @returns {Promise<object|null>} a fill (BUY) or an exit (SELL)
+   */
+  async satelliteTick(key, price, { now = Date.now(), rsi = null, hourClosed = false } = {}) {
+    const pending = this.pendingSatellite.get(key);
+    if (pending) return this.#pollSatelliteOrder(key, pending, now);
+    const position = this.positions.get(key);
+    const p = Number(price);
+    if (!position?.isSatellite || !(p > 0)) return null;
+    position.currentPrice = roundPrice(p);
+    const before = `${position.stopLoss}|${position.pendingTierExit}|${position.highWaterMark}`;
+    const exit = stepSatellitePosition(position, { t: now, open: p, low: p, high: p, close: p, rsi, hourClosed });
+    if (`${position.stopLoss}|${position.pendingTierExit}|${position.highWaterMark}` !== before) this.#savePositionState();
+    return exit ? this.#sellSatellite(key, position, p, exit.reason) : null;
+  }
+
+  async #pollSatelliteOrder(key, pending, now) {
+    try {
+      let order = await this.exchange.fetchOrderStatus(pending.orderId, pending.market);
+      if (order.status === 'open' && now >= pending.validUntil) {
+        try {
+          await this.exchange.cancelOrder(pending.orderId, pending.market);
+        } catch (err) {
+          logger.warn(`[LIVE] ${key}: cancel at expiry failed (${this.#formatError(err)}) — re-reading the order`);
+        }
+        order = await this.exchange.fetchOrderStatus(pending.orderId, pending.market);
+      }
+      if (order.status === 'open') return null; // still resting (a part fill waits for the rest or the expiry)
+      this.pendingSatellite.delete(key);
+      this.#saveSatelliteOrders();
+      const filled = roundQty(Number(order.filled ?? 0));
+      if (!(filled > 0)) {
+        logger.info(`[LIVE] SATELLITE ${key}: limit ${order.status ?? 'done'} unfilled`);
+        return null;
+      }
+      const fill = roundPrice(Number(order.average ?? order.price ?? pending.limitPrice));
+      const openedAt = new Date(Number(order.lastTradeTimestamp ?? order.timestamp ?? now)).toISOString();
+      const position = {
+        isSatellite: true, qty: filled, entryPrice: fill, currentPrice: fill, openedAt, orderId: pending.orderId,
+        partialExitDone: false, trailingStopPct: undefined,
+        ...satellitePositionPlan({ fillPrice: fill, stopPrice: pending.stopPrice, plan: pending.plan, filledAt: Date.parse(openedAt) }),
+      };
+      this.positions.set(key, position);
+      this.#savePositionState();
+      const balanceAfter = await this.#fetchQuoteBalance();
+      logger.info(`[LIVE] SATELLITE BUY ${key} qty=${filled} price=${fill} stop=${position.stopLoss} (${order.status}) orderId=${pending.orderId}`);
+      const record = { timestamp: openedAt, symbol: key, side: 'BUY', price: fill, qty: filled, pnl: 0, balance: balanceAfter, note: '🛰 satellite', isSatellite: true };
+      appendTrade(record);
+      return { ...position, ...record, entryPrice: fill, takeProfit: Number.isFinite(position.takeProfit) ? position.takeProfit : null };
+    } catch (error) {
+      logger.error(`[LIVE] ${key}: satellite order check failed - ${this.#formatError(error)}`);
+      return null;
+    }
+  }
+
+  async #sellSatellite(key, position, price, reason) {
+    const market = key.split('#')[0];
+    const base = market.split('/')[0];
+    try {
+      // Never more than this position's qty: the wallet asset may back another leg.
+      let sellQty = position.qty;
+      try {
+        const bal = await this.exchange.fetchBalance();
+        const freeBase = Number(bal.free?.[base] ?? 0);
+        if (freeBase > 0) sellQty = await this.exchange.amountToPrecision(market, Math.min(freeBase, sellQty));
+      } catch {
+        // stored qty
+      }
+      const cap = price * (1 - SATELLITE_EXIT_CAP_PCT);
+      const capPrice = await this.exchange.priceToPrecision(market, cap).catch(() => roundPrice(cap));
+      const limitOrder = await this.exchange.createOrder(market, 'limit', 'sell', sellQty, capPrice, { timeInForce: 'IOC' });
+      let soldQty = roundQty(Number(limitOrder.filled ?? 0));
+      let proceeds = soldQty * Number(limitOrder.average ?? limitOrder.price ?? capPrice);
+      let rest = await this.exchange.amountToPrecision(market, sellQty - soldQty).catch(() => roundQty(sellQty - soldQty));
+      if (rest > 0 && rest * price >= FALLBACK_MIN_NOTIONAL) {
+        logger.error(`[LIVE] ${key}: ${reason} limit sell filled ${soldQty}/${sellQty} — selling ${rest} at market (catastrophe fallback)`);
+        try {
+          const marketOrder = await this.exchange.createOrder(market, 'market', 'sell', rest);
+          const got = roundQty(Number(marketOrder.filled ?? rest));
+          proceeds += got * (await this.#resolveTradePrice(marketOrder, market, price));
+          soldQty = roundQty(soldQty + got);
+          rest = roundQty(rest - got);
+        } catch (err) {
+          logger.error(`[LIVE] ${key}: market fallback failed - ${this.#formatError(err)} — retrying next tick`);
+        }
+      }
+      if (!(soldQty > 0)) {
+        logger.error(`[LIVE] ${key}: ${reason} sell filled nothing — retrying next tick`);
+        return null;
+      }
+      const exitPrice = roundPrice(proceeds / soldQty);
+      const pnl = roundMoney(proceeds - soldQty * position.entryPrice);
+      const timestamp = new Date().toISOString();
+      this.totalPnL = roundMoney(this.totalPnL + pnl);
+      const closed = !(rest > 0 && rest * price >= FALLBACK_MIN_NOTIONAL);
+      if (closed) this.positions.delete(key);
+      else position.qty = roundQty(position.qty - soldQty);
+      this.#savePositionState();
+      const balanceAfter = await this.#fetchQuoteBalance();
+      logger.info(`[LIVE] SATELLITE SELL ${key} qty=${soldQty} price=${exitPrice} pnl=${pnl.toFixed(2)} reason=${reason}${closed ? '' : ` (${position.qty} left)`}`);
+      appendTrade({ timestamp, symbol: key, side: 'SELL', price: exitPrice, qty: soldQty, pnl, balance: balanceAfter, note: '🛰 satellite', isSatellite: true });
+      return {
+        symbol: key, side: 'SELL', entryPrice: position.entryPrice, exitPrice, qty: soldQty, pnl, reason, timestamp,
+        balance: balanceAfter, openedAt: position.openedAt, note: '🛰 satellite', isSatellite: true, ...(closed ? {} : { partial: true }),
+      };
+    } catch (error) {
+      logger.error(`[LIVE] ${key}: satellite ${reason} sell failed - ${this.#formatError(error)} — retrying next tick`);
       return null;
     }
   }
@@ -948,6 +1146,15 @@ export class LiveTrader {
           // and scalper legs of the same market).
           qty: pos.qty,
           isCore: pos.isCore === true,
+          // A satellite's exit plan (restorePositionsFromExchange rebuilds it from here).
+          ...(pos.isSatellite && {
+            isSatellite: true,
+            takeProfit: Number.isFinite(pos.takeProfit) ? pos.takeProfit : null,
+            breakEvenAt: pos.breakEvenAt ?? null,
+            timeLimitAt: pos.timeLimitAt,
+            tiers: pos.tiers ?? null,
+            pendingTierExit: pos.pendingTierExit === true,
+          }),
         };
       }
       const json = JSON.stringify(state, null, 2);
@@ -960,6 +1167,27 @@ export class LiveTrader {
       fs.writeFileSync(POSITION_STATE_FILE + '.bak', json);
     } catch (e) {
       logger.debug(`[LIVE] position state save failed: ${e.message}`);
+    }
+  }
+
+  #saveSatelliteOrders() {
+    try {
+      const json = JSON.stringify(Object.fromEntries(this.pendingSatellite), null, 2);
+      fs.mkdirSync(path.dirname(SATELLITE_ORDERS_FILE), { recursive: true });
+      fs.writeFileSync(SATELLITE_ORDERS_FILE + '.tmp', json);
+      fs.renameSync(SATELLITE_ORDERS_FILE + '.tmp', SATELLITE_ORDERS_FILE);
+    } catch (e) {
+      logger.error(`[LIVE] satellite order state save failed: ${e.message}`);
+    }
+  }
+
+  /** Resting satellite buys saved by a previous run (key → order). */
+  static loadSatelliteOrders() {
+    try {
+      if (!fs.existsSync(SATELLITE_ORDERS_FILE)) return {};
+      return JSON.parse(fs.readFileSync(SATELLITE_ORDERS_FILE, 'utf8') || '{}');
+    } catch {
+      return {};
     }
   }
 
