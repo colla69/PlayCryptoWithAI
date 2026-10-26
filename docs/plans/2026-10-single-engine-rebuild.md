@@ -1265,3 +1265,27 @@ What C8 means: the scalper's trend-following edge was strong in 2020 → mid-202
 since, on every setting nobody fitted to that period. Its only money-making setting since 2024 is the
 in-sample one. Nothing is changed in the bot from this; an honest per-coin re-fit needs the optimizer
 to run the filter stack first (`runSuperbot.mjs --per-symbol` reruns the shared cells).
+
+## Section D: taker-buy share, stablecoin supply (pre-registered 2026-10-26, before any data was read)
+
+Baseline: the bot + breakout six-year engine replay ($6,699, 30.1%/yr, Sharpe 2.13, DD 9.2%; 257
+breakout, 77 scalper, 196 sleeve trades). Two stages per idea, as in C:
+
+1. *Per-trade estimate* on the replay's trades. Pass: the trades the rule removes have a mean net
+   return below 0 **and** below the kept trades, and the sign holds in both halves (entries before
+   2024-01-01 and from then on). A failed estimate ends the idea; nothing is built.
+2. *Engine replay* (rule built on both sides, row in `liveParityInventory.test.js`). Pass: beat the
+   bot + breakout's six-year Sharpe **and** its Sharpe in at least half of the 6-month folds; report
+   2024-05 → 2026-08 and the unseen 2026-08 → 10 separately (C8 showed the earlier years flatter).
+
+**D9 — taker-buy share as a breakout filter.** Share = taker-buy base volume ÷ volume of the 4h
+signal bar (Binance kline field 9; the stored candles drop it, so the 8 breakout coins' 4h klines are
+re-downloaded to the session scratchpad, not into `data/candles`). Rule F1: skip a breakout whose
+share is < 0.50. Secondary F2 (reported, decides only if F1 passes too): skip when the share is under
+the coin's mean share of the prior 48 bars. No other thresholds are tried.
+
+**D10 — stablecoin supply as a liquidity regime.** DefiLlama's free total stablecoin supply (USD,
+daily). Risk-off: the supply fell over the last 30 days, read from the last day closed before the
+entry (one day of lag). Rule: no new scalper or breakout entries in risk-off; open trades are not
+touched. Tested on the scalper and the breakout separately (each must pass its own estimate);
+the sleeve is reported for information only.
