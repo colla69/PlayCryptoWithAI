@@ -1102,3 +1102,30 @@ Verdict: the breakout satellite holds in the engine (better than the overlay est
 Sharpe 2.00); the strongest-coins satellite does not (it lowers the Sharpe alone and with the
 breakout) and stays off — its estimate carried the selection bias noted above. Candidate:
 bot + breakout. Its edge is mostly trend periods; next is the live slice, then a paper run.
+
+### The live side of the satellites (2026-10-26)
+
+User: "I thought we had a single engine now?" — the decision cycle is one engine; carrying out
+orders is three adapters (simulator, PaperTrader, LiveTrader), the plan's "one order path" step that
+was never done. Parity there comes from shared rules, as `traderUtils.js` gives the scalper:
+
+- `a9fad88` — `stepSatellitePosition` / `satellitePositionPlan` (`satellites.js`) are the one copy
+  of the exit rules; the simulator calls them. Fills now happen at the limit price (a resting buy
+  is filled at its own price), and every exit pays fee + slippage, as live's marketable sells will.
+- `efe53bf` — PaperTrader holds satellite orders (fee-free, as paper's other paths); `main.js`:
+  the risk loop also polls resting orders, feeds the closed-hour RSI once per hour, and a 4h
+  scheduler runs the breakout one minute after each close (after the 12h cycle at 00/12 UTC).
+  A paper restore keeps the plan; JSON stores Infinity as null, so a null target means none.
+- `a25eb1f` — LiveTrader: GTC limit buy, polled each tick (fill, or cancel at expiry keeping a part
+  fill); exits by the shared rules with an IOC limit capped 0.3% under the price, the rest at
+  market as the catastrophe fallback (logged as an error). `satellite_orders.json` keeps resting
+  orders across restarts; `position_state.json` keeps each satellite's plan; `calcCoreClaims` now
+  also reserves satellite coins and resting orders' qty before the scalper restore. Inventory row:
+  "Satellite order path". `binanceClient.createOrder` takes order params; `priceToPrecision` added.
+
+Final engine walk-forward with these rules (bot + breakout): $6,699 (bot $5,644), 30.1% a year,
+Sharpe 2.13 (1.91), worst drop 9.2% (6.7%); 349 limit orders, 257 filled, 92 expired; folds as
+before (6/13 on return, 3/13 on Sharpe; the 2020-12 fold carries most of the gain).
+
+Not done: a paper soak with `SATELLITES=true`, then a reconciliation of its trades against the
+replay of the same days, before the user decides on live. Satellites stay off by default.
