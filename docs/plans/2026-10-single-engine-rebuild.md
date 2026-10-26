@@ -1129,3 +1129,50 @@ before (6/13 on return, 3/13 on Sharpe; the 2020-12 fold carries most of the gai
 
 Not done: a paper soak with `SATELLITES=true`, then a reconciliation of its trades against the
 replay of the same days, before the user decides on live. Satellites stay off by default.
+
+### Robustness checks on the breakout (2026-10-26)
+
+User: "what about more tests and research?" Four checks, each with its pass rule fixed before the
+run. Same setup as the walk-forward above (deep set, $190 + $10 a week, 2020-06 → 2026-08-10) unless
+said. `runSuperbot.mjs` now takes `--bo '<json>'` (breakout settings over the config) and `--label`.
+
+**R1 — days no test has seen** (live set, 2026-08-10 → 2026-10-24, $1,000; information only, 2.5
+months is too short to decide on): bot +10.1%, Sharpe 2.68, worst drop 4.0%; bot + breakout +9.7%,
+2.53, 5.3%. 13 breakout trades: 2 tier exits made +$31, the other 11 (stops, break-evens, time
+limits) lost $33. No sign of a broken rule; a flat stretch for the breakout.
+
+**R2 — settings plateau** (pass: at least 4 of the 6 cells beat the bot's Sharpe 1.91):
+
+| Lookback (4h bars) | Stop 1.5 ATR | Stop 2 ATR |
+|---|---|---|
+| 24 | 28.6%/yr · Sharpe 2.09 · drop 10.0% | 26.4% · 2.04 · 9.3% |
+| 48 (config) | 30.1% · 2.13 · 9.2% | 27.8% · 2.02 · 8.5% |
+| 96 | 29.8% · 2.15 · 8.4% | 27.4% · 2.05 · 7.5% |
+
+6 of 6 beat the bot → passes. The chosen cell is not a lucky peak. Folds beating the bot on Sharpe
+stay low in every cell (3–5 of 13): the plateau holds for the whole period, not fold by fold.
+
+**R3 — size per trade and open positions** (a trade-off table, no pass rule):
+
+| Per trade · max open | Yearly | Sharpe | Worst drop | Filled |
+|---|---|---|---|---|
+| bot alone | 20.2% | 1.91 | 6.7% | — |
+| 6.25% · 2 | 25.3% | 2.18 | 7.4% | 257 |
+| 12.5% · 2 (config) | 30.1% | 2.13 | 9.2% | 257 |
+| 25% · 2 | 39.7% | 1.92 | 13.4% | 257 |
+| 12.5% · 1 | 27.2% | 2.05 | 8.6% | 186 |
+| 12.5% · 3 | 28.6% | 2.03 | 9.6% | 294 |
+
+More size buys return with drop: Sharpe peaks at the smallest size and falls back to the bot's at
+25%. Two open is best of 1/2/3. The config (12.5% · 2) stays; 6.25% is the choice if the drop
+matters more than the return. At live equity (~$300) a 6.25% order is ~$19, over the $11 floor.
+
+**R4 — how sure is the gain** (`scratchpad/sb/r4.mjs`: daily returns, deposits out, 30-day block
+bootstrap, 5,000 draws; pass: the 90% interval of the yearly gain over the bot is above 0):
++8.2 points a year, 90% interval +2.6 to +15.4, 99.6% of draws above 0 → passes. The Sharpe gain
+(+0.21) is not proven: interval −0.13 to +0.57, 84% of draws above 0. Deflated Sharpe of bot +
+breakout with 3,100 trials counted: 0.969 — mostly the bot's own strength, not proof of the add-on.
+
+Verdict: the breakout adds return with confidence and a likely but unproven Sharpe gain; its
+settings are on a plateau; most of the gain comes from trend periods (the 2020-12 fold). Next: the
+paper soak and its reconciliation.
