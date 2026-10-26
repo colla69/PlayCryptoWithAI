@@ -978,3 +978,37 @@ USDC balances to BUSD in September 2022 and USDC pairs stopped trading. Every US
 this plan (the six-year replay, bot vs holding BTC, the setup searches) has no trades in that gap and
 marks the whole price change at its end. It is why 2022 shows almost no trades. Report: the
 "Setup search and breakout overlay" dashboard (data built by `fast/buildFast.mjs`).
+
+### Profit-tiered exits on the breakout (2026-10-26)
+
+From the external-bots review (NFI `long_exit_main`: exit on a smaller momentum drop as profit grows).
+`fast/tierExit.mjs` replays the 4h large-coin breakout (6 entry cells: 24/48/96-bar high × 1.5/2.0 ATR
+stop; market or limit 0.5% under) with six exits on 15m bars; the tiers read RSI-14 of closed 1h bars:
+base (stop, BE at +1R, 2R target), tight tiers 30/34/38 at +1/2/4% (with or without the target),
+loose tiers 35/45/55 (with or without), and a one-R stop ladder. Tier and ladder exits pay fee +
+slippage. Pre-registered pass (`fast/tierAnalyze.mjs`): beat base on net per trade and total, in
+discovery and validation, in ≥ 4 of 6 cells; then the final year once.
+
+- The tight tiers almost never fire (0 tier exits in the reference cell): "tight, no target" is in
+  effect "no 2R target, hold to the time limit". The gain comes from dropping the target.
+- Passes (limit entry, 48 h, as candidate A): no target 6/6, loose tiers + no target 6/6, loose
+  tiers with target 6/6 (tiny). Market/48 h: no target 4/6, loose + no target 4/6. The ladder fails.
+- Final year, read once (first fresh test of these exits): loose + no target 6/6 with limit entry and
+  6/6 with market entry; no target 6/6 with limit, 0/6 with market. Reference cell, final year:
+  base +0.35%/trade, loose + no target +1.08%.
+
+Money, candidate A (2 at a time, $1,000; 6 years at $190 + $10 a week):
+
+| Exit | In-sample yearly / drop / Sharpe | Final year / drop / Sharpe | 6 years |
+|---|---|---|---|
+| base | 20.0% / 23.2% / 1.07 | +4.3% / 8.3% / 0.49 | $4,324 |
+| loose tiers, no target | 27.0% / 32.0% / 1.07 | +16.5% / 7.2% / 1.44 | $5,551 |
+| no target | 27.6% / 28.2% / 1.05 | +9.4% / 8.1% / 0.79 | $5,414 |
+
+Overlay on the committed bot at 12.5% per breakout trade (estimate, `fast/overlayQuick.mjs`): base
+25.7% / 8.9% / Sharpe 1.98; loose + no target 28.3% / 10.5% / 2.00 (bot alone 20.2% / 6.7% / 1.91).
+
+Verdict: for the breakout, use loose tiers with no 2R target. It makes more money and held the final
+year; the in-sample drop is deeper and the Sharpe is unchanged. On the bot, "TP off" was already
+tested in the trailing sweep (+106% but Sharpe 1.02 vs 1.36, rejected); RSI tiers there need 1h RSI
+in the live risk loop and a shared helper (parity), so they are a build, not a test.
