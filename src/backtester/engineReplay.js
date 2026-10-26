@@ -23,6 +23,7 @@ import { RegimeTracker } from '../engine/regimeClassifier.js';
 import { buildStrategiesForSymbol, getSignalConfigForSymbol } from '../utils/strategyBuilder.js';
 import { getContextAsOf } from '../data/marketContext.js';
 import { timeframeMs } from '../utils/candleFreshness.js';
+import { hourlyRsiByClose } from '../engine/satellites.js';
 
 const CYCLE_DELAY_MS = 3_000; // live's cycles fire at the close + 3 s
 const iso = (ts) => new Date(ts).toISOString();
@@ -88,13 +89,22 @@ class SimOrderHandler {
 
   markPrice(symbol, price) { return this.sim.markPrice(symbol, price); }
 
+  // Satellite strategies ('<symbol>#bo' / '#rs'): resting limit orders and their exit plan.
+  async placeSatelliteOrder(key, entry) {
+    return this.sim.placeSatelliteOrder(key, { ...entry, slippagePct: this.slippage[key.split('#')[0]] });
+  }
+
+  pendingSatelliteKeys() { return [...this.sim.pendingSatellite.keys()]; }
+
+  async replaySatelliteBar(key, bar, ctx) { return this.#asTrade(this.sim.replaySatelliteBar(key, bar, ctx)); }
+
   async getStatus() {
     const status = this.sim.getStatus();
     return {
       ...status,
       positions: status.positions.map((p) => {
         const pos = this.sim.positions.get(p.symbol);
-        return { ...p, currentPrice: pos?.lastPrice ?? p.entryPrice, openedAt: iso(pos.entryTime), isCore: pos?.isCore === true };
+        return { ...p, currentPrice: pos?.lastPrice ?? p.entryPrice, openedAt: iso(pos.entryTime), isCore: pos?.isCore === true, isSatellite: pos?.isSatellite === true };
       }),
     };
   }
@@ -215,6 +225,60 @@ export async function replayEngine({
   });
   engine.state.fearGreedData = fearGreedData;
 
+  // Satellites (config.satellites) step the 12h interval in 4h sub-windows: at each
+  // 4h close the breakout cycle runs, then the scalper's positions meet that window's
+  // 15m bars, then each resting order and satellite position does. Window by window,
+  // so a satellite never sees cash from a scalper exit that has not happened yet. The
+  // hourly RSI the tier exit reads comes from the 15m bars, keyed by each hour's close.
+  const satellitesOn = cfg.satellites?.enabled === true;
+  const rsiBySymbol = new Map();
+  const rsiAt = (symbol, ts) => {
+    if (!rsiBySymbol.has(symbol)) rsiBySymbol.set(symbol, hourlyRsiByClose(mtf15mCandles[symbol] ?? []));
+    return rsiBySymbol.get(symbol).get(ts) ?? null;
+  };
+  const SUB_MS = timeframeMs(cfg.satellites?.breakout?.timeframe ?? '4h');
+  const M15 = 15 * 60 * 1000;
+
+  /** The scalper's open positions through their 15m bars in [from, to). */
+  async function scalperTicks(from, to) {
+    for (const pos of (await trader.getStatus()).positions) {
+      if (pos.isCore || pos.isSatellite) continue; // the sleeve exits on the vote flip, satellites by their plan
+      const bars = mtf15mCandles[pos.symbol];
+      if (!bars?.length) continue;
+      const entry = sim.positions.get(pos.symbol)?.entryTime ?? from;
+      for (let j = lastAtOrBefore(bars, from - 1) + 1; j < bars.length && Number(bars[j].timestamp) < to; j++) {
+        if (Number(bars[j].timestamp) < entry) continue;
+        clock = Number(bars[j].timestamp) + M15;
+        if (await engine.onPriceTick(pos.symbol, Number(bars[j].close), bars[j])) break;
+      }
+    }
+  }
+
+  async function intervalWithSatellites(from12, to12) {
+    for (let s = from12; s < to12; s += SUB_MS) {
+      const end = Math.min(s + SUB_MS, to12);
+      cycleTs = s; clock = s + CYCLE_DELAY_MS; sim.setTimestamp(s);
+      await engine.runSatelliteCycle('breakout');
+      await scalperTicks(s, end);
+      const keys = [...new Set([
+        ...trader.pendingSatelliteKeys(),
+        ...[...sim.positions.entries()].filter(([, p]) => p.isSatellite).map(([k]) => k),
+      ])];
+      for (const key of keys) {
+        const symbol = key.split('#')[0];
+        const bars = mtf15mCandles[symbol];
+        if (!bars?.length) continue;
+        for (let j = lastAtOrBefore(bars, s - 1) + 1; j < bars.length && Number(bars[j].timestamp) < end; j++) {
+          const t = Number(bars[j].timestamp);
+          clock = t + M15;
+          await engine.onSatelliteBar(key, bars[j], { rsi: rsiAt(symbol, t + M15) });
+          if (!sim.pendingSatellite.has(key) && !sim.positions.has(key)) break;
+        }
+      }
+    }
+    cycleTs = from12;
+  }
+
   const equity = [];
   const cycles = [...new Set(symbols.flatMap((s) => symbolCandles[s]
     .map((c) => Number(c.timestamp)).filter((t) => t >= fromTs && t <= toTs)))].sort((a, b) => a - b);
@@ -235,19 +299,13 @@ export async function replayEngine({
 
     // Price ticks until the next close: each open position meets its 15m bars.
     const nextTs = cycles[k + 1] ?? cycleTs + tfMs;
-    for (const pos of (await trader.getStatus()).positions) {
-      if (pos.isCore) continue; // no stops: the sleeve exits only on the vote flip
-      const bars = mtf15mCandles[pos.symbol];
-      if (!bars?.length) continue;
-      const entry = sim.positions.get(pos.symbol)?.entryTime ?? cycleTs;
-      for (let j = lastAtOrBefore(bars, cycleTs - 1) + 1; j < bars.length && Number(bars[j].timestamp) < nextTs; j++) {
-        if (Number(bars[j].timestamp) < entry) continue;
-        clock = Number(bars[j].timestamp) + 15 * 60 * 1000;
-        if (await engine.onPriceTick(pos.symbol, Number(bars[j].close), bars[j])) break;
-      }
-    }
+    if (satellitesOn) await intervalWithSatellites(cycleTs, nextTs);
+    else await scalperTicks(cycleTs, nextTs);
     const status = await trader.getStatus();
-    equity.push({ timestamp: cycleTs, balance: status.balance + status.positions.reduce((s, p) => s + p.qty * p.currentPrice, 0) });
+    equity.push({
+      timestamp: cycleTs,
+      balance: status.balance + (status.reserved ?? 0) + status.positions.reduce((s, p) => s + p.qty * p.currentPrice, 0),
+    });
   }
 
   return { trades: trader.trades, signals: dashboardState.signals, equity, sim };

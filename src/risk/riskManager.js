@@ -79,10 +79,10 @@ export class RiskManager {
     const equity = calcEquityFromStatus(currentStatus);
     if (equity > 0) this.lastEquity = equity;
 
-    // TSM core sleeve positions have their own capital budget and must not
-    // consume the scalper's concurrent-position slots.
+    // TSM core sleeve and satellite positions have their own capital budget and must
+    // not consume the scalper's concurrent-position slots.
     const positions = (Array.isArray(currentStatus.positions) ? currentStatus.positions : [])
-      .filter((position) => !position.isCore);
+      .filter((position) => !position.isCore && !position.isSatellite);
     const hasOpenPosition = positions.some((position) => position.symbol === symbol);
 
     if (hasOpenPosition) {

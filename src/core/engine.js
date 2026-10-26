@@ -29,6 +29,10 @@ import {
   selectSleeveRung, sleeveFeasibility,
 } from '../engine/tsmCore.js';
 import { computeEquityRiskOff } from '../data/nasdaqTrend.js';
+import {
+  satelliteKey, satelliteKind, isTrendUp, detectBreakout, detectStrongest, rankByReturn, planSatelliteEntry,
+} from '../engine/satellites.js';
+import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
 
 /**
  * @param {object} deps
@@ -269,7 +273,7 @@ export function createTradingEngine(deps) {
           const filterResult = await runEntryFilters({
             nowMs: now(),
             btcDominance: config.btcDominance?.enabled ? getBtcDominanceTrend() : null,
-            symbol, candles: decisionCandles, openPositions: currentStatus.positions.filter((p) => !p.isCore),
+            symbol, candles: decisionCandles, openPositions: currentStatus.positions.filter((p) => !p.isCore && !p.isSatellite),
             correlationMatrix: state.correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
             recentTrades: dashboardState.getTrades?.() ?? [],
             // Live equity so the weekly DD breaker scales with the account;
@@ -560,9 +564,9 @@ export function createTradingEngine(deps) {
 
       if (state.bearPolicy.shouldCashExitOpen) {
         const status = await trader.getStatus();
-        // TSM core positions respond to regime via their own momentum flip —
-        // the bear cash-exit only manages scalper positions.
-        const open = (status.positions ?? []).filter((p) => !p.isCore);
+        // TSM core positions respond to regime via their own momentum flip, and
+        // satellites run their own exit plan — the bear cash-exit only manages scalper positions.
+        const open = (status.positions ?? []).filter((p) => !p.isCore && !p.isSatellite);
         if (open.length > 0) {
           logger.warn(`[PHASE6A] BEAR regime entered — closing ${open.length} open position(s): ${open.map((p) => p.symbol).join(', ')}`);
           for (const pos of open) {
@@ -603,6 +607,9 @@ export function createTradingEngine(deps) {
       // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
       // candles that runCycle just refreshed in dashboardState.
       await runTsmCoreCycle();
+      // The 12h satellite after both: it trades only the cash they leave. (The 4h
+      // breakout runs on its own clock: the caller calls runSatelliteCycle('breakout').)
+      await runSatelliteCycle('strongest');
 
       // Daily valuation point for time-weighted return. Recorded here rather than
       // in refreshBalance (live-only) or runRiskChecks (early-returns with no open
@@ -861,6 +868,105 @@ export function createTradingEngine(deps) {
     }
   }
 
+  // ── Satellite strategies (src/engine/satellites.js, config.satellites) ───────────
+  // Short trades on the cash the scalper and the sleeve leave free: the breakout at
+  // every 4h close, the strongest coins at the 12h close (after the scalper and the
+  // sleeve, so they have first call on the cash). A signal becomes a resting limit buy
+  // the trader holds; the trader's bars then run the exit plan (onSatelliteBar).
+  // Satellite PnL feeds the daily-loss brake like a scalper exit: they are stop-managed
+  // trades, unlike the sleeve. A trader without limit-order support leaves them idle.
+  async function satelliteSignals(kind, kindCfg, symbols) {
+    const out = [];
+    if (kind === 'breakout') {
+      for (const symbol of symbols) {
+        const bars = await fetchOHLCV(symbol, kindCfg.timeframe ?? '4h', Math.max(kindCfg.lookbackBars, kindCfg.volumeAvgBars) + 30);
+        if (!bars?.length || checkCandleFreshness(bars, kindCfg.timeframe ?? '4h', config.maxCandleStalenessPeriods, now()).stale) continue;
+        if (!isTrendUp(closedCandles(symbol), kindCfg.trend)) continue;
+        const signal = detectBreakout(withFormingBar(bars, kindCfg.timeframe ?? '4h', now()).slice(0, -1), kindCfg);
+        if (signal) out.push({ symbol, signal });
+      }
+      return out;
+    }
+    // strongest: ranked by return among every configured symbol trading this cycle
+    const fresh = new Map();
+    for (const symbol of config.symbols) {
+      const candles = dashboardState.getCandles(symbol);
+      if (!candles?.length || checkCandleFreshness(candles, config.timeframe, config.maxCandleStalenessPeriods, now()).stale) continue;
+      fresh.set(symbol, closedCandles(symbol));
+    }
+    const ranks = rankByReturn(fresh, kindCfg.rankBars ?? 14);
+    for (const symbol of symbols) {
+      const closed = fresh.get(symbol);
+      if (!closed || !isTrendUp(closed, kindCfg.trend)) continue;
+      const signal = detectStrongest(closed, ranks.get(symbol), kindCfg);
+      if (signal) out.push({ symbol, signal });
+    }
+    return out;
+  }
+
+  /** @returns {Promise<object[]>} the orders placed this cycle */
+  async function runSatelliteCycle(kind) {
+    const satCfg = config.satellites ?? {};
+    const kindCfg = satCfg[kind];
+    if (!satCfg.enabled || !kindCfg?.enabled) return [];
+    if (typeof trader.placeSatelliteOrder !== 'function') {
+      if (!state.satelliteUnsupportedWarned) {
+        state.satelliteUnsupportedWarned = true;
+        logger.warn(`[SATELLITE] the ${modeLabel} trader has no limit-order support — satellites stay idle`);
+      }
+      return [];
+    }
+    const placed = [];
+    try {
+      const status = await trader.getStatus();
+      const equity = calcEquityFromStatus(status);
+      const busy = new Set([
+        ...(status.positions ?? []).filter((p) => p.isSatellite).map((p) => p.symbol),
+        ...(trader.pendingSatelliteKeys?.() ?? []),
+      ]);
+      let open = [...busy].filter((k) => satelliteKind(k) === kind).length;
+      let free = Number(status.balance ?? 0);
+      for (const { symbol, signal } of await satelliteSignals(kind, kindCfg, satCfg.symbols ?? [])) {
+        if (open >= (kindCfg.maxOpen ?? 2)) break;
+        const key = satelliteKey(symbol, kind);
+        if (busy.has(key)) continue;
+        const entry = planSatelliteEntry({
+          signal, refPrice: signal.refClose, kindCfg, equity, freeBalance: free, now: now(), minNotional: FALLBACK_MIN_NOTIONAL,
+        });
+        if (entry.refused) {
+          logger.debug(`[SATELLITE] ${key}: signal refused — ${entry.refused}`);
+          continue;
+        }
+        const order = await trader.placeSatelliteOrder(key, entry);
+        if (!order) continue;
+        logger.info(`[SATELLITE] ${key}: limit buy $${entry.sizeUsd} at ${entry.limitPrice.toPrecision(6)}, stop ${entry.stopPrice.toPrecision(6)}`);
+        placed.push(order);
+        busy.add(key); open += 1; free -= entry.sizeUsd;
+      }
+    } catch (err) {
+      logger.error(`[SATELLITE] ${kind} cycle failed: ${err?.message ?? err}`);
+    }
+    return placed;
+  }
+
+  /**
+   * One bar for a satellite order or position: the trader fills the resting limit or
+   * runs the exit plan; a fill or an exit is recorded like any other trade.
+   * @param {string} key — '<symbol>#bo' | '<symbol>#rs'
+   * @param {object} bar — a 15m bar
+   * @param {{rsi?: number|null}} [ctx] — the RSI of the 1h bar this bar closes, if any
+   */
+  async function onSatelliteBar(key, bar, ctx = {}) {
+    if (typeof trader.replaySatelliteBar !== 'function') return null;
+    const result = await trader.replaySatelliteBar(key, bar, ctx);
+    if (!result) return null;
+    dashboardState.pushTrade(result);
+    if (result.side === 'SELL' && typeof result.pnl === 'number') riskManager.recordTrade(result.pnl);
+    notifyTrade(result);
+    pushEvent('trade', result);
+    return result;
+  }
+
   /**
    * One price tick for an open scalper position — live's 2-minute risk loop, and a
    * replay's 15m bars. A stop, target or trailing exit is recorded with the risk
@@ -892,5 +998,7 @@ export function createTradingEngine(deps) {
     return result;
   }
 
-  return { runAllSymbols, onPriceTick, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state };
+  return {
+    runAllSymbols, onPriceTick, runSatelliteCycle, onSatelliteBar, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state,
+  };
 }
