@@ -2,6 +2,7 @@ import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
 import { FALLBACK_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
+import { stepSatellitePosition, satellitePositionPlan } from '../engine/satellites.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
@@ -18,6 +19,9 @@ export class PaperTrader {
     this.balance = roundMoney(config.initialBalance);
     this.positions = new Map();
     this.totalPnL = 0;
+    // Satellite limit orders resting on the (simulated) book and the cash they lock.
+    this.pendingSatellite = new Map();
+    this.reserved = 0;
   }
 
   /**
@@ -62,8 +66,10 @@ export class PaperTrader {
           highWaterMark: roundPrice(position.highWaterMark),
           openedAt: position.openedAt,
           isCore: position.isCore === true,
+          ...(position.isSatellite && { isSatellite: true }),
         };
       }),
+      ...(this.reserved > 0 && { reserved: roundMoney(this.reserved) }),
       totalPnL: roundMoney(this.totalPnL),
     };
   }
@@ -106,8 +112,9 @@ export class PaperTrader {
     }
 
     // TSM core positions exit ONLY on signal flip (closeCorePosition) — no
-    // SL/TP, trailing, break-even, or two-stage exits. Track price and bail.
-    if (position.isCore) {
+    // SL/TP, trailing, break-even, or two-stage exits; satellites only by their
+    // own plan (satelliteTick). Track price and bail.
+    if (position.isCore || position.isSatellite) {
       position.currentPrice = roundPrice(currentPrice);
       return null;
     }
@@ -446,6 +453,78 @@ export class PaperTrader {
     return null;
   }
 
+  // ── Satellite strategies ('<symbol>#bo' / '#rs', src/engine/satellites.js) ──────
+  // As the simulator and LiveTrader: a resting limit buy that locks its cash, fills at
+  // its price when a tick trades at or under it, and expires at validUntil; a filled
+  // position exits by the shared rules (stepSatellitePosition) on each price tick.
+  // Paper trades without fees, as its other order paths do.
+
+  /** @returns {object|null} the resting order, or null (held, pending, or under the floor) */
+  placeSatelliteOrder(key, { limitPrice, validUntil, sizeUsd, stopPrice, plan } = {}) {
+    if (this.positions.has(key) || this.pendingSatellite.has(key)) return null;
+    const reserve = roundMoney(Math.min(Number(sizeUsd) || 0, this.balance));
+    if (reserve < FALLBACK_MIN_NOTIONAL) return null;
+    const order = { key, limitPrice: roundPrice(Number(limitPrice)), validUntil: Number(validUntil), reserve, stopPrice: roundPrice(Number(stopPrice)), plan };
+    this.balance = roundMoney(this.balance - reserve);
+    this.reserved = roundMoney(this.reserved + reserve);
+    this.pendingSatellite.set(key, order);
+    logger.info(`[PAPER] SATELLITE LIMIT BUY ${key} $${reserve.toFixed(2)} at ${order.limitPrice} stop=${order.stopPrice} (until ${new Date(order.validUntil).toISOString()})`);
+    return { ...order };
+  }
+
+  pendingSatelliteKeys() { return [...this.pendingSatellite.keys()]; }
+
+  cancelSatelliteOrder(key) {
+    const order = this.pendingSatellite.get(key);
+    if (!order) return false;
+    this.pendingSatellite.delete(key);
+    this.reserved = roundMoney(this.reserved - order.reserve);
+    this.balance = roundMoney(this.balance + order.reserve);
+    return true;
+  }
+
+  /**
+   * One price tick for a satellite order or position (live's 2-minute risk loop).
+   * @param {string} key
+   * @param {number} price
+   * @param {{now?: number, rsi?: number|null, hourClosed?: boolean}} [ctx] — rsi of the hour that
+   *   just closed, on the first tick after it
+   * @returns {TradeResult|null} a fill (BUY) or an exit (SELL)
+   */
+  satelliteTick(key, price, { now = Date.now(), rsi = null, hourClosed = false } = {}) {
+    const p = Number(price);
+    if (!Number.isFinite(p) || p <= 0) return null;
+    const order = this.pendingSatellite.get(key);
+    if (order) {
+      if (now >= order.validUntil) {
+        this.cancelSatelliteOrder(key);
+        logger.info(`[PAPER] SATELLITE ${key}: limit expired unfilled`);
+        return null;
+      }
+      if (p > order.limitPrice) return null;
+      this.cancelSatelliteOrder(key);
+      const fill = order.limitPrice;
+      const qty = roundQty(order.reserve / fill);
+      const cost = roundMoney(qty * fill);
+      const openedAt = new Date(now).toISOString();
+      const position = {
+        isSatellite: true, qty, entryPrice: fill, currentPrice: p, openedAt, partialExitDone: false,
+        ...satellitePositionPlan({ fillPrice: fill, stopPrice: order.stopPrice, plan: order.plan, filledAt: now }),
+      };
+      this.balance = roundMoney(this.balance - cost);
+      this.positions.set(key, position);
+      logger.info(`[PAPER] SATELLITE BUY ${key} qty=${qty.toFixed(8)} price=${fill} stop=${position.stopLoss} balance=${this.balance.toFixed(2)}`);
+      const record = { timestamp: openedAt, symbol: key, side: 'BUY', price: fill, qty, pnl: 0, balance: this.balance, note: '🛰 satellite', isSatellite: true };
+      appendTrade(record);
+      return { ...position, ...record, entryPrice: fill, openedAt };
+    }
+    const position = this.positions.get(key);
+    if (!position?.isSatellite) return null;
+    position.currentPrice = roundPrice(p);
+    const exit = stepSatellitePosition(position, { t: now, open: p, low: p, high: p, close: p, rsi, hourClosed });
+    return exit ? this.#closePosition(key, roundPrice(exit.price), exit.reason, '🛰 satellite') : null;
+  }
+
   #closePosition(symbol, price, reason, note) {
     const position = this.positions.get(symbol);
 
@@ -528,6 +607,16 @@ export class PaperTrader {
       // Core positions must survive restarts with their flag intact, or SL/TP
       // management would adopt them (stopLoss 0 → instant nonsense exits).
       isCore:          trade.isCore === true || String(symbol).endsWith('#core'),
+      // A satellite keeps its exit plan: the fill record carries it (satelliteTick).
+      ...((trade.isSatellite === true || /#(bo|rs)$/.test(String(symbol))) && {
+        isSatellite: true,
+        // JSON saves Infinity as null: a missing or non-positive target is "no target", never 0
+        takeProfit: Number(trade.takeProfit) > 0 ? Number(trade.takeProfit) : Infinity,
+        breakEvenAt: trade.breakEvenAt ?? null,
+        timeLimitAt: Number(trade.timeLimitAt ?? Infinity),
+        tiers: trade.tiers ?? null,
+        pendingTierExit: false,
+      }),
     });
 
     logger.info(

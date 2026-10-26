@@ -137,6 +137,13 @@ export function hourlyRsiByClose(bars15m, period = 14) {
   return new Map(rsi.map((v, k) => [hours[k + offset].at, v]));
 }
 
+/** RSI of the last bar of a CLOSED series (live: the 1h klines after the hour closes), or null. */
+export function rsiOfLastClosedBar(closed, period = 14) {
+  if (!Array.isArray(closed) || closed.length <= period) return null;
+  const v = calculateRSI(closed.map((b) => Number(b.close)), period).at(-1);
+  return Number.isFinite(v) ? v : null;
+}
+
 /**
  * The RSI level under which a position at this open profit exits, or null below the
  * first tier. Tiers: [{minProfit, rsiBelow}], e.g. [{0.01, 35}, {0.02, 45}, {0.04, 55}] —

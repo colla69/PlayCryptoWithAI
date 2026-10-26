@@ -26,6 +26,7 @@ import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './da
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { baseSymbol } from './engine/tsmCore.js';
+import { rsiOfLastClosedBar } from './engine/satellites.js';
 import { loadNasdaqHistory } from './data/nasdaqTrend.js';
 import {
   buildStrategiesForSymbol,
@@ -636,10 +637,13 @@ let riskCheckId = null;
     try {
       const status = await trader.getStatus();
       const openPositions = status?.positions ?? [];
-      if (!openPositions.length) return;
+      // Resting satellite limit orders need the price too, even with nothing open.
+      const pendingSatellites = trader.pendingSatelliteKeys?.() ?? [];
+      if (!openPositions.length && !pendingSatellites.length) return;
 
-      logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s)`);
+      logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s), ${pendingSatellites.length} resting satellite order(s)`);
       for (const pos of openPositions) {
+        if (pos.isSatellite) continue; // below, with the resting orders
         // Core sleeve positions have no stops, so there is no SL/TP to manage —
         // but checkRisk is still the ONLY writer of position.currentPrice, and
         // skipping it froze the raw getStatus() valuation at the open/restore
@@ -682,10 +686,37 @@ let riskCheckId = null;
           logger.debug(`[RISK-LOOP] ${pos.symbol}: check failed — ${err.message}`);
         }
       }
+
+      // Satellites (config.satellites): a resting limit fills or expires, a position runs
+      // its exit plan (src/engine/satellites.js). At the first tick after an hour closes,
+      // the tier rule reads that hour's RSI.
+      const satelliteKeys = new Set([...pendingSatellites, ...openPositions.filter((p) => p.isSatellite).map((p) => p.symbol)]);
+      for (const key of satelliteKeys) {
+        try {
+          const market = baseSymbol(key);
+          const ticker = await fetchTicker(market);
+          const price = Number(ticker?.last ?? 0);
+          if (price <= 0) continue;
+          const held = openPositions.some((p) => p.symbol === key);
+          await engine.onSatelliteTick(key, price, held ? await satelliteHourContext(key, market) : {});
+        } catch (err) {
+          logger.debug(`[RISK-LOOP] ${key}: satellite check failed — ${err.message}`);
+        }
+      }
     } catch (err) {
       logger.debug(`[RISK-LOOP] error: ${err.message}`);
     }
   }
+  // The hour each satellite position last had its tier rule read, so it reads once per hour.
+  const satelliteLastHour = new Map();
+  async function satelliteHourContext(key, market) {
+    const hourClose = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    if (satelliteLastHour.get(key) === hourClose) return {};
+    satelliteLastHour.set(key, hourClose);
+    const bars = await fetchOHLCV(market, '1h', 300);
+    return { rsi: rsiOfLastClosedBar(withFormingBar(bars, '1h', Date.now()).slice(0, -1)), hourClosed: true };
+  }
+
   riskCheckId = setInterval(() => void runRiskChecks(), RISK_CHECK_MS);
   logger.info(`Risk-check loop active: every ${RISK_CHECK_MS / 1000}s for open positions`);
 }
@@ -772,6 +803,27 @@ const cycleScheduler = createAlignedScheduler({
 
 cycleScheduler.start();
 
+// ── Satellite breakout cycle (config.satellites) — every 4h close ─────────────────
+// One minute after the close; at 00:00 and 12:00 it waits for the 12h cycle, so the
+// scalper and the sleeve have first call on the cash, as in the replay.
+let satelliteScheduler = null;
+if (config.satellites?.enabled && config.satellites.breakout?.enabled) {
+  satelliteScheduler = createAlignedScheduler({
+    timeframe: config.satellites.breakout.timeframe ?? '4h',
+    bufferMs: 60_000,
+    run: async () => {
+      for (let waited = 0; engine.state.cycleInProgress && waited < 15 * 60_000; waited += 5_000) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+      await engine.runSatelliteCycle('breakout');
+    },
+    isStopped: () => shuttingDown,
+    onSchedule: (at) => logger.info(`[SATELLITE] next breakout cycle in ${Math.round((at - Date.now()) / 60_000)} min (${new Date(at).toUTCString()})`),
+    onError: (err) => logger.error(`[SATELLITE] breakout cycle failed — ${err.message}`),
+  });
+  satelliteScheduler.start();
+}
+
 // ── Cycle watchdog (deadman alert) ──────────────────────────────────────────
 // Alerts on the ABSENCE of completed cycles: the July 2026 host suspend stalled
 // the loop 18h and skewed it for 24 days with zero alerts, because a dead
@@ -804,6 +856,7 @@ process.on('SIGINT', () => {
 
   shuttingDown = true;
   cycleScheduler.stop();
+  satelliteScheduler?.stop();
   clearInterval(pricePollId);
   clearInterval(balancePollId);
   clearInterval(riskCheckId);

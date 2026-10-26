@@ -958,7 +958,21 @@ export function createTradingEngine(deps) {
    */
   async function onSatelliteBar(key, bar, ctx = {}) {
     if (typeof trader.replaySatelliteBar !== 'function') return null;
-    const result = await trader.replaySatelliteBar(key, bar, ctx);
+    return recordSatelliteResult(await trader.replaySatelliteBar(key, bar, ctx));
+  }
+
+  /**
+   * One price tick for a satellite order or position — live's and paper's 2-minute risk
+   * loop (the replay walks 15m bars through onSatelliteBar instead).
+   * @param {{now?: number, rsi?: number|null, hourClosed?: boolean}} [ctx]
+   */
+  async function onSatelliteTick(key, price, ctx = {}) {
+    if (typeof trader.satelliteTick !== 'function') return null;
+    dashboardState.updatePrice(key, price);
+    return recordSatelliteResult(await trader.satelliteTick(key, price, { now: now(), ...ctx }));
+  }
+
+  function recordSatelliteResult(result) {
     if (!result) return null;
     dashboardState.pushTrade(result);
     if (result.side === 'SELL' && typeof result.pnl === 'number') riskManager.recordTrade(result.pnl);
@@ -999,6 +1013,6 @@ export function createTradingEngine(deps) {
   }
 
   return {
-    runAllSymbols, onPriceTick, runSatelliteCycle, onSatelliteBar, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state,
+    runAllSymbols, onPriceTick, runSatelliteCycle, onSatelliteBar, onSatelliteTick, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state,
   };
 }
