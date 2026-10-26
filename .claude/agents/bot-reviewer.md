@@ -1,5 +1,5 @@
 ---
-name: reviewer
+name: bot-reviewer
 description: Review code changes for correctness, repo conventions, and logic errors. General-purpose, not security- or risk-focused. Use for a quick correctness pass on a diff.
 tools: Read, Grep, Glob
 model: sonnet
