@@ -1289,3 +1289,36 @@ daily). Risk-off: the supply fell over the last 30 days, read from the last day 
 entry (one day of lag). Rule: no new scalper or breakout entries in risk-off; open trades are not
 touched. Tested on the scalper and the breakout separately (each must pass its own estimate);
 the sleeve is reported for information only.
+
+### Section D results (2026-10-26): both ideas rejected at the estimate, nothing built
+
+Scripts and downloaded data in the session scratchpad (`d/`). The 4h taker-buy klines for the 8
+breakout coins matched the deep set bar for bar (85,908 bars, every volume identical).
+
+**D9 — taker-buy share.** Signal-bar share across the 257 breakouts: median 0.526, quartiles
+0.474 / 0.566. Both rules fail: the trades they skip make money.
+
+| Rule | Kept: n · mean · before 2024 / 2024 on | Skipped: n · mean · before 2024 / 2024 on |
+|---|---|---|
+| F1 share < 0.50 | 160 · +1.19% · +1.55% / +0.87% | 97 · +2.38% · +3.13% / +1.22% |
+| F2 share < prior-48 mean | 172 · +1.90% · +2.83% / +0.97% | 85 · +1.10% · +1.19% / +0.99% |
+
+Low-share breakouts did *better* (F1). That would be a new hypothesis fitted on these trades, so it
+is not tested here.
+
+**D10 — stablecoin supply.** Supply shrank over 30 days on 29% of days (2020-06 → 2026-08), yet
+few fast trades opened then:
+
+| Stream | Shrinking: n · mean · before 2024 / 2024 on · P&L | Growing: n · mean · P&L |
+|---|---|---|
+| Scalper | 11 · −0.86% · +1.22% / −2.05% · −$30 | 66 · +6.24% · $1,733 |
+| Breakout | 9 · −0.20% · −1.39% / +9.32% · +$4 | 248 · +1.70% · $856 |
+| Sleeve (info) | 29 · −1.04% · +0.91% / −8.50% · −$138 | 167 · +46.8% · $840 |
+
+The sign flips between the halves for both fast streams (4 and 1 trades in the weak half), and the
+whole effect is $30 and $4 over six years. The sleeve's −$138 is a pattern seen, not a test.
+
+Where A–D leave the bot: the breakout satellite is the only addition that held; every filter and
+exit tried on top of it or the scalper failed before a build. The open problem is C8: the scalper's
+per-coin settings are in-sample since 2024-05, and an honest re-fit needs the optimizer to run the
+full filter stack first.
