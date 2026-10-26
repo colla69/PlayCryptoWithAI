@@ -774,3 +774,28 @@ sleeve keeps 50% and loses more on ETH in October.
 candidates hit the WR-gap blocker (> 15pp): the win rate in Y2 falls to 46% / 54% (likely trades
 the aging exit closed at a small gain running on to a stop; not checked trade by trade). L1 without it also falls under L1's
 holdout Sharpe in live conditions. No config change; L1 stays.
+
+## Bot vs holding BTC (2026-10-26)
+
+Asked by the user ("the whole bot idea should at least beat hodling"). Engine replay, live
+conditions, $190 on 2020-06-01 and $10 a week. Holding BTC buys at each moment's price, less 0.1%.
+Splits put that share of every deposit into BTC and run the committed bot with the rest. Scripts
+in the session scratchpad (`hodlRun.mjs`, `buildHodl.mjs`); report: the "Bot vs holding BTC"
+dashboard.
+
+| Setup (2020-06 → 2026-08) | Final | Worst drop | Biggest $ fall | Sharpe | 3-yr windows beating hold |
+|---|---|---|---|---|---|
+| Hold BTC | $7,339 | 72.7% | $6,829 | 0.72 | — |
+| Bot as committed | $5,644 | 6.8% | $193 | 1.59 | 2 / 13 |
+| Bot, sleeve 50% at every size | $6,452 | 17.8% | $732 | 1.24 | 2 / 13 |
+| Bot, sleeve 100%, 4 majors | $7,832 | 27.3% | $2,398 | 1.08 | 4 / 13 |
+| 30% BTC / 70% bot | $6,218 | 41.7% | $2,063 | 0.84 | 2 / 13 |
+| 50% BTC / 50% bot | $6,546 | 54.7% | $3,337 | 0.76 | 2 / 13 |
+| 70% BTC / 30% bot | $7,066 | 62.5% | $4,634 | 0.75 | 2 / 13 |
+
+Thirteen 3-year windows, one starting each quarter from 2020-06 to 2023-06. Holding BTC's median
+profit was $1,540, against $888 for the 100% sleeve and $388 for the committed bot. No setup lost
+money in any window. The bots win the windows that end after a fall (2023, 2026); holding wins
+those that end near a top (2024–25). The sleeve's rules come from a study that covers these years,
+so the trend-heavy rows are in-sample. Nothing applied: the sleeve share is a risk decision for the
+user (stated limit about 10%).
