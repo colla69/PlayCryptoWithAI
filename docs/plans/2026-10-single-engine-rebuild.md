@@ -936,3 +936,37 @@ Verdict: of about 2,150 tests only the large-coin 4h volume breakout survives al
 final year was already read once for that family (candidate A above), so its pass is not a fresh
 test; the divergence and wide-bar failures are. Price-pattern setups at 4h/12h look mined out in
 this data; new ideas likely need new data (order book, listings, news), not new patterns.
+
+### More ideas from GitHub and Quant Stack Exchange; the breakout next to the bot (2026-10-26)
+
+Searched GitHub (`gh search`, READMEs and findings files) and Quant Stack Exchange (thin). Useful:
+an open lab that tests ideas with walk-forward and a locked holdout (TDZNBEER/crypto-backtest-lab, 37
+write-ups, mostly negatives that match ours: day-of-week, opening-range breakout, pairs, funding,
+TD Sequential, on-chain, turn of month), a failed-strategies repo (long-only trend, cross-sectional
+momentum, pairs, low-vol all fail), and Freqtrade sets (in-sample only). Two leads tested:
+- 21–23 UTC: our data agrees the shape is real before costs (large coins +3.2 bps per trade in
+  discovery, +8.2 bps t 4.6 in validation), but a round trip costs 0.2% at Binance's 0.1% maker fee.
+  Only worth a paper test if the account's USDC maker fee is about 0% (user to check).
+- Nearness to the 52-week high (George & Hwang 2004; JBF 2025), long-only, top third weekly vs all
+  coins equally (`fast/near52.mjs`, parameter-free): all coins excess +0.09%/wk t 0.17 in discovery,
+  −0.45%/wk in validation; large coins −0.77%/wk in validation. Fails; final year not read.
+- Taker-buy imbalance (Binance kline field; arXiv 2608.21888): published edges are sub-bps and point
+  to reversal; needs a new download — left for a data round.
+
+Breakout A (4h, large coins, limit 0.5% under, 2 at a time) with the committed bot, 2020-06 → 2026-08,
+$190 + $10 a week (`fast/combine.mjs`; bot = the six-year engine replays). A money split only hurts:
+70/30 Sharpe 1.85 and drop 8.8%, 50/50 1.59 and 11.4% (bot alone 1.91 and 6.8%). Daily correlation of
+the two streams is 0.22, so an overlay on the bot's idle cash (the bot at full size, the breakout
+at k × its 50%-per-trade size; estimate: daily returns added, cash assumed free — the breakout is in a
+trade ~10% of the time):
+
+| Overlay | Yearly | Worst drop | Sharpe |
+|---|---|---|---|
+| Bot alone | 20.2% | 6.7% | 1.91 |
+| k = 0.25 (12.5% of equity per breakout trade) | 25.5% | 9.2% | 1.97 |
+| k = 0.5 | 30.6% | 11.8% | 1.83 |
+| k = 1 | 40.6% | 18.2% | 1.57 |
+
+Caveats: an estimate, not a shared-cash simulation; the final year was already read for the
+breakout family. Next: a shared-cash run in the engine replay (breakout as a second entry rule with
+limit entries), which needs limit-order support on both sides (live parity) first.
