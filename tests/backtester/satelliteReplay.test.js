@@ -33,7 +33,7 @@ function inputs(satellitesOn) {
   };
   return {
     symbolCandles: pick('c12'), mtf15mCandles: pick('c15'), mtf4hCandles: pick('c4'),
-    fromTs: T0 + 420 * H12, toTs: T0 + (BARS - 1) * H12, initialBalance: 1000, slippage: SLIPPAGE_TIERS, cfg,
+    fromTs: T0 + 420 * H12, toTs: T0 + (BARS - 1) * H12, initialBalance: 1000, slippage: SLIPPAGE_TIERS, cfg, exchangeEvents: [],
   };
 }
 const key = (t) => [t.symbol, t.openedAt, t.timestamp, t.reason, t.pnl].join('|');

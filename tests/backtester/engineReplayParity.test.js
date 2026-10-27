@@ -65,7 +65,7 @@ describe('engine replay ≡ PortfolioBacktester', () => {
 
     const replay = await replayEngine({
       symbolCandles: c12, mtf15mCandles: c15, mtf4hCandles: c4,
-      fromTs, toTs, initialBalance: 1000, slippage: SLIPPAGE_TIERS, cfg,
+      fromTs, toTs, initialBalance: 1000, slippage: SLIPPAGE_TIERS, cfg, exchangeEvents: [],
     });
 
     const key = (t) => [t.symbol, t.entryTime, t.exitTime, t.reason, t.entryFillPrice, t.exitPrice, t.qty];

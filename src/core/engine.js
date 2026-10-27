@@ -33,6 +33,7 @@ import {
   satelliteKey, satelliteKind, isTrendUp, detectBreakout, detectStrongest, rankByReturn, planSatelliteEntry,
 } from '../engine/satellites.js';
 import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
+import { exchangeEventState } from '../risk/exchangeEvents.js';
 
 /**
  * @param {object} deps
@@ -53,6 +54,9 @@ import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
  * @param {Function} deps.loadNasdaqHistory — the sleeve's macro overlay feed
  * @param {Function} [deps.loadImpliedVol] — async (symbol) → annualised implied vol or null;
  *   when given, a non-null value replaces realized vol in the sleeve's vol targeting (E1)
+ * @param {Function} [deps.loadExchangeEvents] — async () → Binance venue events announced by
+ *   now (monitoring tags, USDC-pair removals, delistings) or null; when given, they veto
+ *   entries and sell a held position whose pair is going away (src/risk/exchangeEvents.js)
  * @param {string} deps.modeLabel — 'paper' | 'testnet' | 'live', for the logs
  * @param {Function} [deps.now] — the clock; a replay passes its own
  * @param {object} [deps.initialState] — e.g. the starting regime label
@@ -61,7 +65,7 @@ export function createTradingEngine(deps) {
   const {
     config, dashboardState, trader, riskManager, regimeTracker, symbolAggregators, signalConfig,
     fetchOHLCV, notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot, modeLabel,
-    loadEquityHistory, loadNasdaqHistory, loadImpliedVol = null,
+    loadEquityHistory, loadNasdaqHistory, loadImpliedVol = null, loadExchangeEvents = null,
   } = deps;
   const { getBtcDominanceTrend, getEthBtcTrend } = deps.marketContext;
   const now = deps.now ?? (() => Date.now());
@@ -82,6 +86,8 @@ export function createTradingEngine(deps) {
     tsmCoreFailedCloses: new Set(),
     tsmLastRungKey: null,
     tsmFeasibilityAlerted: false,
+    // Binance venue events as of the last cycle (refreshExchangeEvents).
+    exchangeEvents: [],
     ...(deps.initialState ?? {}),
   };
   // 15m / 4h bars for the entry filters, refreshed at every cycle.
@@ -128,6 +134,22 @@ export function createTradingEngine(deps) {
     return false;
   }
 
+  /** Re-reads the venue events at a cycle's start; a failed read keeps the last ones. */
+  async function refreshExchangeEvents() {
+    if (!loadExchangeEvents) return;
+    try {
+      const events = await loadExchangeEvents();
+      if (Array.isArray(events)) state.exchangeEvents = events;
+    } catch (err) {
+      logger.warn(`Exchange events: load failed (${err?.message ?? err}) — keeping the last ones`);
+    }
+  }
+
+  /** The venue veto for a symbol now: { blockEntry, exitHeld, reason }. */
+  function venueState(symbol) {
+    return exchangeEventState(state.exchangeEvents, symbol.split('/')[0], now());
+  }
+
   /** Bars closed by now: the decision series without its forming bar. */
   function closedCandles(symbol) {
     return withFormingBar(dashboardState.getCandles(symbol), config.timeframe, now()).slice(0, -1);
@@ -167,6 +189,22 @@ export function createTradingEngine(deps) {
       const currentStatus = await trader.getStatus();
       const symRisk = getRiskForSymbol(symbol);
       const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
+
+      // ── Venue exit: the USDC pair is being removed or the token delisted ─────
+      // Sell at the first cycle after the notice: once the pair halts, the stale
+      // guard above returns before any exit, and the position is stranded.
+      const venue = venueState(symbol);
+      if (venue.exitHeld && hasPosition) {
+        logger.warn(`${symbol}: selling — ${venue.reason}`);
+        const venueExit = await trader.execute(symbol, 'SELL', currentPrice, symRisk);
+        if (venueExit) {
+          dashboardState.pushTrade(venueExit);
+          if (typeof venueExit.pnl === 'number') riskManager.recordTrade(venueExit.pnl);
+          notifyTrade(venueExit);
+          pushEvent('trade', venueExit);
+          return;
+        }
+      }
 
       // ── Position aging exit (Phase 7) ────────────────────────────────────────
       // Close positions open more than maxAgeBars without hitting TP/SL.
@@ -248,7 +286,11 @@ export function createTradingEngine(deps) {
       if (result.decision === 'BUY') {
         // Phase 6a: hard bear-policy block runs BEFORE the regular filter stack
         // so we don't waste cycles on filters for a guaranteed-blocked entry.
-        if (state.bearPolicy.shouldBlockEntries) {
+        const venue = venueState(symbol);
+        if (venue.blockEntry) {
+          blockReason = venue.reason;
+          logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
+        } else if (state.bearPolicy.shouldBlockEntries) {
           blockReason = state.bearPolicy.reason ?? 'bear regime — entries disabled';
           logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
         } else {
@@ -404,6 +446,7 @@ export function createTradingEngine(deps) {
       const fetched = new Map(await Promise.all(
         config.symbols.map(async (symbol) => [symbol, await refreshSymbolCandles(symbol)]),
       ));
+      await refreshExchangeEvents();
       // The 15m / 4h filter caches refresh right after the close too (item 9). On a
       // timer counted from boot, the 4h cache's newest bar was fetched up to 4 h
       // before the cycle, part-formed, and what the filter saw depended on boot time.
@@ -922,6 +965,7 @@ export function createTradingEngine(deps) {
     }
     const placed = [];
     try {
+      await refreshExchangeEvents();
       const status = await trader.getStatus();
       if (!riskManager.canOpenRisk(status).allowed) return placed;
       const equity = calcEquityFromStatus(status);
@@ -935,6 +979,11 @@ export function createTradingEngine(deps) {
         if (open >= (kindCfg.maxOpen ?? 2)) break;
         const key = satelliteKey(symbol, kind);
         if (busy.has(key)) continue;
+        const venue = venueState(symbol);
+        if (venue.blockEntry) {
+          logger.info(`[SATELLITE] ${key}: signal refused — ${venue.reason}`);
+          continue;
+        }
         const accountRisk = riskManager.canOpenRisk(await trader.getStatus());
         if (!accountRisk.allowed) {
           logger.info(`[SATELLITE] ${key}: ${accountRisk.reason}`);

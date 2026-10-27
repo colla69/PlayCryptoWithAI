@@ -70,7 +70,9 @@ const t0 = Date.now();
 const replay = await replayEngine({
   symbolCandles: c12, mtf15mCandles, mtf4hCandles, fearGreedData,
   fromTs, toTs, initialBalance: balance, deposits, slippage: SLIPPAGE_TIERS,
-  cfg: { ...config, tsmCore: { ...(config.tsmCore ?? {}), enabled: false } },
+  // PortfolioBacktester has no venue veto (the engine replay is the backtest of the
+  // live cycle); no notice touched a trade in the replayed windows (plan, section E item 2).
+  cfg: { ...config, tsmCore: { ...(config.tsmCore ?? {}), enabled: false }, exchangeEvents: { enabled: false } },
 });
 const rpTrades = replay.trades.map((t) => t.raw).filter((t) => t.entryTime <= toTs);
 

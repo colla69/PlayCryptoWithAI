@@ -31,7 +31,7 @@ function inputs({ satellites = true, core = false } = {}) {
   const each = (bars) => Object.fromEntries(SYMBOLS.map((s) => [s, bars.map((b) => ({ ...b }))]));
   return {
     symbolCandles: each(c12), mtf15mCandles: each(c15), mtf4hCandles: each(c4),
-    fromTs: T, toTs: T, initialBalance: 1000,
+    fromTs: T, toTs: T, initialBalance: 1000, exchangeEvents: [],
     cfg: {
       ...config, symbols: SYMBOLS,
       risk: { ...config.risk, maxOpenPositions: 0 },

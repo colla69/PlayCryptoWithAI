@@ -29,6 +29,7 @@ import { baseSymbol, impliedVolAsOf } from './engine/tsmCore.js';
 import { rsiOfLastClosedBar } from './engine/satellites.js';
 import { loadNasdaqHistory } from './data/nasdaqTrend.js';
 import { loadDvolHistory, DVOL_COINS } from './data/dvolFeed.js';
+import { loadExchangeEvents } from './data/exchangeEventsFeed.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -82,6 +83,16 @@ const loadImpliedVol = impliedVolCfg.enabled
   }
   : null;
 
+// Binance's notices (monitoring tags, USDC-pair removals, delistings) as of now; the
+// engine vetoes entries and sells a position whose pair is going away. The feed is
+// re-read once per 4h period; on an outage the cache stays and nothing new is blocked.
+const loadVenueEvents = config.exchangeEvents?.enabled
+  ? async () => {
+    const nowMs = Date.now();
+    return (await loadExchangeEvents({ now: nowMs }))?.events.filter((e) => e.announcedAt <= nowMs) ?? null;
+  }
+  : null;
+
 // ── The trading engine ────────────────────────────────────────────────────────
 // One bar-close cycle (src/core/engine.js). It owns the cycle state — correlation
 // matrix, median ATR, BTC macro, regime, bear policy, the 15m/4h caches, Fear &
@@ -92,7 +103,7 @@ const engine = createTradingEngine({
   fetchOHLCV,
   marketContext: { getBtcDominanceTrend, getEthBtcTrend },
   notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot,
-  loadEquityHistory, loadNasdaqHistory, loadImpliedVol,
+  loadEquityHistory, loadNasdaqHistory, loadImpliedVol, loadExchangeEvents: loadVenueEvents,
   modeLabel: (paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase(),
   initialState: { currentRegime: REGIME_LABELS.BULL_RANGE },
 });

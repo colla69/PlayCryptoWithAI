@@ -14,6 +14,7 @@ import config from '../../config/default.js';
 import * as bf from '../backtester/baselineFramework.js';
 import { replayEngine } from '../backtester/engineReplay.js';
 import { readDvolCache } from '../data/dvolFeed.js';
+import { readExchangeEventsCache } from '../data/exchangeEventsFeed.js';
 import { loadFearGreedHistory } from '../data/fearGreed.js';
 
 const argv = process.argv.slice(2);
@@ -41,6 +42,7 @@ const r = await replayEngine({
   slippage: bf.SLIPPAGE_TIERS,
   nasdaqRows: readJson('data/nasdaqTrend.json').rows,
   impliedVolRows: readDvolCache(),
+  exchangeEvents: readExchangeEventsCache()?.events,
   equityHistory: (Array.isArray(history) ? history : []).filter((p) => Date.parse(p.date ?? p.timestamp ?? 0) < fromTs),
 });
 

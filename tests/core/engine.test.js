@@ -58,7 +58,7 @@ function fakeDashboard(candles) {
 }
 
 /** Builds an engine whose aggregators decide BUY at the given confidences. */
-function build({ confidences, maxOpenPositions, configPatch = {}, bars15m = null }) {
+function build({ confidences, maxOpenPositions, configPatch = {}, bars15m = null, deps = {} }) {
   const candles = Object.fromEntries(SYMBOLS.map((s) => [s, series()]));
   const dashboardState = fakeDashboard(candles);
   const cfg = { ...engineConfig(maxOpenPositions), ...configPatch };
@@ -81,6 +81,7 @@ function build({ confidences, maxOpenPositions, configPatch = {}, bars15m = null
     runTsmCoreCycle: async () => {},
     modeLabel: 'paper',
     now: () => NOW,
+    ...deps,
   });
   return { engine, trader, dashboardState, riskManager };
 }
@@ -117,6 +118,45 @@ describe('engine: entries fill the free slots one at a time, by confidence', () 
     await engine.runAllSymbols();
     assert.equal(trader.getStatus().positions.length, 3);
     assert.equal(engine.state.lastCycleAt, NOW);
+  });
+});
+
+describe('engine: Binance venue events (section E item 2)', () => {
+  const tag = (coin) => ({ coin, kind: 'monitoring_tag', announcedAt: NOW - H12 });
+  const removal = (coin) => ({ coin, kind: 'pair_removal', pair: `${coin}/USDC`, announcedAt: NOW - 1_000, effectiveAt: NOW + 3 * 24 * 3_600_000 });
+
+  test('a tagged coin is not entered; the slot goes to the next candidate', async () => {
+    const { engine, trader, dashboardState } = build({
+      confidences: { 'AAA/USDC': 0.6, 'BBB/USDC': 0.9, 'CCC/USDC': 0.7 }, maxOpenPositions: 1,
+      deps: { loadExchangeEvents: async () => [tag('BBB')] },
+    });
+    await engine.runAllSymbols();
+    assert.deepEqual(trader.getStatus().positions.map((p) => p.symbol), ['CCC/USDC']);
+    assert.match(dashboardState.signals.find((x) => x.symbol === 'BBB/USDC').blockReason, /monitoring tag/);
+  });
+
+  test('a held position whose USDC pair is being removed is sold at the next cycle and not re-entered', async () => {
+    const events = [];
+    const { engine, trader } = build({
+      confidences: { 'AAA/USDC': 0.9, 'BBB/USDC': 0.1, 'CCC/USDC': 0.1 }, maxOpenPositions: 1,
+      deps: { loadExchangeEvents: async () => events },
+    });
+    await engine.runAllSymbols();
+    assert.deepEqual(trader.getStatus().positions.map((p) => p.symbol), ['AAA/USDC']);
+    events.push(removal('AAA'));
+    await engine.runAllSymbols();
+    assert.equal(trader.getStatus().positions.length, 0, 'sold although the aggregator still says BUY');
+  });
+
+  test('a failed read keeps the last events', async () => {
+    let calls = 0;
+    const { engine } = build({
+      confidences: { 'AAA/USDC': 0.9, 'BBB/USDC': 0.1, 'CCC/USDC': 0.1 }, maxOpenPositions: 1,
+      deps: { loadExchangeEvents: async () => (++calls === 1 ? [tag('AAA')] : null) },
+    });
+    await engine.runAllSymbols();
+    await engine.runAllSymbols();
+    assert.equal(engine.state.exchangeEvents.length, 1);
   });
 });
 

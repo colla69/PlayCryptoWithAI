@@ -249,6 +249,16 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/engineReplay.js', symbol: 'impliedVolRows' },
     shared: 'src/engine/tsmCore.js',
   },
+  {
+    // Section E item 2 (2026-10-27). Both sides read data/exchangeEvents.json; the
+    // replay keeps events announced by its clock and throws when the config enables
+    // the veto and none are passed. PortfolioBacktester has no veto: the engine
+    // replay is the backtest of the live cycle, and runEngineReplay turns it off.
+    rule: 'Binance venue veto (monitoring tag, USDC-pair removal, delisting)',
+    live: { file: 'src/main.js', symbol: 'loadExchangeEvents' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'exchangeEvents' },
+    shared: 'src/risk/exchangeEvents.js',
+  },
 ];
 
 /**

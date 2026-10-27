@@ -27,6 +27,16 @@ export default {
   // soak. 2 periods (24h on 12h candles) clears the normal case (the forming
   // bar is ~0 periods old; a not-yet-published one is 1) with a wide margin.
   maxCandleStalenessPeriods: 2,
+  // Binance venue veto (src/risk/exchangeEvents.js, feed src/data/exchangeEventsFeed.js,
+  // cache data/exchangeEvents.json, backfill src/scripts/buildExchangeEvents.mjs). A
+  // monitoring tag blocks new entries until removed; a USDC-pair removal or a token
+  // delisting blocks entries and sells a held scalper position at the next cycle —
+  // after the halt the stale guard above skips the symbol and the position is stranded
+  // (LSK/USDC and GMX/USDC were removed with 3 days' notice, VANRY delisted 2026-08).
+  // Covers the scalper and the satellites; the sleeve trades only BTC/ETH/BNB/SOL.
+  exchangeEvents: {
+    enabled: true,
+  },
   rsi: { period: 14, oversold: 30, overbought: 70 },
   ema: { fast: 12, slow: 26 },
   macd: { fast: 12, slow: 26, signal: 9 },

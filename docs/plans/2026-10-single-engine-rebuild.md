@@ -1522,3 +1522,24 @@ set `126 724b7eed…` (was `36a73a13`); the protected frozen copy is unchanged a
 - Paper boot: GRAM loaded 1,590 bars from disk, fetched live, merged payload-wins.
 - Live: if the live account held TON on 06-30, Binance converted it to GRAM; position restore now
   sees it under `GRAM/USDC`.
+
+### Venue veto: built, on by default (2026-10-27, user decision: tag block + exit)
+
+- Rule (`src/risk/exchangeEvents.js`, no timing parameter): a monitoring tag blocks new entries
+  until lifted; a USDC-pair removal or token delisting blocks entries and sells a held scalper
+  position at the first cycle after the notice, until a week after the removal takes effect (by
+  then the stale guard owns the symbol, and a relisted pair can trade again). Scalper and
+  satellites; the sleeve trades only BTC/ETH/BNB/SOL.
+- Feed (`src/data/exchangeEventsFeed.js`): Binance CMS catalogs 161 and 49, newest page of each
+  once per 4h period, a body only for a new pair-removal notice; cache `data/exchangeEvents.json`;
+  an outage keeps the cache (fail-open). Backfill `src/scripts/buildExchangeEvents.mjs`: 4,482
+  notices since 2020 → 363 events (169 delistings, 46 USDC-pair removals, 140 tags, 8 lifted).
+  Five touch our universe, all in 2026 (table above).
+- Both sides: `main.js` → `loadExchangeEvents`; `engineReplay` keeps events announced by its clock
+  and throws when the config enables the veto and none are passed. Inventory row "Binance venue
+  veto". PortfolioBacktester has no veto (`runEngineReplay.mjs` turns it off for its comparison).
+- Pass rule "no harm + covers known events": six-year replay $6,721.65, Sharpe 1.9826 — identical
+  to the GRAM baseline; one VANRY BUY blocked on its tag (2026-07), not taken in the baseline
+  either. Unseen window $311.97, identical. Covers LSK, GMX and VANRY; TON was a rename.
+- Paper boot: the feed refreshed (no new events). Two transient kline fetch failures (GRAM history
+  init, TRX — retried; the same URL answered 200 a minute later), unrelated to the change.

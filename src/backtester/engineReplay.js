@@ -145,19 +145,26 @@ function replayDashboard(getVisible) {
  * @param {Record<string, Array<{t:number, c:number}>>} [p.impliedVolRows] — 12h implied-vol bars
  *   (DVOL, `readDvolCache()`) by base coin; when given, the sleeve sizes on them (section E1).
  *   Required when the config enables `tsmCore.impliedVol` and the sleeve
+ * @param {object[]} [p.exchangeEvents] — Binance venue events (`readExchangeEventsCache().events`);
+ *   each applies from its announcement time. Required when the config enables `exchangeEvents`.
  * @param {Array<{equity:number}>} [p.equityHistory] — account equity before the window (the
  *   sleeve's high-water mark); the replay appends its own daily points
  */
 export async function replayEngine({
   symbolCandles, mtf15mCandles = {}, mtf4hCandles = {}, fearGreedData = null,
   fromTs, toTs, initialBalance, deposits = [], slippage = {}, cfg = config,
-  nasdaqRows = [], equityHistory = [], impliedVolRows = null,
+  nasdaqRows = [], equityHistory = [], impliedVolRows = null, exchangeEvents = null,
 }) {
   const tfMs = timeframeMs(cfg.timeframe);
   // Live sizes the sleeve on DVOL when the config says so; a replay without the rows
   // would silently size on realized vol — a rule on one side only.
   if (cfg.tsmCore?.enabled && cfg.tsmCore.impliedVol?.enabled && !impliedVolRows) {
     throw new Error('replayEngine: tsmCore.impliedVol is enabled but no impliedVolRows were passed (readDvolCache())');
+  }
+  // Live vetoes entries and sells on Binance's notices when the config says so; a replay
+  // without the events would trade through them — a rule on one side only.
+  if (cfg.exchangeEvents?.enabled && !Array.isArray(exchangeEvents)) {
+    throw new Error('replayEngine: exchangeEvents is enabled but no events were passed (readExchangeEventsCache())');
   }
   const impliedVolMaxAgeMs = Number(cfg.tsmCore?.impliedVol?.maxAgeHours ?? 24) * 3_600_000;
   const symbols = cfg.symbols.filter((s) => symbolCandles[s]?.length);
@@ -235,6 +242,10 @@ export async function replayEngine({
     loadNasdaqHistory: async () => ({ rows: nasdaqRows.filter((r) => r.t <= clock) }),
     loadImpliedVol: impliedVolRows
       ? (symbol) => impliedVolAsOf(impliedVolRows[symbol.split('/')[0]], clock, { maxAgeMs: impliedVolMaxAgeMs })
+      : null,
+    // Only notices announced by the clock: live cannot read one before it is published.
+    loadExchangeEvents: cfg.exchangeEvents?.enabled
+      ? async () => exchangeEvents.filter((e) => e.announcedAt <= clock)
       : null,
     modeLabel: 'replay',
     now,

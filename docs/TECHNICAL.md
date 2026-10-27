@@ -411,6 +411,7 @@ config
 │   ├── impliedVol{}       DVOL (BTC/ETH) in place of realized vol; maxAgeHours → realized fallback (on)
 │   ├── resizeThresholdPct Drift rebalance trigger, share of slot (default 0.15)
 │   └── macroOverlay{}     Equity risk-off: ×riskOffFactor while NASDAQ < EMA(emaDays)
+├── exchangeEvents{}       Binance venue veto: monitoring tag / USDC-pair removal / delisting (on)
 ├── btcDominance{}         BTC.D entry gate (CoinGecko)
 └── fearGreed{}            Fear & Greed entry-threshold modulator
 ```

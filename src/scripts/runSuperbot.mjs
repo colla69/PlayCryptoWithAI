@@ -22,6 +22,7 @@ import config from '../../config/default.js';
 import { loadAllSymbols, loadMtfCandles, SLIPPAGE_TIERS } from '../backtester/baselineFramework.js';
 import { replayEngine } from '../backtester/engineReplay.js';
 import { readDvolCache } from '../data/dvolFeed.js';
+import { readExchangeEventsCache } from '../data/exchangeEventsFeed.js';
 import { annualizedSharpe, dailyReturnsFromEquity, DAYS_PER_YEAR } from '../backtester/metrics.js';
 
 const argv = process.argv.slice(2);
@@ -107,6 +108,7 @@ const r = await replayEngine({
   fromTs, toTs, initialBalance: start, deposits, slippage: SLIPPAGE_TIERS,
   nasdaqRows: JSON.parse(fs.readFileSync('data/nasdaqTrend.json', 'utf8')).rows, cfg,
   impliedVolRows: arg('dvol') ? JSON.parse(fs.readFileSync(arg('dvol'), 'utf8')) : readDvolCache(),
+  exchangeEvents: readExchangeEventsCache()?.events,
 });
 const byReason = {};
 for (const t of r.trades) { const k = t.reason ?? '?'; byReason[k] = (byReason[k] ?? 0) + 1; }

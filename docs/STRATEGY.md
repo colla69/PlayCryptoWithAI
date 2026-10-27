@@ -165,6 +165,16 @@ Every BUY signal must pass a cascade before execution:
    missed that: LSK, TON and GMX each fed the aggregator a frozen series for weeks during the
    2026-07 soak, every cycle re-deriving an identical confidence. The guard covers the signal cycle,
    the startup seed, and the TSM core sleeve (`src/utils/candleFreshness.js`).
+   - **Binance venue veto** (`exchangeEvents`, section E item 2 of the 2026-10 rebuild plan) — no
+     new entry in a coin from the day Binance gives it a monitoring tag (until the tag is lifted)
+     or announces the removal of its USDC pair or the delisting of the token; a held scalper
+     position in such a coin is sold at the next cycle. After the halt the fresh-data guard skips
+     the symbol before any exit runs, so a position held through a removal is stranded. In 2026
+     LSK/USDC and GMX/USDC were removed with three days' notice and VANRY was delisted a month
+     after its tag; TON was renamed GRAM (the bot now trades GRAM/USDC). Feed: Binance's
+     announcement pages (`src/data/exchangeEventsFeed.js`, cache `data/exchangeEvents.json`,
+     re-read every 4h; an outage keeps the cache). The replay reads the same file. Covers the
+     scalper and the satellites.
 1. **Bear-regime block** (Phase 6a) — no new entries while regime is `BEAR_TREND`.
 2. **Max positions** — 4 concurrent slots (`risk.maxOpenPositions`; core sleeve legs don't count);
    a BUY that arrives with every slot full is skipped, not queued. The backtester fills free slots
