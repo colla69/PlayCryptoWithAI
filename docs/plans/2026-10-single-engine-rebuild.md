@@ -1482,3 +1482,26 @@ Breakout PnL $867 → $807: the trades taken while BTC DVOL was above 60 earned 
 shrinking them cost return without cutting the worst drop by more than 0.2 points. The unseen
 window was not run; the verdict was already decided. Per the pre-registration the idea ends; the
 research code was reverted.
+
+## Section E, item 2: exchange events for the four coins that stopped printing (2026-10-27)
+
+Source: Binance's announcement feed (keyless `bapi/composite/v1/public/cms/article/list/query`,
+catalogs 161 "Delisting", 49 "Latest News", 157 "Maintenance"; complete from 2025-01, rate-limited
+at ~1 request/s) and `api/v3/exchangeInfo` for the pair status today.
+
+| Coin | Event | Notice | Effective | Today |
+|---|---|---|---|---|
+| LSK | LSK/USDC pair removed (token stays) | 2026-06-09 08:30 | 06-12 | LSKUSDC `BREAK`, LSKUSDT trading; monitoring tag 07-24 (after) |
+| TON | **Rebranded to GRAM, 1:1** — not a delisting | 2026-06-12 06:00 | halt 06-30 03:00 → GRAM/USDC opens 07-02 08:00 at 1.601 (TON's last 1.598) | TONUSDC `BREAK`, **GRAMUSDC trading** |
+| GMX | GMX/USDC pair removed (token stays) | 2026-07-07 09:15 | 07-10 | GMXUSDC `BREAK`, GMXUSDT trading |
+| VANRY | Token delisted | 2026-08-03 03:30 | 08-17 | VANRYUSDC `BREAK`; monitoring tag 07-03 (31 days before) |
+
+- None of the four has a removal notice of the "monitoring tag first" kind except VANRY. The tag
+  led the token delistings in the feed by 1–5 months (PIVX 06-18 → 08-03, NFP/POND 04-30 → 06-26,
+  COS/MBOX 03-06 → 06-05, HIGH 04-14 → 06-05); USDC-pair removals come with 3 days' notice and no tag.
+- No replay held any of the four at its event (six-year deep set, unseen 2026-08 → 10), so a veto on
+  these dates changes no backtest trade: "no harm" holds trivially and the value is insurance — a
+  position held through a pair removal is stranded (the stale-series guard skips the symbol, so no
+  exit runs).
+- TON is a universe bug, not a veto case: `config.symbols` still lists `TON/USDC`, a ticker that has
+  not traded since 06-30, while the same coin trades as `GRAM/USDC`.
