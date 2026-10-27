@@ -1711,3 +1711,74 @@ nothing is built into the bot unless it passes.
 - Stage 2, only on a pass: the model's rank replaces the 7-day-return rank of the strongest-coin
   satellite in the engine (JS inference, retrain schedule, a `liveParityInventory` row), judged by
   the engine replay as in section D.
+
+### Part 2 result (2026-10-27): FAIL — per-coin menu picks do not hold up
+
+Trials built in ~40 min (10 workers, ~130–230 ms a trial); scripts `e4/m3build.mjs`,
+`e4/m3analyze.mjs` in the session scratchpad. LSK has no USDC bars in the deep set (all its trials
+are flat) and is left out of R1.
+
+- **R1:** on a typical coin 972 of the 2,280 trials trade at all and 201 reach 8 trades in six years
+  (live filters on — the old optimizer saw none of this). Median PBO over 36 coins **0.43**; 15 coins
+  at 0.5 or more (picking by past Sharpe is worse than random there), 3 below 0.25 (ETH 0.20, XRP 0.23,
+  PEPE 0.13). Restricted to trials with ≥ 8 trades: median 0.49, 18 of 36 at 0.5 or more. The past
+  winner loses money out of sample in a median 36% of halvings.
+- **R2 (decides):** equal-weight book of 37 coins, 2022-06-01 → 2026-08-10.
+
+| Fold | R2 refit | A: EMA+HeikinAshi+PSAR 0.55 | B: today's config (in-sample after 2024-05) | coins with a pick |
+|---|---|---|---|---|
+| 2022-06 | 0.11 | **2.98** | 1.99 | 10 |
+| 2022-12 | 0.12 | **1.55** | −1.25 | 10 |
+| 2023-06 | **0.92** | 0.66 | 1.07 | 10 |
+| 2023-12 | **0.93** | 0.34 | −1.73 | 5 |
+| 2024-06 | **0.27** | 0.17 | 4.00 | 8 |
+| 2024-12 | −1.23 | **1.50** | 2.48 | 29 |
+| 2025-06 | **−0.28** | −0.29 | 2.63 | 32 |
+| 2025-12 | **1.54** | −1.86 | 2.56 | 34 |
+| 2026-06 | **0.20** | −1.60 | −1.46 | 36 |
+| Whole span | −0.13 | **0.32** | 1.86 | |
+
+  R2 beats A in 6 of 9 folds but loses over the whole span (−0.13 vs 0.32): **FAIL** (both tests
+  were required). The expected high PBO came true on half the coins; the expected R2 fail came true.
+- B is 2.69 over 2024-05 → 2026-08 — the window its settings were fitted on — and mixed before it
+  (2022-12 −1.25, 2023-12 −1.73): the same in-sample pattern as C8.
+- Per the pre-registration: no per-coin retune is applied. `perSymbolOptimizer.mjs` stays a tool
+  (now an honest one); today's per-coin settings are kept, and remain in-sample since 2024-05.
+
+### Part 3 result (2026-10-27): FAIL at stage 1 — a real cross-coin signal, but no portfolio that beats BTC
+
+Scripts and data in the session scratchpad (`e4/rk_features.mjs`, `e4/rk_model.py`, `rk_dataset.json`):
+4,722 coin-weeks over 323 Mondays; the BTC gate was on in 171 of them. All numbers are walk-forward
+out of sample, 2022-06-01 → 2026-08-10 (195 weeks, gate on in 102), net of costs.
+
+| Gated, top 5 | Sharpe | Return | Worst drop |
+|---|---|---|---|
+| **ridge α = 10 (primary)** | **0.33** | 17.4% | 59.8% |
+| ridge α = 100 / price features only | 0.51 / 0.49 | 62.3% / 58.3% | 45.9% / 51.0% |
+| ridge α = 1 / votes only | 0.24 / −0.10 | 0.0% / −52.4% | 60.5% / 71.1% |
+| trees depth 3 / depth 2 | 0.01 / 0.14 | −31.1% / −14.1% | 63.1% / 61.1% |
+| M (top 5 by 7-day return) | −0.11 | −53.9% | 76.0% |
+| EW (every eligible coin) | 0.05 | −33.2% | 60.4% |
+| BTC alone | **0.55** | 61.4% | 34.8% |
+
+- Verdict by the written rule: **FAIL** — the primary beats M (0.33 vs −0.11) and EW (0.05), and its
+  IC is +0.103 with t = 3.69, but it beats M in only 4 of 9 folds.
+- Why the fold count is low (a data limit, recorded, not used to change the verdict): the deep set
+  holds USDC pairs, and only 8–10 of the 37 coins have USDC history in 2020–2022, none from late
+  2022 to early 2023 (Binance's USDC pairs were paused), 3 through 2023, 16 by 2024-08 and 36 from
+  2025-11. Three folds were all cash (gate off: 2022-06, 2025-12, 2026-06) and two had 5 or fewer
+  eligible coins (2022-12, 2023-06), so every ranking held the same basket. In the four folds where
+  the rankings could differ, ridge beat M in all four (2023-12 2.43 vs 1.52, 2024-06 0.54 vs 0.23,
+  2024-12 −0.65 vs −2.01, 2025-06 0.60 vs 0.47). 2024-05 → 2026-08: ridge 0.15, M −0.33, EW −0.14.
+- The signal is real and comes from price, not from the strategies: out-of-sample IC +0.10 to +0.12
+  (t 3.2–4.3) for every ridge model on price features and both tree models; the 20 strategy votes
+  alone have none (−0.026, t −1.2). 7-day momentum has a *negative* IC (−0.054, t −2.0): over a
+  week, crypto coins mean-revert. That is why the strongest-coin satellite (top by 7-day return)
+  lost money.
+- No long-only alt basket beats holding BTC here: every gated basket fell 46–76% at its worst, BTC
+  35%. PBO over the 10 series 0.16 (BTC and ridge-on-price the usual in-sample winners); deflated
+  Sharpe ridge 0.44, BTC 0.62. CPCV paths for the primary (which train on later weeks too, back to
+  2020): 0.84 … 0.98, mean 0.90.
+- Per the pre-registration nothing is built. What it suggests for a *new* test (to be pre-registered,
+  mostly 2024+ data): use the ranker's score as a filter on entries the bot already makes, or to
+  skip the coins it ranks lowest, rather than as a stand-alone basket.
