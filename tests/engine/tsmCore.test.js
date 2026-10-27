@@ -9,7 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   computeTsmVote, planCoreActions, planCoreResize,
-  computeRealizedVolAnnual, computeTargetFraction,
+  computeRealizedVolAnnual, computeTargetFraction, impliedVolAsOf,
   coreKey, isCoreSymbol, baseSymbol,
 } from '../../src/engine/tsmCore.js';
 import { makeTrend, makeCandles } from '../helpers.js';
@@ -278,5 +278,23 @@ describe('tsmCore: sleeveFeasibility', () => {
     assert.deepEqual(ladder.map((r) => r.minHwmEquity), [0, 320, 970]);
     assert.deepEqual(ladder.map((r) => r.deploymentPct), [0.50, 0.30, 0.20]);
     assert.deepEqual(ladder.map((r) => r.symbols.length), [2, 2, 4]);
+  });
+});
+
+describe('impliedVolAsOf — DVOL as of the cycle, closed bars only', () => {
+  const H12 = 43_200_000;
+  const rows = [{ t: 0, c: 80 }, { t: H12, c: 60 }, { t: 2 * H12, c: 50 }];
+
+  test('reads the bar that closed at the cycle time, never the one opening then', () => {
+    assert.equal(impliedVolAsOf(rows, 2 * H12), 0.6);       // bar 1 closes exactly now; bar 2 is forming
+    assert.equal(impliedVolAsOf(rows, 2 * H12 - 1), 0.8);   // bar 1 not closed yet
+  });
+
+  test('nothing closed yet, or the newest close too old → null (realized-vol fallback)', () => {
+    assert.equal(impliedVolAsOf(rows, H12 - 1), null);
+    assert.equal(impliedVolAsOf(rows, 3 * H12 + 86_400_000), 0.5);
+    assert.equal(impliedVolAsOf(rows, 3 * H12 + 86_400_001), null);
+    assert.equal(impliedVolAsOf([], 5 * H12), null);
+    assert.equal(impliedVolAsOf(undefined, 5 * H12), null);
   });
 });

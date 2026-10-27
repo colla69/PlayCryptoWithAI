@@ -1385,3 +1385,38 @@ reason alone. Sharpe, not return, decides; the mean sleeve fraction is reported 
 **E2 — DVOL sizing on the breakout** is pre-registered only after E1's result, and before any
 breakout-by-DVOL number is looked at. The breakout has no vol sizing today (12.5% of equity per
 trade), so E2 is a new sizing rule, not a swap.
+
+### Baseline rerun after `449c39f` (2026-10-27)
+
+Deep set (`126 36a73a13…`), same commands as before; calendar-day Sharpe (365 days, every day counted).
+
+| Cell | Final | Yearly | Sharpe | Worst drop |
+|---|---|---|---|---|
+| bot | $5,674 (was $5,644) | 19.0% (20.2%) | 1.86 (1.91) | 6.8% |
+| bot + breakout | $6,717 (was $6,699) | 27.9% (30.1%) | 1.97 (2.13) | 9.4% |
+
+Balances barely moved; yearly return and Sharpe fell because flat days now count. The breakout still
+beats the bot in 6/13 folds on return and 3/13 on Sharpe, as before.
+
+### E1 result (2026-10-27): stage 1 passes, by a small margin
+
+DVOL 12h bars for BTC and ETH from Deribit, 2021-03-24 → 2026-10-27, 4,087 each, no gaps. The replay
+takes them through `runSuperbot.mjs --dvol <file>` (engine dependency `loadImpliedVol`, lookup
+`impliedVolAsOf` — closed bars only, null after 24 h; live passes nothing and is unchanged).
+
+| Window | bot + breakout | E1 |
+|---|---|---|
+| 2020-06 → 2026-08, Sharpe · return · worst drop | 1.967 · 358.7% · 9.4% | **1.983** · 360.2% · **8.5%** |
+| 2024-05 → 2026-08 | 2.101 · 68.1% · 8.3% | 2.094 · 67.7% · 8.3% |
+| 2026-08-10 → 10-24, unseen (frozen live set `56c35002…`) | $311.86 · Sharpe 2.16 · 8.3% | $312.24 · 2.15 · 8.4% |
+
+Counted folds (from 2021-06): E1 has the higher Sharpe in **7 of 11** — all six from 2021-06 to
+2023-12 (bear and flat markets: −2.79 → −2.66, −0.46 → −0.18) and 2024-12; it loses 2024-06, 2025-06,
+2025-12, 2026-06 by 0.001–0.04. Both pre-registered tests pass.
+
+Mean vol fraction per 12h cycle (2021-03 → 2026-08), realized vs DVOL: BTC 0.93 / 0.91, ETH 0.83 /
+0.83. The expected variance premium hardly shows — vol is under the 0.6 target most of the time, so
+both are capped at 1. E1 changes *when* the sleeve cuts size, not how much it holds on average.
+
+Reading: the gain is a lower worst drop (9.4 → 8.5%) and better bear-market folds; since 2024 E1 is
+level with or slightly behind realized vol. Per the pre-registration, stage 2 (live side) follows.

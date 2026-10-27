@@ -14,6 +14,8 @@
  *     [--bo '{"lookbackBars":24,"stopAtr":2}']   — breakout settings over config.satellites.breakout (research grids)
  *     [--label <name>]                           — the cell's name in the report (default: the cell)
  *     [--per-symbol '{"minConfidence":0.55}']    — one shared override for every coin ('{}' = the global defaults)
+ *     [--dvol <file>]                            — 12h DVOL bars { BTC: [{t,c}], ETH: [...] }: the sleeve sizes on
+ *                                                  implied instead of realized vol (section E1)
  *   node src/scripts/runSuperbot.mjs --report /tmp/sb_bot.json,/tmp/sb_all.json [--fold-months 6]
  */
 import fs from 'fs';
@@ -104,6 +106,7 @@ const r = await replayEngine({
   fearGreedData: JSON.parse(fs.readFileSync('data/fearGreed_full.json', 'utf8')).data,
   fromTs, toTs, initialBalance: start, deposits, slippage: SLIPPAGE_TIERS,
   nasdaqRows: JSON.parse(fs.readFileSync('data/nasdaqTrend.json', 'utf8')).rows, cfg,
+  impliedVolRows: arg('dvol') ? JSON.parse(fs.readFileSync(arg('dvol'), 'utf8')) : null,
 });
 const byReason = {};
 for (const t of r.trades) { const k = t.reason ?? '?'; byReason[k] = (byReason[k] ?? 0) + 1; }

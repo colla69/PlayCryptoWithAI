@@ -24,6 +24,7 @@ import { buildStrategiesForSymbol, getSignalConfigForSymbol } from '../utils/str
 import { getContextAsOf } from '../data/marketContext.js';
 import { timeframeMs } from '../utils/candleFreshness.js';
 import { hourlyRsiByClose } from '../engine/satellites.js';
+import { impliedVolAsOf } from '../engine/tsmCore.js';
 
 const CYCLE_DELAY_MS = 3_000; // live's cycles fire at the close + 3 s
 const SATELLITE_DELAY_MS = 60_000; // main.js runs the breakout one minute after the close
@@ -141,13 +142,15 @@ function replayDashboard(getVisible) {
  * @param {Record<string, number>} p.slippage — per-symbol slippage tiers
  * @param {object} [p.cfg] — config for the engine (defaults to config/default.js)
  * @param {Array<{t:number, v:number}>} [p.nasdaqRows] — the sleeve's macro feed; cut to the clock
+ * @param {Record<string, Array<{t:number, c:number}>>} [p.impliedVolRows] — 12h implied-vol bars
+ *   (DVOL) by base coin, e.g. { BTC: [...] }; when given, the sleeve sizes on them (section E1)
  * @param {Array<{equity:number}>} [p.equityHistory] — account equity before the window (the
  *   sleeve's high-water mark); the replay appends its own daily points
  */
 export async function replayEngine({
   symbolCandles, mtf15mCandles = {}, mtf4hCandles = {}, fearGreedData = null,
   fromTs, toTs, initialBalance, deposits = [], slippage = {}, cfg = config,
-  nasdaqRows = [], equityHistory = [],
+  nasdaqRows = [], equityHistory = [], impliedVolRows = null,
 }) {
   const tfMs = timeframeMs(cfg.timeframe);
   const symbols = cfg.symbols.filter((s) => symbolCandles[s]?.length);
@@ -223,6 +226,9 @@ export async function replayEngine({
     // macro overlay the NASDAQ closes.
     loadEquityHistory: () => [...equityHistory, { equity: replayHwm }],
     loadNasdaqHistory: async () => ({ rows: nasdaqRows.filter((r) => r.t <= clock) }),
+    loadImpliedVol: impliedVolRows
+      ? (symbol) => impliedVolAsOf(impliedVolRows[symbol.split('/')[0]], clock)
+      : null,
     modeLabel: 'replay',
     now,
   });

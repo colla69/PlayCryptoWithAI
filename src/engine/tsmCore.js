@@ -83,6 +83,28 @@ export function computeRealizedVolAnnual(closedCandles, { windowBars = 60, barsP
 }
 
 /**
+ * Annualised implied vol (DVOL-style index, in percent) as of `asOfMs`: the close
+ * of the last bar CLOSED by then (bar `t` is its open), as a fraction. Returns null
+ * when no bar closed within `maxAgeMs` — the caller falls back to realized vol.
+ *
+ * @param {Array<{t: number, c: number}>} rows  bars sorted by open time
+ * @returns {number|null}
+ */
+export function impliedVolAsOf(rows, asOfMs, { periodMs = 43_200_000, maxAgeMs = 86_400_000 } = {}) {
+  if (!rows?.length) return null;
+  let lo = 0; let hi = rows.length - 1; let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].t + periodMs <= asOfMs) { k = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  if (k < 0) return null;
+  const closedAt = rows[k].t + periodMs;
+  const c = Number(rows[k].c);
+  if (asOfMs - closedAt > maxAgeMs || !(c > 0)) return null;
+  return c / 100;
+}
+
+/**
  * Target deployment fraction for one core slot, in [0, 1] (spot — no leverage):
  * vol targeting (volTarget/realizedVol, floored) × macro risk-off factor.
  * Missing inputs are neutral: no realized vol → 1, no macro factor → 1.
