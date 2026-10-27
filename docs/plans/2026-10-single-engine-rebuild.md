@@ -1352,3 +1352,36 @@ full filter stack first.
 Strategy settings and opt-in flags are unchanged; nothing is deployed by these corrections.
 The historical tables above must be regenerated on their frozen datasets before being used for
 new configuration decisions.
+
+## Section E: DVOL in the sleeve's vol targeting (pre-registered 2026-10-27, before any DVOL data was read)
+
+Baseline: the bot + breakout six-year engine replay, **rerun on the deep set after `449c39f`**
+(the tables above predate the accounting fixes). Same setup as C and D: 2020-06-01 → 2026-08-10,
+$190 + $10 a week, sleeve on, satellites as committed.
+
+**E1 — DVOL instead of realized vol in the sleeve.** Today each sleeve slot is sized
+`min(1, max(0.2, 0.6 / realizedVol)) × macro`, realized vol = the last 60 12h returns, annualized
+(`engine.js` → `computeRealizedVolAnnual`). E1 replaces `realizedVol` for BTC and ETH with Deribit's
+DVOL for that coin (30-day implied vol, keyless `public/get_volatility_index_data`): the close of
+the last 12h DVOL bar closed at or before the cycle time, ÷ 100. Nothing else changes — target 0.6,
+floor 0.2, macro overlay, ladder. BNB and SOL (rung C) keep realized vol: Deribit has no index for
+them. Missing DVOL (before 2021-03-24, or no bar within 24 h) falls back to realized vol, so the
+first ~10 months are identical by construction. No other target, floor or vol source is tried.
+
+Why it might help: realized vol looks 30 days back, so it sizes up after a calm month just before a
+spike; implied vol prices the coming 30 days. Known bias: implied vol usually sits above realized
+vol (the variance premium), so E1 holds less on average and its *return* will likely fall for that
+reason alone. Sharpe, not return, decides; the mean sleeve fraction is reported for both.
+
+1. *Stage 1 — replay only* (a research flag in the replay; no live code). Pass: beat the
+   baseline's six-year Sharpe **and** its Sharpe in at least half of the 6-month folds that start
+   on or after 2021-04-01 (earlier folds are identical by construction and are not counted).
+   Report 2024-05 → 2026-08 and the unseen 2026-08 → 10 (on the current live set) separately.
+   A fail ends the idea.
+2. *Stage 2 — live side*, only if stage 1 passes: DVOL fetched and stored on disk through
+   `runtimeDir()`, stale or missing DVOL falls back to realized vol (logged), a row in
+   `liveParityInventory.test.js`, tests; then the same replay through the shared engine path.
+
+**E2 — DVOL sizing on the breakout** is pre-registered only after E1's result, and before any
+breakout-by-DVOL number is looked at. The breakout has no vol sizing today (12.5% of equity per
+trade), so E2 is a new sizing rule, not a swap.
