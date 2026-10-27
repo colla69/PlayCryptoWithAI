@@ -2245,3 +2245,29 @@ preload (`--import`), config file unchanged. Targets, break-even and everything 
 stop can still lose more on a gap). **No pass/fail:** the rule is the user's, so the cap is the
 user's decision; the runs show its cost. Expected: the 14 coins at 10.5% barely move; TRX moves
 most. The TSM sleeve has no stop (it exits on a vote flip); its worst trade is reported too.
+
+### Section I results (2026-10-28): the 10% cap costs nothing; every run is a little better
+
+The preload capped 24 per-symbol stops, 18 of them on traded coins (the four above plus APT, ARB
+and JUP, also at 10.5%; the other 6 are coins not in the symbol list). Both references reproduced
+their committed figures to the cent, so the candle sets are the right ones.
+
+| Run | Reference | 10% cap |
+|---|---|---|
+| Six-year replay, bot + breakout | $6,721.65 · Sharpe 1.98 · drop 8.5% | $6,735.33 · Sharpe 1.99 · drop 8.4% |
+| Baseline y2_365d (in-sample) | +17.75% · Sh 1.81 · DD −3.91% | +17.81% · Sh 1.82 · DD −3.88% |
+| Baseline y1_holdout | +67.83% · Sh 3.28 · DD −6.88% | +68.50% · Sh 3.31 · DD −6.78% |
+| Baseline y1y2_full (OOS) | +97.62% · Sh 2.64 · DD −6.88% | +98.50% · Sh 2.67 · DD −6.78% |
+| Baseline full_history | +105.22% · Sh 1.36 · DSR 0.31 | +106.14% · Sh 1.37 · DSR 0.32 |
+| Walk-forward, live sizing (52 folds) | +64.99% · Sh 1.58 · DD −4.28% · DSR 0.50 | +65.45% · Sh 1.59 · DD −4.22% · DSR 0.52 |
+| Unseen 2026-08-10 → 10-24 | $311.97 | $312.04 |
+
+- Same trades: 77 scalper trades in the replay, identical entries and exit reasons; WR gap
+  unchanged (Y1 74% / Y2 62%). No trade that hit 10% went on to recover before 10.5%, so the
+  cap only shortens losers: five stop-outs exit earlier (DOGE −$51.12 → −$48.78, INJ −$55.62 →
+  −$53.13, PEPE −$55.34 → −$52.89, two smaller). TRX (18%) had no trade in any window.
+- Worst scalper stop-out, as a share of the entry price: −10.5% → −10.0%; none of the 17 gapped
+  through the stop on the 15m replay. Fees and slippage add about 0.3%.
+- The TSM sleeve has no stop: 10 of its 103 exits were more than 10% below the first entry
+  (worst SOL 2024-07-22 → 08-05, −37% in price; the sleeve is vol-sized, so the account lost
+  less). Not part of this change; left for the user.
