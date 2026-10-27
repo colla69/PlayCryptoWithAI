@@ -46,6 +46,7 @@ let volTargetAnnual = null; // vol-targeted sizing variant of the vote rule (ann
 let hysteresis = false;    // slow-in (enter 3/3, stay ≥2) and slow-out (enter ≥2, exit at 0) vote variants
 let overlays = [];         // context overlays on the combo rule (see OVERLAY_DEFS): --overlays F1,M1,M1+CB1,...
 let donchian = false;      // multi-lookback Donchian trend (Zarattini, Pagani & Barbon 2025), plan section F1
+let maxmin = false;        // 10-day high / low rule (Padyšák & Vojtko 2022), plan section G1
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
@@ -59,6 +60,7 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--overlays' && argv[i + 1]) overlays = argv[++i].split(',').map((s) => s.trim().toUpperCase());
   if (argv[i] === '--candle-dir' && argv[i + 1]) CANDLE_DIR = path.resolve(argv[++i]); // e.g. a USDT research set
   if (argv[i] === '--donchian') donchian = true;
+  if (argv[i] === '--maxmin') maxmin = true;
 }
 
 // Every DSR is deflated by the CUMULATIVE search burden across study sessions:
@@ -71,7 +73,8 @@ const N_TRIALS = 21
   + (hysteresis ? 6 : 0)
   + (volTargetAnnual && hysteresis ? 3 : 0)
   + overlays.length * 2
-  + (donchian ? 3 : 0);
+  + (donchian ? 3 : 0)
+  + (maxmin ? 8 : 0);
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
 const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON', 'GRAM']);
@@ -239,6 +242,44 @@ function donchianTarget(coin) {
   return (gi) => target[gi];
 }
 
+// ── G1: 10-day high / low (Padyšák & Vojtko 2022) ──────────────────────────
+// Daily closes as F1. HIGH: today's close is the highest of the last n (today's
+// included); LOW: the lowest. Decided at the daily close, held one day.
+function dailyExtremes(coin, n) {
+  const { closes, firstIdx } = coins.get(coin);
+  const state = new Array(grid.length).fill(null); // per daily bar: { high, low }; null elsewhere
+  if (firstIdx === null) return state;
+  const daily = [];
+  for (let gi = firstIdx; gi < grid.length; gi++) {
+    if ((grid[gi] + 12 * 3_600_000) % 86_400_000 === 0) daily.push({ gi, c: closes[gi] });
+  }
+  for (let d = n - 1; d < daily.length; d++) {
+    let hi = -Infinity, lo = Infinity;
+    for (let j = d - n + 1; j <= d; j++) { hi = Math.max(hi, daily[j].c); lo = Math.min(lo, daily[j].c); }
+    state[daily[d].gi] = { high: daily[d].c >= hi, low: daily[d].c <= lo };
+  }
+  return state;
+}
+// G1a and its legs: full size for the next day on the chosen states, else cash.
+const maxMinTarget = (n, useHigh, useLow) => (coin) => {
+  const st = dailyExtremes(coin, n);
+  return (gi) => (st[gi] === null ? null : (useHigh && st[gi].high) || (useLow && st[gi].low) ? 1 : 0);
+};
+// G1b: combo (slow-in vote 30/45/60, vol target 0.6) plus, on days combo holds
+// nothing, the 10-day-LOW leg at combo's own vol-target size.
+const comboPlusLowTarget = (coin) => {
+  const on = hysteresisSeries(coin, [60, 90, 120], 3, 2);
+  const vol = realizedVolAnnual(coin);
+  const st = dailyExtremes(coin, 10);
+  let lowDay = false;
+  return (gi) => {
+    if (st[gi] !== null) lowDay = st[gi].low;
+    if (!on[gi] && !lowDay) return 0;
+    const rv = vol[gi];
+    return rv && rv > 0 ? Math.min(1, Math.max(0.2, 0.6 / rv)) : 1;
+  };
+};
+
 // ── Context overlays (funding / macro / on-chain / sentiment) ────────────────
 // Each overlay maps (coin, gi) → an exposure factor in [0, 1] applied to the
 // combo rule's target fraction (0 = block AND exit). Missing data → neutral 1,
@@ -356,6 +397,39 @@ if (overlays.length) {
       if (cb30[gi] != null) { n30++; if (cb30[gi] < 0) neg30++; }
     }
     if (n) console.log(`Coinbase premium gauge below 0: 7-day ${(100 * neg / n).toFixed(0)}% of ${n} bars, 30-day ${(100 * neg30 / n30).toFixed(0)}% of ${n30}`);
+  }
+
+  // G2: BTC held on exchange addresses (CoinMetrics). A day's row is used 2 days
+  // after it starts (published ~27h after). Recomputed history: not point-in-time.
+  const exRows = loadCtx('cm_btc_exchange.json') ?? [];
+  { const byT = new Map(exRows.map((r) => [r.t, r]));
+    for (let i = 0; i < exRows.length; i++) {
+      const r = exRows[i];
+      const ref = byT.get(r.t - 30 * DAY);
+      r.d30 = ref ? r.sply / ref.sply - 1 : null;
+      let net = 0, k = 0;
+      for (let j = i; j >= 0 && exRows[j].t > r.t - 7 * DAY; j--) { net += exRows[j].fin - exRows[j].fout; k++; }
+      r.net7 = k === 7 ? net : null;
+    } }
+  const exD30 = alignToGrid(exRows, (r) => r.d30, 2 * DAY);
+  const exNet7 = alignToGrid(exRows, (r) => r.net7, 2 * DAY);
+  OVERLAY_DEFS.EX1 = {
+    desc: 'half size while BTC exchange supply is above its level 30 days earlier',
+    factor: (_c, gi) => (exD30[gi] == null ? 1 : exD30[gi] > 0 ? 0.5 : 1),
+  };
+  OVERLAY_DEFS.EX7 = {
+    desc: 'half size while the 7-day BTC net exchange inflow > 0 (reported only)',
+    factor: (_c, gi) => (exNet7[gi] == null ? 1 : exNet7[gi] > 0 ? 0.5 : 1),
+  };
+  {
+    const inWin = (gi) => (!fromDate || grid[gi] >= fromDate) && (!toDate || grid[gi] <= toDate);
+    let n = 0, on = 0, n7 = 0, on7 = 0;
+    for (let gi = 0; gi < grid.length; gi++) {
+      if (!inWin(gi)) continue;
+      if (exD30[gi] != null) { n++; if (exD30[gi] > 0) on++; }
+      if (exNet7[gi] != null) { n7++; if (exNet7[gi] > 0) on7++; }
+    }
+    if (n) console.log(`Exchange supply gauge on (half size): 30-day rise ${(100 * on / n).toFixed(0)}% of ${n} bars, 7-day net inflow ${(100 * on7 / n7).toFixed(0)}% of ${n7}`);
   }
 
   const fngAligned = alignToGrid(loadCtx('fng.json') ?? [], (r) => r.v, DAY / 2);
@@ -642,6 +716,15 @@ if (volTargetAnnual && voteDays) {
 if (donchian) {
   for (const [uName, universe] of Object.entries(universes)) {
     addTsmCell(`donchian9 ${uName}`, universe, null, { targetFor: donchianTarget, band: 0.05 });
+  }
+}
+if (maxmin) {
+  for (const [uName, universe] of Object.entries(universes)) {
+    addTsmCell(`maxmin10 ${uName}`, universe, null, { targetFor: maxMinTarget(10, true, true) });
+    addTsmCell(`max10 ${uName}`, universe, null, { targetFor: maxMinTarget(10, true, false) });
+    addTsmCell(`min10 ${uName}`, universe, null, { targetFor: maxMinTarget(10, false, true) });
+    for (const n of [20, 30, 40, 50]) addTsmCell(`maxmin${n} ${uName}`, universe, null, { targetFor: maxMinTarget(n, true, true) });
+    addTsmCell(`combo+min10 ${uName}`, universe, null, { targetFor: comboPlusLowTarget });
   }
 }
 results.tsmCore = tsmCells;

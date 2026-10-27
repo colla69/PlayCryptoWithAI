@@ -2121,3 +2121,69 @@ from the 2024 halving, its drop from the top, and where the low so far falls aga
 - **Holds** when combo beats buy and hold in (a), (b) and (c) on both universes. This tests the
   shipped sleeve; a fail does not switch anything off by itself — it goes to the user with the
   numbers.
+
+### Section G results (2026-10-27): every new idea fails; the sleeve's own rule holds
+
+Tooling: `runTrendCore.mjs --maxmin` (G1 cells) and overlays `EX1`/`EX7` (G2);
+`downloadContextData.mjs --only flows` (`cm_btc_exchange.json`, 3,952 days) and `--only attention`
+(`wiki_bitcoin.json`, 4,136 days). With the 10-day-low leg forced off, `combo+min10` matches combo
+exactly on both universes. G3–G9 ran in a scratch Python script on the same data. Nothing is built.
+
+**G1 — 10-day high / low: FAIL, by a wide margin.**
+
+| Sharpe | full: BTC+ETH | full: 4 majors | after the paper (2022-02-04 →): BTC+ETH | 4 majors |
+|---|---|---|---|---|
+| combo | **1.15** | **1.23** | **0.60** | **0.65** |
+| G1a high or low (10 d) | 0.46 | 0.47 | −0.48 | −0.34 |
+| high leg only (reported) | 0.77 | 0.76 | −0.18 | −0.02 |
+| low leg only (reported) | −0.01 | −0.03 | −0.47 | −0.51 |
+| G1b combo + low leg | 0.78 | 0.83 | 0.16 | 0.20 |
+
+The low leg loses money on its own in every window, and adding it to combo raises the worst drop
+from 44% to 65% on 4 majors. The 20–50-day versions (reported) are all below combo and negative
+after 2022. On data the paper never saw, its rule has a negative Sharpe. It won in the unseen
+2026-08-10 → 10-24 window (2.25–2.70 vs combo 2.13–2.50), which does not change the verdict.
+
+**G2 — exchange supply: EX1 FAILS.** It lowers Sharpe in all four comparisons (combo 1.15/1.23 →
+0.95/1.04; combo + M1 1.21/1.27 → 1.00/1.04) and was on 56% of the time. The reported 7-day
+net-flow variant looked better over the full window (combo + M1 + EX7: 1.29/1.32), but it was tied
+after 2022 (0.79/0.74 vs 0.76/0.75) and worse in the unseen window (1.53/1.88 vs 2.07/2.42). It was
+reported only, and the data is not point-in-time, so it is not adopted.
+
+**G3 — weekday / session: FAIL.** No cell has |t| ≥ 2 in both halves with the same sign. The cells
+that do reach 2 in one half reverse or vanish in the other (BTC Friday 12:00: +0.47%, t 2.1, then
+−0.05%; Thursday 12:00: −0.05%, then −0.40%, t −2.6).
+
+**G4 — halving clock (reported only).** The 2025 top (124,659 on 2025-10-07) came 535 days after the
+halving, inside the paper's 525–546 — but the paper was written after that top, so this is not a
+test. The lowest close since was 58,625 on 2026-07-01 (−53%, 267 days after the top), not in the
+paper's 2026-10-05 → 11-16 window; BTC closed 80,151 on 2026-10-27. The bottom call misses unless a
+lower close comes by 11-16.
+
+**G5 — Wikipedia attention: FAIL.** Next-week BTC return on attention: t 1.15 (2017–21), t 0.81
+(2022–26).
+
+**G6 — BTC leads the alts at 12h: FAIL.** BTC's coefficient: −0.07 (t −1.4), then +0.03 (t 0.5).
+After the top tenth of BTC-minus-alt bars, alts beat their average by +0.24% and +0.09%, under the
+0.4% a round trip costs.
+
+**G7 — abnormal volume: FAIL.** Fama-MacBeth t for AV: −0.4, then +1.5; for AV × R: −1.6, then −0.2.
+The first half has a median of only 8 coins a week.
+
+**G8 — volatility breakout: FAIL.** Daily Sharpe, k = 0.5: BTC+ETH 1.05 vs combo 1.57 (2017–21),
+−1.14 vs 0.57 (2022–26); 4 majors 1.82 vs 1.74, then −1.48 vs 0.62. Every k and the filter go
+negative after 2022. Mean per trade +0.01% to +0.19% after costs.
+
+**G9 — the sleeve's rule: HOLDS on all three tests.**
+
+| Sharpe | BTC+ETH: combo · buy and hold | 4 majors: combo · buy and hold |
+|---|---|---|
+| full window | 1.15 · 0.73 | 1.23 · 1.06 |
+| (a) without the best month | 1.02 · 0.65 | 1.13 · 0.89 |
+| (b) without the best 1% of 12h bars | −0.02 · −0.30 | 0.17 · −0.11 |
+| (c) 2022-01-01 → 2026-08-10 | 0.60 · 0.25 | 0.64 · 0.31 |
+
+Test (b) is what Arefev's warning is about. Remove the best 1% of bars and both lose nearly all
+their Sharpe: the returns of either come from a few big bars. combo stays ahead of buy and hold
+in every row, so the sleeve does not depend on one outlier any more than holding the coins does.
+Nothing changes.
