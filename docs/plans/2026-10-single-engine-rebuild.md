@@ -1814,3 +1814,30 @@ asks the narrower question it suggested: does the ranker's score pick out the bo
   A fail on sample size is the likely outcome for the scalper.
 - Stage 2, only on a pass: ridge inference and the monthly refit in one JS module used by live and
   the replay, a `liveParityInventory` row, then the engine replay with section D's stage 2 rule.
+
+### Part 4 result (2026-10-27): FAIL — the ranker's lowest-ranked entries are the bot's better trades
+
+Scripts in the session scratchpad (`e4/p4dump.mjs`, `e4/rk_lib.mjs`, `e4/p4features.mjs`,
+`e4/p4_model.py`). The replay reproduced the baseline to the cent ($6,721.65); the shared feature
+code rebuilt part 3's Monday rows exactly for every coin. 334 entries (77 scalper, 257 breakout);
+an entry is the sum of its partial exits, net return = P&L ÷ cost.
+
+| Rule R (skip q < 1/3) | Removed | Kept | Welch t |
+|---|---|---|---|
+| Scalper, all scored (56) | 23, mean **+8.98%**, win 70%, $777 | 33, +3.16%, 67%, $672 | 1.86 |
+| Scalper, before 2024 | 0 | 4, +2.49% | — |
+| Scalper, 2024 on | 23, +8.98% | 29, +3.26% | 1.79 |
+| Breakout, all scored (193) | 28, mean **+3.49%**, win 32%, $349 | 165, +1.51%, 30%, $525 | 0.81 |
+| Breakout, before 2024 | 14, +4.09% | 55, +3.29% | 0.19 |
+| Breakout, 2024 on | 14, +2.88% | 110, +0.62% | 0.78 |
+
+- **FAIL for both streams**: the removed trades made money in every half, more than the kept
+  ones. q < 1/2 gives the same picture (scalper removed +7.89% vs kept +2.66%; breakout +5.75% vs
+  +0.70%). Unscored: 21 scalper and 64 breakout entries (before 2021, or fewer than 6 eligible coins).
+- As expected the breakout entries sit high in the ranking (median q 0.75); the scalper's do not
+  (0.43). Its pre-2024 half has 4 scored trades, so it could not have passed on its own.
+- Reading: the ranker learned the one-week reversal (part 3), so a coin that has just run up ranks
+  low — and the bot's trend entries buy exactly those coins and hold them for weeks. The two signals
+  work at different horizons. Using the score the other way round (keep only the bottom third) is
+  a new idea chosen on this result, at t < 2; it is recorded, not pursued.
+- Per the pre-registration nothing is built. Item 4 is closed.
