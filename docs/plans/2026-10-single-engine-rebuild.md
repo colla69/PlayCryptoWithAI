@@ -1966,3 +1966,53 @@ directory (the USDC pairs have the 2022-09 → 2023-03 hole and start in 2020); 
 - Stage 2, only on a pass: a Coinbase market-data feed cached under `data/` (fail-neutral,
   payload-wins merge), read by `main.js` and the replay alike, a `liveParityInventory` row, tests;
   judged by the six-year engine replay (Sharpe not below 1.9826) and the unseen window not worse.
+
+### Section F results (2026-10-27): F1 passes stage 1 by the smallest margins; F2 fails
+
+Tooling: `runTrendCore.mjs` gained `--candle-dir`, `--donchian` (F1), the overlays `CB1`/`CB30` and
+combined overlays (`M1+CB1`), and a per-year Sharpe; `downloadContextData.mjs --only coinbase`
+builds `data/context/coinbase_premium_1h.json` (48,046 hours, 2021-05-04 → 2026-10-27). With the
+new flags off, all 20 earlier cells match the previous version of the tool exactly. USDT 12h bars
+(8 coins) in the session scratchpad (`sf/data/usdt12h`); BTC matches the deep set's USDT copy on
+6,658 of 6,659 bars.
+
+**F1 — Donchian ensemble vs combo, 2017-08-17 → 2026-08-10:**
+
+| Universe | combo: Sharpe · return · worst drop | F1: Sharpe · return · worst drop |
+|---|---|---|
+| BTC+ETH | 1.15 · 2,102% · 51.1% | **1.16** · 220% · 17.7% |
+| BTC+ETH+BNB+SOL | 1.23 · 1,958% · 44.3% | **1.28** · 199% · 14.6% |
+| 8 majors (reported) | 1.19 · 1,362% · 38.0% | 1.26 · 155% · 12.1% |
+| unseen 2026-08-10 → 10-24, 4 coins (reported) | **2.50** · 18.7% · 12.0% | 2.18 · 4.8% · 3.6% |
+
+Yearly Sharpe on BTC+ETH+BNB+SOL, F1 vs combo: F1 higher in 2018 (−0.50 vs −1.62), 2020, 2021, 2022
+(−1.82 vs −1.85) and 2024; combo higher in 2019, 2023, 2025 and 2026. **5 of 9: stage 1 passes as
+written**, on margins that could not be smaller: 1.16 vs 1.15 on BTC+ETH, and 2022 decided by 0.03.
+The unseen window went the other way. F1 holds far less (its 0.25 vol target), so its return is a
+tenth of combo's; its worst drop is a third. Deflated Sharpe 0.95 on 4 coins (combo 0.93).
+
+**Stage 2 is not started; it needs a decision first.** Two things surfaced that the written stage 2
+does not settle:
+- *Sizing.* "F1 as the sleeve's signal, DVOL kept" can mean F1 whole (its own 0.25 target, on DVOL)
+  or F1's open-lookback count times the sleeve's 0.6 target. Only the first was tested; choosing
+  the second now would be choosing after the result.
+- *The $11 floor.* F1 moves a coin's target in steps of 1/9. A sleeve slot is half the account at the
+  first ladder rung, so at $190 one step is about $10 × the vol factor — under the floor. At live
+  equity most of F1's changes could not be placed; the replay would enforce the floor and count it.
+
+**F2 — Coinbase premium overlay, 2021-06-01 → 2026-08-10:** the 7-day gauge was below 0 on 19% of
+bars (30-day: 13%).
+
+| Sharpe · worst drop | BTC+ETH | BTC+ETH+BNB+SOL |
+|---|---|---|
+| combo | **0.60** · 46.4% | **0.69** · 44.3% |
+| combo + CB1 | 0.56 · 47.9% | 0.67 · 45.8% |
+| combo + M1 | **0.75** · 36.8% | **0.81** · 35.7% |
+| combo + M1 + CB1 | 0.71 · 38.1% | 0.80 · 37.2% |
+| combo + M1 + CB30 (reported only) | 0.84 · 36.8% | 0.91 · 35.7% |
+
+**FAIL**: CB1 lowers Sharpe in all four comparisons. (It wins 5 of the 6 years against combo + M1,
+but the whole-span tests fail: the 2021 loss, 1.20 → 0.82, outweighs the rest.) Unseen window: CB1
+lower too (2.42 → 2.14 on 4 coins with M1). The 30-day gauge did better, mostly in 2025–26, but it
+was a reported variant; adopting it now would be choosing on this result. It could only be tested
+on data after 2026-10-27. Nothing is built.

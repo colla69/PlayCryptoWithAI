@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CANDLE_DIR = path.resolve(__dirname, '../../data/candles');
+let CANDLE_DIR = path.resolve(__dirname, '../../data/candles');
 
 const BARS_PER_YEAR = 730; // 12h bars
 const FEE = 0.001;         // Binance spot, per leg
@@ -44,7 +44,8 @@ let quote = 'USDC';    // candle file quote currency (USDT unlocks 2017+ history
 let universeArg = null;    // custom TSM universe, e.g. --universe BTC,ETH,BNB,XRP,ADA,LTC,LINK,DOGE
 let volTargetAnnual = null; // vol-targeted sizing variant of the vote rule (annualised target, e.g. 0.6)
 let hysteresis = false;    // slow-in (enter 3/3, stay ≥2) and slow-out (enter ≥2, exit at 0) vote variants
-let overlays = [];         // context overlays on the combo rule (see OVERLAY_DEFS): --overlays F1,M1,...
+let overlays = [];         // context overlays on the combo rule (see OVERLAY_DEFS): --overlays F1,M1,M1+CB1,...
+let donchian = false;      // multi-lookback Donchian trend (Zarattini, Pagani & Barbon 2025), plan section F1
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
@@ -56,6 +57,8 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--vol-target' && argv[i + 1]) volTargetAnnual = Number(argv[++i]);
   if (argv[i] === '--hysteresis') hysteresis = true;
   if (argv[i] === '--overlays' && argv[i + 1]) overlays = argv[++i].split(',').map((s) => s.trim().toUpperCase());
+  if (argv[i] === '--candle-dir' && argv[i + 1]) CANDLE_DIR = path.resolve(argv[++i]); // e.g. a USDT research set
+  if (argv[i] === '--donchian') donchian = true;
 }
 
 // Every DSR is deflated by the CUMULATIVE search burden across study sessions:
@@ -67,7 +70,8 @@ const N_TRIALS = 21
   + (volTargetAnnual ? 3 : 0)
   + (hysteresis ? 6 : 0)
   + (volTargetAnnual && hysteresis ? 3 : 0)
-  + overlays.length * 2;
+  + overlays.length * 2
+  + (donchian ? 3 : 0);
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
 const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON', 'GRAM']);
@@ -189,6 +193,52 @@ if (voteDays) {
   }
 }
 
+// ── F1: multi-lookback Donchian trend (Zarattini, Pagani & Barbon 2025) ─────
+// Daily closes = the 12h bars ending 00:00 UTC. Per lookback n: enter on a close
+// above the previous n closes' high; trailing stop = max(previous stop, midpoint
+// of the last n closes' high and low); exit on a close below it. Target =
+// (open lookbacks / 9) × min(1, 0.25 / σ90d); the paper's 2× cap is 1× here.
+const DONCHIAN_DAYS = [5, 10, 20, 30, 60, 90, 150, 250, 360];
+function donchianTarget(coin) {
+  const { closes, firstIdx } = coins.get(coin);
+  const target = new Array(grid.length).fill(null);
+  if (firstIdx === null) return (gi) => target[gi];
+  const daily = [];
+  for (let gi = firstIdx; gi < grid.length; gi++) {
+    if ((grid[gi] + 12 * 3_600_000) % 86_400_000 === 0) daily.push({ gi, c: closes[gi] });
+  }
+  const open = DONCHIAN_DAYS.map(() => false);
+  const stop = DONCHIAN_DAYS.map(() => null);
+  for (let d = 0; d < daily.length; d++) {
+    const c = daily[d].c;
+    let count = 0;
+    DONCHIAN_DAYS.forEach((n, k) => {
+      if (d < n) return;
+      let hiPrev = -Infinity;
+      for (let j = d - n; j < d; j++) hiPrev = Math.max(hiPrev, daily[j].c);
+      let hi = -Infinity, lo = Infinity;
+      for (let j = d - n + 1; j <= d; j++) { hi = Math.max(hi, daily[j].c); lo = Math.min(lo, daily[j].c); }
+      const mid = (hi + lo) / 2;
+      if (!open[k] && c > hiPrev) { open[k] = true; stop[k] = mid; }
+      else if (open[k]) {
+        stop[k] = Math.max(stop[k], mid);
+        if (c < stop[k]) open[k] = false;
+      }
+      if (open[k]) count++;
+    });
+    let tf = 0;
+    if (d >= 90 && count > 0) {
+      const rets = [];
+      for (let j = d - 89; j <= d; j++) rets.push(daily[j].c / daily[j - 1].c - 1);
+      const m = rets.reduce((a, r) => a + r, 0) / rets.length;
+      const sigma = Math.sqrt(rets.reduce((a, r) => a + (r - m) ** 2, 0) / (rets.length - 1)) * Math.sqrt(365);
+      tf = (count / DONCHIAN_DAYS.length) * Math.min(1, sigma > 0 ? 0.25 / sigma : 1);
+    }
+    target[daily[d].gi] = tf;
+  }
+  return (gi) => target[gi];
+}
+
 // ── Context overlays (funding / macro / on-chain / sentiment) ────────────────
 // Each overlay maps (coin, gi) → an exposure factor in [0, 1] applied to the
 // combo rule's target fraction (0 = block AND exit). Missing data → neutral 1,
@@ -270,6 +320,44 @@ if (overlays.length) {
     factor: (coin, gi) => { const m = mvrvByCoin.get(coin)?.[gi]; return m == null ? 1 : m > 3 ? 0.5 : 1; },
   };
 
+  // Coinbase premium gauge: mean hourly premium over the hours closed by the
+  // decision bar's close (grid[gi] + 12h); too few hours → null (neutral).
+  const cbRows = loadCtx('coinbase_premium_1h.json') ?? [];
+  const HOUR = 3_600_000;
+  const cbGauge = (hours, minPresent) => {
+    const out = new Array(grid.length).fill(null);
+    const pre = [0];
+    for (const r of cbRows) pre.push(pre.at(-1) + r.p);
+    const closedBy = (ts) => { let lo = 0, hi = cbRows.length; while (lo < hi) { const m = (lo + hi) >> 1; if (cbRows[m].t + HOUR <= ts) lo = m + 1; else hi = m; } return lo; };
+    for (let gi = 0; gi < grid.length; gi++) {
+      const close = grid[gi] + 12 * HOUR;
+      const j1 = closedBy(close);
+      const j0 = closedBy(close - hours * HOUR);
+      if (j1 - j0 >= minPresent) out[gi] = (pre[j1] - pre[j0]) / (j1 - j0);
+    }
+    return out;
+  };
+  const cb7 = cbGauge(168, 120);
+  const cb30 = cbGauge(720, 500);
+  OVERLAY_DEFS.CB1 = {
+    desc: 'half size while the 7-day mean Coinbase premium < 0 (US spot selling)',
+    factor: (_c, gi) => (cb7[gi] == null ? 1 : cb7[gi] < 0 ? 0.5 : 1),
+  };
+  OVERLAY_DEFS.CB30 = {
+    desc: 'half size while the 30-day mean Coinbase premium < 0 (reported only)',
+    factor: (_c, gi) => (cb30[gi] == null ? 1 : cb30[gi] < 0 ? 0.5 : 1),
+  };
+  {
+    const inWin = (gi) => (!fromDate || grid[gi] >= fromDate) && (!toDate || grid[gi] <= toDate);
+    let n = 0, neg = 0, n30 = 0, neg30 = 0;
+    for (let gi = 0; gi < grid.length; gi++) {
+      if (!inWin(gi)) continue;
+      if (cb7[gi] != null) { n++; if (cb7[gi] < 0) neg++; }
+      if (cb30[gi] != null) { n30++; if (cb30[gi] < 0) neg30++; }
+    }
+    if (n) console.log(`Coinbase premium gauge below 0: 7-day ${(100 * neg / n).toFixed(0)}% of ${n} bars, 30-day ${(100 * neg30 / n30).toFixed(0)}% of ${n30}`);
+  }
+
   const fngAligned = alignToGrid(loadCtx('fng.json') ?? [], (r) => r.v, DAY / 2);
   OVERLAY_DEFS.G1 = {
     desc: 'half size while Fear & Greed ≥ 80 (extreme greed)',
@@ -299,9 +387,10 @@ function realizedVolAnnual(coin) {
   return v;
 }
 
-function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null } = {}) {
+function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = null, band = 0.15 } = {}) {
   const { bars, closes } = coins.get(coin);
-  const on = RULES[ruleKey].make(coin);
+  // `target(gi)` gives a fraction directly (null = no decision on this bar); otherwise a boolean rule.
+  const on = target ? null : RULES[ruleKey].make(coin);
   const vol = volTarget ? realizedVolAnnual(coin) : null;
   let cash = 1, qty = 0, roundTrips = 0, investedBars = 0;
   let pendingTf = null; // target fraction decided at close, executed next open
@@ -326,8 +415,9 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null } = {}) {
     }
     eq[gi] = cash + qty * (closes[gi] ?? 0);
     if (qty > 0) investedBars++;
-    const sig = on(gi);
-    let tf = sig ? 1 : 0;
+    if (target && target(gi) === null) continue;
+    const sig = target ? target(gi) > 0 : on(gi);
+    let tf = target ? target(gi) : sig ? 1 : 0;
     if (sig && vol) {
       const rv = vol[gi];
       if (rv && rv > 0) tf = Math.min(1, Math.max(0.2, volTarget / rv));
@@ -337,13 +427,14 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null } = {}) {
     // of sleeve equity (keeps churn and fee drag bounded).
     const cur = eq[gi] > 0 ? (qty * (closes[gi] ?? 0)) / eq[gi] : 0;
     const full = (tf === 0 && qty > 0) || (tf > 0 && qty === 0);
-    pendingTf = full || Math.abs(tf - cur) > 0.15 ? tf : null;
+    pendingTf = full || Math.abs(tf - cur) > band ? tf : null;
   }
   return { eq, roundTrips, investedBars };
 }
 
 function simTsm(universe, ruleKey, opts = {}) {
-  const sleeves = universe.filter((c) => coins.has(c)).map((c) => simSleeve(c, ruleKey, opts));
+  const sleeves = universe.filter((c) => coins.has(c))
+    .map((c) => simSleeve(c, ruleKey, opts.targetFor ? { ...opts, target: opts.targetFor(c) } : opts));
   const share = START_CAPITAL / universe.length;
   const eq = grid.map((_, gi) => sleeves.reduce((s, sl) => s + sl.eq[gi] * share, 0)
     + (universe.length - sleeves.length) * share);
@@ -463,12 +554,23 @@ function metrics(fullEq, { withDsr = false } = {}) {
     for (let gi = bi0; gi <= bi1; gi++) { if (eq[gi] > bPeak) bPeak = eq[gi]; bDD = Math.min(bDD, eq[gi] / bPeak - 1); }
     bear = { returnPct: Number(((eq[bi1] / eq[bi0] - 1) * 100).toFixed(1)), maxDDPct: Number((bDD * 100).toFixed(1)) };
   }
+  // Per-calendar-year Sharpe on the same 12h returns (plan section F's yearly count).
+  const yearlySharpe = {};
+  { const byYear = {};
+    for (let gi = 1; gi < eq.length; gi++) {
+      if (eq[gi - 1] > 0) (byYear[new Date(win[gi]).getUTCFullYear()] ??= []).push(eq[gi] / eq[gi - 1] - 1);
+    }
+    for (const [y, rs] of Object.entries(byYear)) {
+      const m = rs.reduce((a, r) => a + r, 0) / rs.length;
+      const sd = Math.sqrt(rs.reduce((a, r) => a + (r - m) ** 2, 0) / (rs.length - 1));
+      yearlySharpe[y] = sd > 0 ? Number(((m / sd) * Math.sqrt(BARS_PER_YEAR)).toFixed(3)) : 0;
+    } }
   const out = {
     totalReturnPct: Number((total * 100).toFixed(1)),
     cagrPct: Number(((Math.pow(1 + total, 1 / years) - 1) * 100).toFixed(1)),
     sharpe: Number(sharpe.toFixed(2)),
     maxDDPct: Number((maxDD * 100).toFixed(1)),
-    yearly, bear2122: bear,
+    yearly, yearlySharpe, bear2122: bear,
   };
   if (withDsr) {
     const d = deflatedSharpeRatio({ observedSharpe: sharpe, returns, nTrials: N_TRIALS, periodsPerYear: BARS_PER_YEAR });
@@ -528,12 +630,18 @@ if (volTargetAnnual && voteDays) {
   if (overlays.length && hysteresis) {
     const comboRule = `${voteKey} slow-in`;
     for (const ov of overlays) {
-      const def = OVERLAY_DEFS[ov];
-      if (!def) { console.warn(`unknown overlay: ${ov}`); continue; }
+      const parts = ov.split('+').map((k) => OVERLAY_DEFS[k]);
+      if (parts.some((d) => !d)) { console.warn(`unknown overlay: ${ov}`); continue; }
+      const def = { factor: (coin, gi) => parts.reduce((f, d) => f * d.factor(coin, gi), 1) };
       for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
         addTsmCell(`combo +${ov} ${uName}`, universe, comboRule, { volTarget: volTargetAnnual, tfScale: def.factor });
       }
     }
+  }
+}
+if (donchian) {
+  for (const [uName, universe] of Object.entries(universes)) {
+    addTsmCell(`donchian9 ${uName}`, universe, null, { targetFor: donchianTarget, band: 0.05 });
   }
 }
 results.tsmCore = tsmCells;
@@ -580,6 +688,10 @@ for (const [k, m] of Object.entries(results.blend)) console.log(`  ${k.padEnd(24
 console.log('\nYearly returns:');
 for (const [key, m] of [...Object.entries(tsmCells), ...Object.entries(rotCells)]) {
   console.log(`  ${key.padEnd(24)} ${Object.entries(m.yearly).map(([y, r]) => `${y}: ${(r * 100).toFixed(0)}%`).join('  ')}`);
+}
+console.log('\nYearly Sharpe:');
+for (const [key, m] of Object.entries(tsmCells)) {
+  console.log(`  ${key.padEnd(24)} ${Object.entries(m.yearlySharpe).map(([y, v]) => `${y}: ${v.toFixed(2)}`).join('  ')}`);
 }
 
 // Optional curve export. Summary metrics cannot answer "do two sleeves draw down

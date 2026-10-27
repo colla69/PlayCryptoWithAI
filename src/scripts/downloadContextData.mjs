@@ -10,11 +10,13 @@
  *      for BTC/ETH.
  *   4. Fear & Greed full history (alternative.me, limit=0 — the bot's own cache
  *      only keeps the last 1000 days).
+ *   5. Coinbase premium, hourly since 2021-05 (Coinbase Exchange + Binance spot,
+ *      public) — US spot demand relative to Binance.
  *
  * Everything lands in data/context/*.json as sorted [{t, ...}] arrays.
  * Idempotent: re-running refreshes the files. All endpoints are free/keyless.
  *
- * Usage: node src/scripts/downloadContextData.mjs [--only funding|fred|onchain|fng]
+ * Usage: node src/scripts/downloadContextData.mjs [--only funding|fred|onchain|fng|coinbase]
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +95,48 @@ if (!only || only === 'fng') {
     .filter((r) => Number.isFinite(r.v))
     .sort((a, b) => a.t - b.t);
   save('fng.json', rows);
+}
+
+// ── 5. Coinbase premium, hourly (US spot demand vs Binance) ──────────────────
+// p = Coinbase BTC-USD ÷ (Binance BTCUSDT × Coinbase USDT-USD) − 1. The USDT term
+// strips tether's own drift from the dollar out of the gap; Coinbase's USDT-USD
+// starts 2021-05-04, so the series does too. Closed hours only, all three present.
+if (!only || only === 'coinbase') {
+  const H = 3_600_000;
+  const now = Date.now();
+  const from = Date.parse('2021-05-01');
+  const closes = new Map();
+  const bn = new Map();
+  for (let start = from; ;) {
+    const batch = await (await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&startTime=${start}&limit=1000`)).json();
+    for (const k of batch) if (k[0] + H <= now) bn.set(k[0], Number(k[4]));
+    if (batch.length < 1000) break;
+    start = batch.at(-1)[0] + H;
+    await sleep(150);
+  }
+  closes.set('BN', bn);
+  for (const product of ['BTC-USD', 'USDT-USD']) {
+    const m = new Map();
+    for (let s = from; s < now; s += 300 * H) {
+      const e = Math.min(s + 300 * H, now);
+      const url = `https://api.exchange.coinbase.com/products/${product}/candles?granularity=3600&start=${new Date(s).toISOString()}&end=${new Date(e).toISOString()}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'playAIStocks-research' } });
+      if (!res.ok) throw new Error(`Coinbase ${product} ${res.status}`);
+      for (const [t, , , , close] of await res.json()) {
+        const ms = t * 1000;
+        if (ms >= s && ms < e && ms + H <= now) m.set(ms, Number(close));
+      }
+      await sleep(150);
+    }
+    closes.set(product, m);
+  }
+  const rows = [];
+  for (const [t, b] of [...bn].sort((x, y) => x[0] - y[0])) {
+    const cb = closes.get('BTC-USD').get(t);
+    const usdt = closes.get('USDT-USD').get(t);
+    if (cb && usdt && b) rows.push({ t, p: cb / (b * usdt) - 1 });
+  }
+  save('coinbase_premium_1h.json', rows);
 }
 
 console.log('CONTEXT-DOWNLOAD-DONE');
