@@ -30,6 +30,7 @@ import { rsiOfLastClosedBar } from './engine/satellites.js';
 import { loadNasdaqHistory } from './data/nasdaqTrend.js';
 import { loadDvolHistory, DVOL_COINS } from './data/dvolFeed.js';
 import { loadExchangeEvents } from './data/exchangeEventsFeed.js';
+import { recordSnapshots } from './data/gaugeRecorder.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -785,6 +786,21 @@ if (config.btcDominance?.enabled) {
   logger.info(`Market context cache: refresh every ${(ms / 3_600_000).toFixed(1)}h`);
 }
 
+// Research recorder (plan doc § H): feeds no decision, so it runs on its own timer
+// and a failure only logs.
+let gaugeRecorderId = null;
+if (config.gaugeRecorder?.enabled) {
+  const recordGauges = async () => {
+    for (const r of await recordSnapshots({ minGapMs: config.gaugeRecorder.minGapMs })) {
+      if (r.status === 'recorded') logger.info(`[GAUGES] ${r.asset} exchange-flow snapshot recorded (${r.rows.length} rows)`);
+      else if (r.status === 'failed') logger.warn(`[GAUGES] ${r.asset} snapshot not recorded: ${r.error}`);
+    }
+  };
+  void recordGauges();
+  gaugeRecorderId = setInterval(() => void recordGauges(), config.gaugeRecorder.checkEveryMs);
+  gaugeRecorderId.unref?.();
+}
+
 // Refresh the balance from the exchange every 5 minutes so that deposits or
 // withdrawals are reflected on the dashboard without waiting for the next trade.
 // Paper mode skips this — its balance is already tracked in memory.
@@ -887,6 +903,7 @@ process.on('SIGINT', () => {
   clearInterval(balancePollId);
   clearInterval(riskCheckId);
   clearInterval(marketContextRefreshId);
+  clearInterval(gaugeRecorderId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });

@@ -964,4 +964,12 @@ export default {
     enabled: true,
     port: 3001,
   },
+  // Research only, feeds no decision: records Coin Metrics exchange flows as published,
+  // once a day, for the forward check in plan doc § H (the downloaded history is
+  // recomputed, so it cannot be backtested). Off the trading cycle; a failure only logs.
+  gaugeRecorder: {
+    enabled: true,
+    checkEveryMs: 6 * 60 * 60 * 1000,  // how often to look; restarts and misses catch up
+    minGapMs: 20 * 60 * 60 * 1000,     // at most one snapshot per ~day per asset
+  },
 };

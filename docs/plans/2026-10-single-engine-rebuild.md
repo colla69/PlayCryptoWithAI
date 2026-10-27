@@ -2194,8 +2194,10 @@ Three web searches (sections D–G) found no new entry signal that survives cost
 good but could not be tested honestly. This section records data from now on, so they can be
 judged on data nobody has seen.
 
-**What is recorded.** `src/scripts/recordContextGauges.mjs` (`npm run record-gauges`) appends one
-snapshot a day per asset (BTC, ETH) to `data/context/snapshots/cm_exchange_<asset>.jsonl`: the
+**What is recorded.** The bot records it itself (`config.gaugeRecorder`, `src/data/gaugeRecorder.js`:
+its own 6-hour timer, at most one snapshot per asset per 20 hours, a failure only logs, nothing
+reads it for a decision), so snapshots accumulate on the live PC. `npm run record-gauges` does
+the same by hand. Each run appends one snapshot per asset (BTC, ETH) to `data/context/snapshots/cm_exchange_<asset>.jsonl`: the
 last 45 days of Coin Metrics `SplyExNtv`, `FlowInExNtv` and `FlowOutExNtv`, exactly as the API
 returns them at that time. `src/backtester/gaugeSnapshots.js` rebuilds EX1 and EX7 (§ G2) at a
 decision time from the newest snapshot recorded at or before it, never from a later one. A
