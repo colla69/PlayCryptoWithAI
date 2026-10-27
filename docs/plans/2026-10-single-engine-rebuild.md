@@ -1584,3 +1584,34 @@ whose optimizer retune will report PBO and CPCV paths.
 
 How to read PBO: below 0.25, picking the best past Sharpe from that menu is mostly sound; 0.25–0.5,
 weak; 0.5 or more, worse than picking at random — do not select from that menu by past Sharpe.
+
+### Item 3 result (2026-10-27): tool built and cross-checked; both menus are in the "weak" band
+
+Cross-check (skfolio 1.12.2 in a scratch venv): train and test indices and path ids identical on
+six settings (100–2,230 rows, 4–10 groups, 2–3 test groups, purge 0–7, embargo 0–7). PBO equal to a
+NumPy CSCV written from the paper (largest logit difference 4e-16, three matrices). Fixtures in
+`tests/backtester/overfitting.test.js`; report script `src/scripts/runOverfitting.mjs`.
+
+| | M1: C8 shared menu (6 trials) | M2: breakout grid (432 trials) |
+|---|---|---|
+| PBO | **0.29** | **0.25** (0.252) |
+| In-sample winner loses money out of sample | 5% of halvings | 12% |
+| Winner's out-of-sample Sharpe vs in-sample | 2.41 − 0.95 × IS | 1.45 − 0.68 × IS |
+| Full-period best (Sharpe) / median trial | ehp 1.36 / 1.15 | 96-bar, L0.2, 2R/48 h 1.20 / 0.34 |
+| Deflated Sharpe of the best | 0.998 | 0.39 |
+| CPCV paths, best training Sharpe traded (9 paths) | 1.12 … 1.37, mean 1.24 | −0.28 … 0.87, mean 0.47 |
+
+- *M1:* the advance expectation (a high PBO) was not met: 0.29 is weak, not worse than random, and
+  CPCV's 9 paths all beat the median combo (mean 1.24 vs 1.15). The two readings differ from C8
+  point 3 because CSCV and CPCV mix past and future blocks, while the C8 re-fit only looked back
+  (24 months → next 6) through the 2024+ break. Caveat: these are whole-account series with the
+  sleeve on, shared by every trial (daily correlation 0.74–0.91), so the sleeve carries most of
+  the Sharpe and the deflated Sharpe of 0.998; the menu differs only in the scalper part.
+  ehp (EMA+HeikinAshi+PSAR) was the in-sample winner in 51% of halvings and is the full-period
+  best on the current engine.
+- *M2:* picking the grid's best past Sharpe is borderline (PBO on the line, deflated Sharpe 0.39:
+  the grid's best is not significant after 432 trials). The committed cell (48 bars, 1.5×, 1.5
+  ATR, limit 0.5%, 2R/48 h) has a mean out-of-sample rank of 0.89 — above 97% of the cells — and
+  was never the in-sample winner: the plateau centre is a better choice than the grid's top.
+- No bot setting changes. Item 4's optimizer retune reports PBO and CPCV paths with this tool, on
+  scalper-only series where it can.
