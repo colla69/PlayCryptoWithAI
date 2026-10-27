@@ -1543,3 +1543,7 @@ set `126 724b7eed…` (was `36a73a13`); the protected frozen copy is unchanged a
   either. Unseen window $311.97, identical. Covers LSK, GMX and VANRY; TON was a rename.
 - Paper boot: the feed refreshed (no new events). Two transient kline fetch failures (GRAM history
   init, TRX — retried; the same URL answered 200 a minute later), unrelated to the change.
+- **Deploy step:** `data/` is not in git. On the live PC run `node src/scripts/buildExchangeEvents.mjs`
+  once before the first boot (~10 minutes, paced for the rate limit), or copy
+  `data/exchangeEvents.json` over. Without it the first refresh reads only the newest page of each
+  catalog (about six weeks of news), and an older monitoring tag would be missed.
