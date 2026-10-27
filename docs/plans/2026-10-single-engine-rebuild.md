@@ -1672,3 +1672,42 @@ setting changes from it.
 - What it decides: a fail means no per-coin retune is applied; the optimizer stays a tool, and the
   per-coin question moves to the cross-coin ranker (one model for all coins, part 3). A pass sends
   the forward-only picks to the portfolio replay (stage 2, pass rule as section D).
+
+## Section E, item 4, part 3: a cross-coin ranker (pre-registered 2026-10-27, before any feature or M3 result was read)
+
+One model for all coins in place of per-coin settings: each week, rank the coins by predicted
+next-week return and hold the top ones. Stage 1 is a research estimate on a clean weekly portfolio;
+nothing is built into the bot unless it passes.
+
+- Data: deep set (`724b7eed`). Decisions every Monday 00:00 UTC, 2020-06-01 → 2026-08-03; each uses
+  bars closed by then and fills at that 12h bar's open. A coin is eligible with ≥ 400 closed 12h
+  bars and a bar opening at the decision time. Its outcome is the open-to-open return to the next
+  Monday; a coin with no bar then is closed at its last close (no look ahead at delistings).
+- Features (closed bars only; each ranked across the eligible coins to [−0.5, 0.5], missing = 0):
+  returns over 12 h, 1, 2, 4, 12 and 26 weeks; close vs 20/50/100/200-day SMA; 30-day volatility and
+  downside volatility; largest 12h return in 30 days; 7-day vs 30-day quote volume; 30-day quote
+  volume (size); 60-day beta to BTC and residual volatility; RSI 14, ADX 14, 20-bar Donchian
+  position (12h); and the 20 strategies' votes at the decision bar (signed confidence, the
+  CTREND-style signal aggregation). Target: next-week return, ranked the same way.
+- Models, fixed in advance: **primary = ridge, α = 10, all features**. Also reported: ridge α = 1 and
+  α = 100; ridge on the 20 votes only; ridge on the price features only; two gradient-boosted tree
+  models (scikit-learn `HistGradientBoostingRegressor`: depth 3, rate 0.05, 200 iterations, 200
+  per leaf; depth 2, rate 0.05, 300 iterations, 400 per leaf). Python in a scratch venv; features
+  computed in JS with the bot's own indicators and strategies.
+- Walk-forward: refit at each of the 9 fold starts of part 2 (2022-06-01, every 6 months) on every
+  earlier week whose outcome ended before the fold (purge 1 week), expanding from 2020-06-01.
+- Portfolio, all variants and baselines alike: while BTC is in the satellites' 12h uptrend (EMA 100
+  over EMA 400, close above the slow), hold the top 5 equally; otherwise cash. Costs: 0.1% fee
+  plus the coin's slippage tier per side on the traded amount. Baselines: **M** = top 5 by 7-day
+  return (the strongest-coin satellite's ranking), **EW** = every eligible coin, BTC alone. Ungated
+  versions are reported too.
+- **Pass (stage 1):** over 2022-06-01 → 2026-08-10 the primary's net Sharpe beats M and EW; it beats
+  M in at least 5 of the 9 folds; and its out-of-sample information coefficient (weekly Spearman of
+  prediction vs outcome, all eligible coins, ungated) has a mean above 0 with t > 2. Also reported:
+  PBO over the 7 model variants and 3 baselines, CPCV paths for the primary (10 groups, 2 test,
+  purge and embargo 1 week), the deflated Sharpe with 10 trials, and 2024-05 → 2026-08 alone.
+- Expected in advance: a small positive IC, and not enough to beat M after costs — weekly crypto
+  momentum is the known effect, and the model mostly re-weights it.
+- Stage 2, only on a pass: the model's rank replaces the 7-day-return rank of the strongest-coin
+  satellite in the engine (JS inference, retrain schedule, a `liveParityInventory` row), judged by
+  the engine replay as in section D.
