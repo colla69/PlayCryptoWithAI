@@ -1462,3 +1462,23 @@ mostly 2021–22, so the post-2024 folds should be nearly identical.
    the floor, and the mean `f` at entry. A fail ends the idea.
 2. *Stage 2 — live side*, only on a pass: config flag, the shared engine path (`planSatelliteEntry`),
    the DVOL loader both sides already have, a row in `liveParityInventory.test.js`, tests.
+
+### E2 result (2026-10-27): rejected at stage 1, nothing built
+
+Research flag through the shared engine path (`planSatelliteEntry` scaled by `f`), deep set
+`36a73a13…`. The flag-off control reproduced the baseline to the cent ($6,721.90).
+
+| Window | baseline (E1 on) | E2 |
+|---|---|---|
+| 2020-06 → 2026-08, Sharpe · return · worst drop | **1.983** · 360.2% · 8.5% | 1.974 · 343.8% · 8.3% |
+| 2021-04 → 2026-08 | **1.524** · 108.3% | 1.512 · 100.6% |
+| 2024-05 → 2026-08 | **2.094** · 67.7% | 2.091 · 67.3% |
+
+Counted folds (from 2021-06): E2 has the higher Sharpe in **5 of 11** — it wins 2021-12, 2022-12,
+2023-06, 2023-12, 2024-06 and loses 2021-06 (1.008 → 0.955), 2024-12, and four more by ≤ 0.001.
+Both tests fail. The same 257 breakout trades were taken (no order fell under the $11 floor; 2
+refusals for stop distance in both); `f` < 1 on 82 of them, mean `f` at fill 0.93, minimum 0.57.
+Breakout PnL $867 → $807: the trades taken while BTC DVOL was above 60 earned money on balance, so
+shrinking them cost return without cutting the worst drop by more than 0.2 points. The unseen
+window was not run; the verdict was already decided. Per the pre-registration the idea ends; the
+research code was reverted.
