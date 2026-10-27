@@ -1841,3 +1841,43 @@ an entry is the sum of its partial exits, net return = P&L ÷ cost.
   work at different horizons. Using the score the other way round (keep only the bottom third) is
   a new idea chosen on this result, at t < 2; it is recorded, not pursued.
 - Per the pre-registration nothing is built. Item 4 is closed.
+
+## Section E, item 5: token unlocks (pre-registered 2026-10-27, before any price around an unlock was read)
+
+**Source, free and keyless:** DefiLlama's emission datasets,
+`https://defillama-datasets.llama.fi/emissions/<slug>` (the `api.llama.fi/emission*` routes now
+answer 402). Each file holds a daily cumulative unlocked-token series per allocation and a map of
+allocations to categories. 23 of our 37 coins have one (none for XRP, ADA, BCH, LTC, ACH, LSK, PAXG,
+PIXEL, THETA, VANRY, RENDER, PEPE; BTC and DOGE have no vesting). Snapshot of 2026-10-27 in the
+session scratchpad (`tu/raw/`, sha256 of the file hashes `b209eafb…`). It is *today's* version of
+each schedule: unlock dates are public in advance, but later corrections to the schedule are
+hindsight this test cannot remove.
+
+**Event:** a UTC day on which the coin's insiders + private-sale allocations rise by ≥ 1% of its
+total unlocked supply of the day before (`tu/events.mjs`; slug choice where two exist:
+`near-protocol`, `curve-finance`, `injective`, `arbitrum`). Event counts were read before writing
+this (no prices): 222 in 2020-06 → 2026-08, about 130 with USDC prices around them, almost all ARB,
+ENA, SUI, JUP, LINK, APT, ENS.
+
+**Why not section D's per-trade rule:** the bot barely trades these coins. The breakout's 8 coins
+have only AVAX and BNB events, almost none with prices; the scalper's coins with events (ENS, TIA,
+JTO, AVAX, INJ) give a handful of trades near an unlock at most. So stage 1 asks whether the effect
+exists in our universe at all, on every event.
+
+1. *Stage 1 — event study* (deep set `724b7eed`, 12h USDC bars). τ = 00:00 UTC of the event day; an
+   event counts if the coin and BTC both have bars opening at τ − 30 d and τ + 14 d. Abnormal return
+   = coin log return − BTC log return, open to open. **Primary window: τ − 14 d → τ** (the window
+   an entry veto would cover). **Pass:** mean abnormal return < 0 with t < −2 (events as
+   independent), the median < 0, the mean < 0 in both halves of the events split at their median
+   date, and the mean < 0 with any single coin left out. Reported, not deciding: τ − 30 d → τ,
+   τ → τ + 7 d, τ → τ + 14 d, and per coin. A fail ends the idea.
+2. *Stage 2 — only on a pass:* an entry veto built like the venue veto: no new scalper or satellite
+   entry in a coin while an event of ≥ 1% is due within 14 days; held positions untouched. A dated
+   event file under `data/` refreshed from the same source (fail-open on an outage), read by
+   `main.js` and `engineReplay` alike, a `liveParityInventory` row, tests. Pass rule as the venue
+   veto's: six-year replay Sharpe not below the baseline (1.9826) and the unseen 2026-08 → 10
+   window not worse; blocked entries listed.
+
+Expected in advance: published research (Keyrock 2024, ~16,000 unlocks) finds prices drift down
+before large team and investor unlocks. Here most events are monthly unlocks of the same few
+coins, which the market can see coming, so a weaker effect than in that study is likely.
