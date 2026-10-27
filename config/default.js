@@ -16,7 +16,7 @@ export default {
   //   DOT  — no optimizer upgrade found (best alt was -0.1% holdout)
   //   AAVE — no optimizer upgrade found (best alt was -5.9% holdout)
   //   MATIC— insufficient history (515 candles < 1460 required)
-  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC', 'ETH/USDC', 'WLD/USDC', 'PEPE/USDC', 'TON/USDC', 'RENDER/USDC', 'ENA/USDC', 'ICP/USDC', 'APT/USDC', 'ARB/USDC', 'JUP/USDC'],
+  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC', 'ETH/USDC', 'WLD/USDC', 'PEPE/USDC', 'GRAM/USDC', 'RENDER/USDC', 'ENA/USDC', 'ICP/USDC', 'APT/USDC', 'ARB/USDC', 'JUP/USDC'],
   timeframe: '12h',
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
@@ -507,7 +507,10 @@ export default {
       takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
-    'TON/USDC': {
+    // Toncoin (TON) was rebranded to Gram (GRAM) 1:1 on 2026-06-30: the tuning below was
+    // done on TON/USDC, whose history the GRAM/USDC candle files carry
+    // (src/scripts/stitchRenamedPair.mjs).
+    'GRAM/USDC': {
       // EMA+OBV+StochRSI  SL7/TP18  conf=0.55 → optimizer holdout: +17.7%  Sharpe 0.67 [4t] ✅
       strategies: ["EMA","OBV","StochRSI"],
       stopLossPct: 0.105,

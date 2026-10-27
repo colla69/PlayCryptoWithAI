@@ -1505,3 +1505,20 @@ at ~1 request/s) and `api/v3/exchangeInfo` for the pair status today.
   exit runs).
 - TON is a universe bug, not a veto case: `config.symbols` still lists `TON/USDC`, a ticker that has
   not traded since 06-30, while the same coin trades as `GRAM/USDC`.
+
+### TON → GRAM in the universe (2026-10-27, user decision)
+
+`config.symbols` and the per-coin settings now name `GRAM/USDC` (TON's tuning unchanged). New
+`src/scripts/stitchRenamedPair.mjs` wrote `GRAM_USDC_{12h,4h,15m}.json` = TON's history + GRAM's
+bars (merged through `mergeCandles()`, stopping where the set's BTC file stops; it refuses a price
+gap over 5% — here 0.19%). TON's files moved to `data/candles_retired/`. GRAM added to both
+slippage maps (mid tier, as TON). New fingerprints: live set `126 193218ef…` (was `a81cdff7`), deep
+set `126 724b7eed…` (was `36a73a13`); the protected frozen copy is unchanged and still has TON.
+
+- Six-year replay (bot + breakout, E1 on): $6,721.65, Sharpe 1.9826, worst drop 8.5% (was $6,721.90).
+- Unseen 2026-08-10 → 10-24 on the live set: $311.97 (frozen-set run with TON: $312.24).
+- No GRAM trade in either window. The changes come from GRAM counting again in the portfolio median
+  ATR and the correlation matrix. This is the new baseline for the veto below.
+- Paper boot: GRAM loaded 1,590 bars from disk, fetched live, merged payload-wins.
+- Live: if the live account held TON on 06-30, Binance converted it to GRAM; position restore now
+  sees it under `GRAM/USDC`.

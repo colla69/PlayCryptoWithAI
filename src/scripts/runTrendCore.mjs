@@ -70,7 +70,7 @@ const N_TRIALS = 21
   + overlays.length * 2;
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
-const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON']);
+const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON', 'GRAM']);
 const MID = new Set(['AVAX', 'NEAR', 'ICP', 'APT', 'ARB', 'INJ', 'SUI', 'TIA', 'LDO', 'ENS', 'CRV', 'THETA', 'PAXG', 'RENDER', 'WLD', 'PEPE', 'ENA', 'JUP', 'JTO']);
 const slipFor = (coin) => (LARGE.has(coin) ? 0.001 : MID.has(coin) ? 0.002 : 0.0035);
 

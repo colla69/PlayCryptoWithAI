@@ -124,7 +124,7 @@ See `--help` or [TECHNICAL.md](docs/TECHNICAL.md) for all flags.
 ## Portfolio
 
 37 Binance spot USDC pairs:  
-BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, TON, RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
+BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
 
 Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 
