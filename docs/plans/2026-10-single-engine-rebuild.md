@@ -2016,3 +2016,108 @@ but the whole-span tests fail: the 2021 loss, 1.20 → 0.82, outweighs the rest.
 lower too (2.42 → 2.14 on 4 coins with M1). The 30-day gauge did better, mostly in 2025–26, but it
 was a reported variant; adopting it now would be choosing on this result. It could only be tested
 on data after 2026-10-27. Nothing is built.
+
+## Section G: a second web search, every idea tested (pre-registered 2026-10-27, before any of them was run on our data)
+
+User request: "test it all out" — every idea from the second search, including the ones the search
+report put aside. Nothing below has been run yet. The only data read so far is a format probe of the
+Coin Metrics exchange-flow rows (two recent days and the first day of the series), with no prices.
+
+**Common to all.** Data as in section F: Binance USDT 12h bars, 8 coins (BTC, ETH, BNB, SOL, XRP,
+ADA, LTC, DOGE), in the session scratchpad. Full window 2017-08-17 → 2026-08-10; halves
+2017-08-17 → 2021-12-31 and 2022-01-01 → 2026-08-10; unseen 2026-08-10 → 10-24, reported only.
+Costs: 0.1% fee per side plus the slippage tier. "combo" = the sleeve's rule as in section F (vote
+30/45/60 d, slow-in, vol target 0.6). Universes: BTC+ETH and BTC+ETH+BNB+SOL ("4 majors"). Daily
+closes = the 12h bars that close at 00:00 UTC. Stage 2 for every idea that passes is the same as
+section F's: built into the engine, a `liveParityInventory` row, tests, the $11 floor enforced,
+judged by the six-year engine replay (Sharpe not below 1.9826) and the unseen window not worse.
+
+### G1 — 10-day high / 10-day low (Padyšák & Vojtko 2022, Quantpedia)
+
+- HIGH on day d: the daily close is the highest of the last 10 daily closes (today's included).
+  LOW: the lowest of the last 10. Decided at the daily close, filled at the next 12h open, held for
+  one day (the 12:00 bar makes no new decision). Only the 10-day lookback decides; 20/30/40/50 are
+  reported.
+- **G1a** (the paper's rule): hold the coin at full size for the next day when HIGH or LOW,
+  cash otherwise. **G1b** (the low leg added to combo): combo as it is; on a day combo holds nothing
+  and the coin is LOW, hold it for that day at combo's own vol-target size, min(1, max(0.2, 0.6 ÷ σ)).
+- **Pass:** G1a's Sharpe above combo's on both universes in the full window **and** in the
+  window the paper never saw (2022-02-04 → 2026-08-10). Separately, G1b passes on the same test.
+  Reported: buy and hold, each leg alone, the other lookbacks, trade counts, unseen window.
+- Expected: G1a trades almost daily and costs 0.4% a round trip; it likely fails. G1b is the real
+  question: does buying weakness add anything to the trend sleeve?
+
+### G2 — coins held on exchanges (Coin Metrics community data, keyless)
+
+- Data: BTC `SplyExNtv` (BTC held on exchange addresses), daily; also `FlowInExNtv` − `FlowOutExNtv`.
+  A day's value is used only 2 days after the day starts (it is published about 27 hours after).
+- **Rule EX1:** half the sleeve's target while BTC's exchange supply is above its level 30 days
+  earlier (coins moving onto exchanges). One market-wide gauge, as M1. EX7 (7-day net flow > 0 →
+  half) is reported only.
+- **Pass:** as F2, on the full window: combo + EX1 beats combo **and** combo + M1 + EX1 beats
+  combo + M1 on Sharpe on both universes, **and** combo + M1 + EX1 has the higher Sharpe in at least
+  5 of the 9 calendar years on 4 majors.
+- **Caveat written before the run:** every row of the series carries a 2026 computation time, so the
+  exchange address labels were applied after the fact. The backtest is not point-in-time and
+  overstates any edge. Even on a pass, stage 2 starts with six months of forward data recorded
+  as published, not with a build.
+
+### G3 — day of week and 12h session
+
+- 14 cells (weekday × the 00:00 / 12:00 bar). Log 12h returns, BTC and the 4-major equal weight.
+- **Pass:** some cell's mean differs from the other 13 cells' with Welch |t| ≥ 2 in **both**
+  halves, with the same sign, **and** that difference is ≥ 0.4% (one round trip) in the second
+  half, on BTC. Expected: fail (no persistent effect in the 2017 and 2024 studies).
+
+### G4 — halving clock (Quantpedia 2025/26)
+
+Three past cycles cannot be tested. Reported only, no build either way: the 2025 top's distance
+from the 2024 halving, its drop from the top, and where the low so far falls against the paper's
+2026-10-05 → 11-16 bottom window. Recheck after 2026-11-16.
+
+### G5 — attention (Wikipedia pageviews)
+
+- Data: daily "user" pageviews of the English Wikipedia article "Bitcoin" (Wikimedia REST API,
+  keyless, from 2015-07). Weeks start Monday 00:00 UTC, non-overlapping.
+- A = log(this week's views) − log(the mean of the previous 12 weeks). Regression of BTC's next-week
+  return on A and on BTC's own return this week (attention follows price).
+- **Pass:** A's coefficient has the same sign and |t| ≥ 2 in both halves. Stage 2 on a pass:
+  an overlay in the direction found, pre-registered then. Expected: fail.
+
+### G6 — BTC leads the alts (12h)
+
+- 7 alts. Each bar: the alts' mean next-12h return regressed on BTC's 12h return and on the
+  alts' own mean 12h return.
+- **Pass:** BTC's coefficient > 0 with t ≥ 2 in both halves, **and** after the top tenth of bars by
+  (BTC return − alts' return), the alts' next 12h beats their average 12h by ≥ 0.4% in both halves.
+  Expected: fail (the effect is at 1-minute bars).
+
+### G7 — abnormal volume (Garfinkel, Hsiao & Hu 2025; Bianchi & Dickerson)
+
+- The deep USDC set (37 coins, 12h, 2020-06 → 2026-08). Each Monday 00:00: AV = log(quote volume
+  of the last 7 days ÷ the mean weekly quote volume of the 12 weeks before); R = the coin's last
+  7-day return; y = its next 7-day return minus BTC's. Weekly cross-sectional regressions of y on
+  ranks of AV, R and AV × R (Fama-MacBeth); weeks with fewer than 8 coins are skipped.
+- **Pass:** AV's or AV × R's coefficient has |t| ≥ 2 and the same sign in both halves
+  (2020-06 → 2022-12, 2023-01 → 2026-08). Stage 2 on a pass: a filter test on the replay's
+  entries, pre-registered then (as item 4 part 4). Expected: fail; Garfinkel finds the effect
+  gone wherever short selling is possible, which is true of every coin here.
+
+### G8 — volatility breakout (Larry Williams, k = 0.5)
+
+- Per coin and day: level = the day's open + 0.5 × the previous day's high − low. A buy-stop at
+  the level: it fills on the first 12h bar of the day whose high reaches it, at the level, or at
+  that bar's open if it opened above. Exit at the next day's open. Full size, equal capital per coin.
+- Sharpe on daily returns (× √365) for G8, and for combo and buy and hold read from the same days.
+- **Pass:** G8's Sharpe above combo's on both universes in both halves. Reported: k = 0.3 and
+  0.7, a price-above-5-day-mean filter, trades, mean per trade.
+- Expected: fail; the only sources are paid TradingView scripts.
+
+### G9 — does the sleeve's own rule hang on its best month? (Arefev 2026)
+
+- combo and the equal-weight buy and hold on both universes, full window. (a) The Sharpe with the
+  best calendar month's returns removed, from each; (b) the Sharpe with the best 1% of 12h bars
+  removed, from each; (c) both Sharpes on 2022-01-01 → 2026-08-10.
+- **Holds** when combo beats buy and hold in (a), (b) and (c) on both universes. This tests the
+  shipped sleeve; a fail does not switch anything off by itself — it goes to the user with the
+  numbers.
