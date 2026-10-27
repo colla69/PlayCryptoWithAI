@@ -410,7 +410,7 @@ export class PaperTrader {
       const addQty = roundQty(spend / price);
       const newQty = roundQty(position.qty + addQty);
       // Blended entry keeps realised PnL correct on later trims/closes
-      position.entryPrice = roundPrice((position.entryPrice * position.qty + spend) / newQty);
+      position.entryPrice = roundPrice((roundMoney(position.entryPrice * position.qty) + spend) / newQty);
       position.qty = newQty;
       position.currentPrice = price;
       this.balance = roundMoney(this.balance - spend);
@@ -516,6 +516,8 @@ export class PaperTrader {
       logger.info(`[PAPER] SATELLITE BUY ${key} qty=${qty.toFixed(8)} price=${fill} stop=${position.stopLoss} balance=${this.balance.toFixed(2)}`);
       const record = { timestamp: openedAt, symbol: key, side: 'BUY', price: fill, qty, pnl: 0, balance: this.balance, note: '🛰 satellite', isSatellite: true };
       appendTrade(record);
+      // A tick at or under the stop on the fill itself exits now, as the simulator's fill bar does.
+      if (p <= position.stopLoss) return this.#closePosition(key, roundPrice(p), 'sat_stop', '🛰 satellite');
       return { ...position, ...record, entryPrice: fill, openedAt };
     }
     const position = this.positions.get(key);

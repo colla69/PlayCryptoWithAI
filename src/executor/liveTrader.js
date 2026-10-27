@@ -37,6 +37,20 @@ const SATELLITE_EXIT_CAP_PCT = 0.003;
 // Scalper and sleeve orders: IOC limits capped this far past the price (config.risk.limitCapPct).
 const DEFAULT_LIMIT_CAP_PCT = 0.005;
 
+function renameStateFile(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (error) {
+      if (!['EPERM', 'EBUSY'].includes(error.code) || attempt >= 3) throw error;
+      // Windows scanners can briefly lock the destination. Keep the write atomic
+      // and the retry bounded without interleaving another state write.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 * (attempt + 1));
+    }
+  }
+}
+
 export class LiveTrader {
   /**
    * @param {object} [config]
@@ -60,6 +74,7 @@ export class LiveTrader {
     this.initialBalance = null;
     this.totalPnL = 0;
     this.pendingSatellite = new Map(Object.entries(LiveTrader.loadSatelliteOrders()));
+    this.satelliteChecks = new Set();
   }
 
   /**
@@ -281,6 +296,10 @@ export class LiveTrader {
               tiers: saved.tiers ?? null, pendingTierExit: saved.pendingTierExit === true,
               highWaterMark: Math.max(Number(saved.highWaterMark ?? 0), entryPrice),
               openedAt: saved.openedAt ?? new Date().toISOString(),
+              orderId: saved.orderId,
+              orderFilledQty: saved.orderFilledQty ?? 0,
+              orderFilledCost: saved.orderFilledCost ?? 0,
+              satelliteExitReason: saved.satelliteExitReason,
             });
             restored++;
             logger.info(`[LIVE] Restored SATELLITE position: ${key} qty=${qty} entry=${entryPrice} stop=${saved.stopLoss}`);
@@ -859,51 +878,92 @@ export class LiveTrader {
    * @returns {Promise<object|null>} a fill (BUY) or an exit (SELL)
    */
   async satelliteTick(key, price, { now = Date.now(), rsi = null, hourClosed = false } = {}) {
-    const pending = this.pendingSatellite.get(key);
-    if (pending) return this.#pollSatelliteOrder(key, pending, now);
-    const position = this.positions.get(key);
-    const p = Number(price);
-    if (!position?.isSatellite || !(p > 0)) return null;
-    position.currentPrice = roundPrice(p);
-    const before = `${position.stopLoss}|${position.pendingTierExit}|${position.highWaterMark}`;
-    const exit = stepSatellitePosition(position, { t: now, open: p, low: p, high: p, close: p, rsi, hourClosed });
-    if (`${position.stopLoss}|${position.pendingTierExit}|${position.highWaterMark}` !== before) this.#savePositionState();
-    return exit ? this.#sellSatellite(key, position, p, exit.reason) : null;
+    if (this.satelliteChecks.has(key)) return null;
+    this.satelliteChecks.add(key);
+    try {
+      const pending = this.pendingSatellite.get(key);
+      const fill = pending ? await this.#pollSatelliteOrder(key, pending, now) : null;
+      const position = this.positions.get(key);
+      const p = Number(price);
+      if (!position?.isSatellite || !(p > 0)) return fill;
+      position.currentPrice = roundPrice(p);
+      const before = `${position.stopLoss}|${position.pendingTierExit}|${position.highWaterMark}`;
+      const exit = position.satelliteExitReason
+        ? { reason: position.satelliteExitReason }
+        : stepSatellitePosition(position, { t: now, open: p, low: p, high: p, close: p, rsi, hourClosed });
+      if (!exit) {
+        if (`${position.stopLoss}|${position.pendingTierExit}|${position.highWaterMark}` !== before) this.#savePositionState();
+        return fill;
+      }
+      position.satelliteExitReason = exit.reason;
+      this.#savePositionState();
+      const remainder = this.pendingSatellite.get(key);
+      if (remainder) {
+        remainder.exitReason = exit.reason;
+        this.#saveSatelliteOrders();
+        // Re-read after cancelling: more of the buy may fill while cancellation is in flight.
+        await this.#pollSatelliteOrder(key, remainder, now, true);
+      }
+      return await this.#sellSatellite(key, this.positions.get(key), p, exit.reason);
+    } finally {
+      this.satelliteChecks.delete(key);
+    }
   }
 
-  async #pollSatelliteOrder(key, pending, now) {
+  async #pollSatelliteOrder(key, pending, now, cancel = false) {
     try {
       let order = await this.exchange.fetchOrderStatus(pending.orderId, pending.market);
-      if (order.status === 'open' && now >= pending.validUntil) {
+      if (order.status === 'open' && (cancel || pending.exitReason || now >= pending.validUntil)) {
         try {
           await this.exchange.cancelOrder(pending.orderId, pending.market);
         } catch (err) {
-          logger.warn(`[LIVE] ${key}: cancel at expiry failed (${this.#formatError(err)}) — re-reading the order`);
+          logger.warn(`[LIVE] ${key}: satellite cancel failed (${this.#formatError(err)}) — re-reading the order`);
         }
         order = await this.exchange.fetchOrderStatus(pending.orderId, pending.market);
       }
-      if (order.status === 'open') return null; // still resting (a part fill waits for the rest or the expiry)
-      this.pendingSatellite.delete(key);
-      this.#saveSatelliteOrders();
-      const filled = roundQty(Number(order.filled ?? 0));
-      if (!(filled > 0)) {
-        logger.info(`[LIVE] SATELLITE ${key}: limit ${order.status ?? 'done'} unfilled`);
-        return null;
+      const position = this.positions.get(key);
+      const accounted = Math.max(Number(pending.filledQty ?? 0), Number(position?.orderFilledQty ?? 0));
+      const filled = Math.max(accounted, roundQty(Number(order.filled ?? 0)));
+      const added = roundQty(filled - accounted);
+      const average = roundPrice(Number(order.average ?? order.price ?? pending.limitPrice));
+      const previousCost = Number(position?.orderFilledQty ?? 0) > Number(pending.filledQty ?? 0)
+        ? Number(position.orderFilledCost ?? 0)
+        : Number(pending.filledCost ?? 0);
+      const filledCost = added > 0 ? filled * average : previousCost;
+      let record = null;
+      if (added > 0) {
+        const price = roundPrice((filledCost - previousCost) / added);
+        const qty = roundQty(Number(position?.qty ?? 0) + added);
+        const entryPrice = roundPrice((Number(position?.qty ?? 0) * Number(position?.entryPrice ?? 0) + added * price) / qty);
+        const openedAt = position?.openedAt ?? new Date(Number(order.lastTradeTimestamp ?? order.timestamp ?? now)).toISOString();
+        const plan = satellitePositionPlan({ fillPrice: entryPrice, stopPrice: pending.stopPrice, plan: pending.plan, filledAt: Date.parse(openedAt) });
+        const updated = {
+          ...plan, ...position,
+          isSatellite: true, qty, entryPrice, currentPrice: price, openedAt, orderId: pending.orderId,
+          partialExitDone: false, trailingStopPct: undefined,
+          takeProfit: plan.takeProfit, breakEvenAt: plan.breakEvenAt,
+          orderFilledQty: filled, orderFilledCost: filledCost,
+          ...(pending.exitReason && { satelliteExitReason: pending.exitReason }),
+        };
+        this.positions.set(key, updated);
+        // Persist the cumulative fill with the position first. A restart between the two
+        // state writes can then recognize that an old pending-order file was already credited.
+        this.#savePositionState();
+        record = {
+          ...updated, timestamp: new Date(now).toISOString(), symbol: key, side: 'BUY', price, entryPrice: price,
+          qty: added, pnl: 0, note: '🛰 satellite', isSatellite: true,
+        };
       }
-      const fill = roundPrice(Number(order.average ?? order.price ?? pending.limitPrice));
-      const openedAt = new Date(Number(order.lastTradeTimestamp ?? order.timestamp ?? now)).toISOString();
-      const position = {
-        isSatellite: true, qty: filled, entryPrice: fill, currentPrice: fill, openedAt, orderId: pending.orderId,
-        partialExitDone: false, trailingStopPct: undefined,
-        ...satellitePositionPlan({ fillPrice: fill, stopPrice: pending.stopPrice, plan: pending.plan, filledAt: Date.parse(openedAt) }),
-      };
-      this.positions.set(key, position);
-      this.#savePositionState();
-      const balanceAfter = await this.#fetchQuoteBalance();
-      logger.info(`[LIVE] SATELLITE BUY ${key} qty=${filled} price=${fill} stop=${position.stopLoss} (${order.status}) orderId=${pending.orderId}`);
-      const record = { timestamp: openedAt, symbol: key, side: 'BUY', price: fill, qty: filled, pnl: 0, balance: balanceAfter, note: '🛰 satellite', isSatellite: true };
+      pending.filledQty = filled;
+      pending.filledCost = filledCost;
+      pending.reserve = roundMoney(Math.max(0, Number(pending.qty) - filled) * pending.limitPrice);
+      if (order.status !== 'open') this.pendingSatellite.delete(key);
+      this.#saveSatelliteOrders();
+      if (!record) return null;
+      record.balance = await this.#fetchQuoteBalance();
+      logger.info(`[LIVE] SATELLITE BUY ${key} qty=${added} price=${record.price} (${order.status}) orderId=${pending.orderId}`);
       appendTrade(record);
-      return { ...position, ...record, entryPrice: fill, takeProfit: Number.isFinite(position.takeProfit) ? position.takeProfit : null };
+      return { ...record, takeProfit: Number.isFinite(record.takeProfit) ? record.takeProfit : null };
     } catch (error) {
       logger.error(`[LIVE] ${key}: satellite order check failed - ${this.#formatError(error)}`);
       return null;
@@ -1229,6 +1289,10 @@ export class LiveTrader {
             timeLimitAt: pos.timeLimitAt,
             tiers: pos.tiers ?? null,
             pendingTierExit: pos.pendingTierExit === true,
+            orderId: pos.orderId,
+            orderFilledQty: pos.orderFilledQty,
+            orderFilledCost: pos.orderFilledCost,
+            satelliteExitReason: pos.satelliteExitReason,
           }),
         };
       }
@@ -1237,7 +1301,7 @@ export class LiveTrader {
       const tmpFile = POSITION_STATE_FILE + '.tmp';
       fs.mkdirSync(path.dirname(POSITION_STATE_FILE), { recursive: true });
       fs.writeFileSync(tmpFile, json);
-      fs.renameSync(tmpFile, POSITION_STATE_FILE);
+      renameStateFile(tmpFile, POSITION_STATE_FILE);
       // Also write a backup so we have redundancy
       fs.writeFileSync(POSITION_STATE_FILE + '.bak', json);
     } catch (e) {
@@ -1250,7 +1314,7 @@ export class LiveTrader {
       const json = JSON.stringify(Object.fromEntries(this.pendingSatellite), null, 2);
       fs.mkdirSync(path.dirname(SATELLITE_ORDERS_FILE), { recursive: true });
       fs.writeFileSync(SATELLITE_ORDERS_FILE + '.tmp', json);
-      fs.renameSync(SATELLITE_ORDERS_FILE + '.tmp', SATELLITE_ORDERS_FILE);
+      renameStateFile(SATELLITE_ORDERS_FILE + '.tmp', SATELLITE_ORDERS_FILE);
     } catch (e) {
       logger.error(`[LIVE] satellite order state save failed: ${e.message}`);
     }

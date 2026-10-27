@@ -23,7 +23,7 @@ const plan = { breakEvenAtR: 1, targetR: null, timeLimitMs: 48 * H, tiers: null 
 class FakeLimitExchange {
   constructor() {
     this.free = { USDC: 1000, BTC: 0 }; this.locked = 0; this.price = 100; this.n = 0;
-    this.orders = new Map(); this.iocFillShare = 1; this.calls = [];
+    this.orders = new Map(); this.iocFillShare = 1; this.calls = []; this.fillOnCancel = 0; this.cancelFailures = 0;
   }
   async fetchBalance() { return { free: { ...this.free }, used: { USDC: this.locked }, total: { ...this.free } }; }
   async amountToPrecision(_s, q) { return Number(Number(q).toFixed(6)); }
@@ -52,6 +52,9 @@ class FakeLimitExchange {
   }
   async fetchOrderStatus(id) { return { ...this.orders.get(id) }; }
   async cancelOrder(id) {
+    this.calls.push({ type: 'cancel', id });
+    if (this.cancelFailures-- > 0) throw new Error('cancel unavailable');
+    if (this.fillOnCancel > 0) { this.fill(id, this.fillOnCancel); this.fillOnCancel = 0; }
     const o = this.orders.get(id); o.status = 'canceled';
     const rest = (o.amount - o.filled) * o.price; this.locked -= rest; this.free.USDC += rest;
   }
@@ -92,13 +95,79 @@ describe('live satellites: the resting limit buy', () => {
     assert.ok(Math.abs(ex.free.USDC - 1000) < 0.01);
   });
 
-  test('expiry with a part fill keeps the part as the position', async () => {
+  test('a part fill is managed immediately; polling and expiry never duplicate it', async () => {
     const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
     const placed = await t.placeSatelliteOrder(KEY, order(now));
     ex.fill(placed.orderId, 0.5);
-    assert.equal(await t.satelliteTick(KEY, 99.8, { now: now + H }), null); // part filled, still open
-    const fill = await t.satelliteTick(KEY, 100.2, { now: now + 4 * H });
+    const fill = await t.satelliteTick(KEY, 99.8, { now: now + H });
     assert.equal(fill.qty, 0.5);
+    assert.equal(t.positions.get(KEY).qty, 0.5);
+    assert.equal((await t.getStatus()).reserved, Number(((placed.qty - 0.5) * 99.5).toFixed(2)));
+    assert.equal(await t.satelliteTick(KEY, 99.8, { now: now + 2 * H }), null);
+    assert.equal(await t.satelliteTick(KEY, 100.2, { now: now + 4 * H }), null);
+    assert.equal(t.positions.get(KEY).qty, 0.5);
+    assert.equal(t.pendingSatelliteKeys().length, 0);
+  });
+
+  test('a stop protects a partial fill before expiry and cancels the remainder first', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    ex.fill(placed.orderId, 0.5);
+    await t.satelliteTick(KEY, 99.8, { now: now + H });
+    ex.price = 96;
+    const exit = await t.satelliteTick(KEY, 96, { now: now + 2 * H });
+    assert.equal(exit.reason, 'sat_stop');
+    assert.equal(exit.qty, 0.5);
+    assert.equal(ex.calls.at(-2).type, 'cancel');
+    assert.equal(ex.calls.at(-1).side, 'sell');
+    assert.equal(t.pendingSatelliteKeys().length, 0);
+    assert.equal(t.positions.size, 0);
+  });
+
+  test('a fill racing cancellation is included in the stop exit', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    ex.fill(placed.orderId, 0.5);
+    await t.satelliteTick(KEY, 99.8, { now: now + H });
+    ex.fillOnCancel = 0.2; ex.price = 96;
+    const exit = await t.satelliteTick(KEY, 96, { now: now + 2 * H });
+    assert.equal(exit.qty, 0.7);
+    assert.equal(t.positions.size, 0);
+    assert.ok(Math.abs(ex.free.BTC) < 1e-8);
+  });
+
+  test('a partial fill already below its stop exits on the first observation', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    ex.fill(placed.orderId, 0.5); ex.price = 96;
+    const exit = await t.satelliteTick(KEY, 96, { now });
+    assert.equal(exit.reason, 'sat_stop');
+    assert.equal(exit.qty, 0.5);
+    assert.equal(t.pendingSatelliteKeys().length, 0);
+  });
+
+  test('a failed cancel does not prevent protection; later fills retain the exit intent', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    ex.fill(placed.orderId, 0.5);
+    await t.satelliteTick(KEY, 99.8, { now });
+    ex.cancelFailures = 1; ex.price = 96;
+    assert.equal((await t.satelliteTick(KEY, 96, { now: now + H })).qty, 0.5);
+    assert.equal(t.pendingSatelliteKeys().length, 1);
+    ex.fill(placed.orderId, 0.2); ex.price = 100;
+    const later = await t.satelliteTick(KEY, 100, { now: now + 2 * H });
+    assert.equal(later.reason, 'sat_stop');
+    assert.equal(later.qty, 0.2);
+    assert.equal(t.pendingSatelliteKeys().length, 0);
+    assert.equal(t.positions.size, 0);
+  });
+
+  test('overlapping polls credit a fill only once', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    ex.fill(placed.orderId, 0.5);
+    const results = await Promise.all([t.satelliteTick(KEY, 99.8, { now }), t.satelliteTick(KEY, 99.8, { now })]);
+    assert.equal(results.filter((r) => r?.side === 'BUY').length, 1);
     assert.equal(t.positions.get(KEY).qty, 0.5);
   });
 });
@@ -139,9 +208,62 @@ describe('live satellites: exits', () => {
     assert.equal(await t.checkRisk(KEY, 50), null);
     assert.equal(t.positions.size, 1);
   });
+
+  test('overlapping stop ticks cannot sell the same position twice', async () => {
+    const { ex, t, now } = await filled();
+    ex.price = 96;
+    const results = await Promise.all([t.satelliteTick(KEY, 96, { now: now + H }), t.satelliteTick(KEY, 96, { now: now + H })]);
+    assert.equal(results.filter((r) => r?.side === 'SELL').length, 1);
+    assert.ok(Math.abs(ex.free.BTC) < 1e-8);
+  });
 });
 
 describe('live satellites: restart', () => {
+  test('a transient Windows rename lock does not lose the saved resting order', async (ctx) => {
+    const rename = fs.renameSync;
+    let locked = false;
+    ctx.mock.method(fs, 'renameSync', (from, to) => {
+      if (!locked && to === path.join(dataDir, 'satellite_orders.json')) {
+        locked = true;
+        throw Object.assign(new Error('temporary destination lock'), { code: 'EPERM' });
+      }
+      return rename(from, to);
+    });
+    const ex = new FakeLimitExchange(); const now = Date.now();
+    await trader(ex).placeSatelliteOrder(KEY, order(now));
+    assert.equal(locked, true);
+    assert.deepEqual(trader(ex).pendingSatelliteKeys(), [KEY]);
+  });
+
+  test('a partial position and its pending remainder restore without double-counting later fills', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    ex.fill(placed.orderId, 0.5);
+    await t.satelliteTick(KEY, 99.8, { now });
+    const t2 = trader(ex);
+    await t2.restorePositionsFromExchange(['BTC/USDC'], async () => ({ last: 99.8 }), () => ({}), []);
+    assert.equal(t2.positions.get(KEY).qty, 0.5);
+    assert.equal(t2.positions.has('BTC/USDC'), false);
+    ex.fill(placed.orderId, 0.2);
+    const nextFill = await t2.satelliteTick(KEY, 99.8, { now: now + 2 * H });
+    assert.equal(nextFill.qty, 0.2);
+    assert.equal(t2.positions.get(KEY).qty, 0.7);
+    assert.equal(await t2.satelliteTick(KEY, 99.8, { now: now + 3 * H }), null);
+  });
+
+  test('a crash after the position write but before the order write does not credit the fill again', async () => {
+    const ex = new FakeLimitExchange(); const t = trader(ex); const now = Date.now();
+    const placed = await t.placeSatelliteOrder(KEY, order(now));
+    const oldOrderState = fs.readFileSync(path.join(dataDir, 'satellite_orders.json'));
+    ex.fill(placed.orderId, 0.5);
+    await t.satelliteTick(KEY, 99.8, { now });
+    fs.writeFileSync(path.join(dataDir, 'satellite_orders.json'), oldOrderState);
+    const t2 = trader(ex);
+    await t2.restorePositionsFromExchange(['BTC/USDC'], async () => ({ last: 99.8 }), () => ({}), []);
+    assert.equal(await t2.satelliteTick(KEY, 99.8, { now: now + H }), null);
+    assert.equal(t2.positions.get(KEY).qty, 0.5);
+  });
+
   test('a resting order is reloaded from its state file', async () => {
     const ex = new FakeLimitExchange(); const now = Date.now();
     const placed = await trader(ex).placeSatelliteOrder(KEY, order(now));

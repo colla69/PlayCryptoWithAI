@@ -20,6 +20,7 @@ import { loadFearGreedHistory } from '../data/fearGreed.js';
 // strategies and defaulted a symbol without a list to ['RSI'] where live uses all.
 import { buildStrategiesForSymbol as buildStrategies } from '../utils/strategyBuilder.js';
 import { deflatedSharpeRatio } from './deflatedSharpe.js';
+import { dailyReturnsFromEquity } from './metrics.js';
 
 
 
@@ -426,7 +427,7 @@ export function runWindow({
   });
 
   const result = backtester.run(sliced);
-  const dailyReturns = extractDailyReturns(result.equityCurve, budget);
+  const dailyReturns = [...dailyReturnsFromEquity(result.equityCurve, budget).values()];
   const dsr = deflatedSharpeRatio({
     observedSharpe: result.metrics.sharpeRatio,
     returns: dailyReturns,
@@ -462,27 +463,6 @@ export function runWindow({
     // combined drawdown cannot be derived from summary metrics alone.
     ...(includeRaw && { trades: result.trades, symbol_stats: result.symbolStats, equity_curve: result.equityCurve }),
   };
-}
-
-function extractDailyReturns(equityCurve, initialBalance) {
-  if (!Array.isArray(equityCurve) || equityCurve.length < 2) return [];
-  const byDay = new Map();
-  for (const point of equityCurve) {
-    const ts = Number(point?.timestamp ?? 0);
-    const bal = Number(point?.balance);
-    if (!Number.isFinite(bal) || !Number.isFinite(ts)) continue;
-    const day = new Date(ts).toISOString().slice(0, 10);
-    byDay.set(day, bal);
-  }
-  const sorted = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
-  if (sorted.length < 2) return [];
-  const rets = [];
-  let prev = initialBalance;
-  for (const bal of sorted) {
-    if (prev > 0) rets.push((bal - prev) / prev);
-    prev = bal;
-  }
-  return rets;
 }
 
 function median(arr) {

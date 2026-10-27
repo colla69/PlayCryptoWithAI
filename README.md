@@ -6,7 +6,12 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
-**Performance (honest baseline — full live filter stack, realistic next-open fills + tiered slippage):**  
+> **Historical figures:** the baseline below predates the 2026-10-27 replay and reporting
+> corrections. Regenerate it before comparing configurations: current reports use synchronized
+> portfolio valuations and calendar-day Sharpe (365 days), including the first day and cash flows.
+
+**Performance (historical baseline — full live filter stack, next-open fills + tiered slippage):**
+
 `last 90d (most OOS): +0.25% · Sharpe 0.14 · Max DD −3.3% · WR 25%`  
 `full history (2509d): +140.7% · Sharpe 1.08 · Max DD −8.8% · WR 60%`
 

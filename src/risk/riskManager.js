@@ -73,11 +73,7 @@ export class RiskManager {
       return { allowed: true, reason: 'No trade requested' };
     }
 
-    // Track live equity for the daily-loss brake. Only positive readings are
-    // kept — a failed balance fetch (balance 0, no positions) must not
-    // collapse the limit to zero.
-    const equity = calcEquityFromStatus(currentStatus);
-    if (equity > 0) this.lastEquity = equity;
+    const accountRisk = this.canOpenRisk(currentStatus);
 
     // TSM core sleeve and satellite positions have their own capital budget and must
     // not consume the scalper's concurrent-position slots.
@@ -113,19 +109,25 @@ export class RiskManager {
       return result;
     }
 
-    // Recomputed (not latched) so a deposit that grows equity above the
-    // breach point lifts the block, symmetric with recordTrade().
-    this.blocked = this.#dailyLossLimitExceeded();
-    if (this.blocked) {
+    if (!accountRisk.allowed) {
       logger.debug(`[RISK] ${symbol}: canTrade=false dailyLossLimit dailyPnL=${this.dailyPnL.toFixed(2)} maxLoss=${(this.#referenceEquity() * this.config.maxDailyLossPct).toFixed(2)}`);
-      return {
-        allowed: false,
-        reason: `Daily loss limit reached (${this.dailyPnL.toFixed(2)})`,
-      };
+      return accountRisk;
     }
 
     logger.debug(`[RISK] ${symbol}: canTrade=true decision=${decision} conf=${normalizedConfidence.toFixed(2)} positions=${positions.length}/${this.config.maxOpenPositions} dailyPnL=${this.dailyPnL.toFixed(2)}`);
     return { allowed: true, reason: 'Trade allowed' };
+  }
+
+  /** Account-level entry gate, independent of a strategy's confidence and slot budget. */
+  canOpenRisk(currentStatus = {}) {
+    this.#checkDayRollover();
+    const equity = calcEquityFromStatus(currentStatus);
+    if (equity > 0) this.lastEquity = equity;
+    // Recompute so a deposit can lift the block; a failed fetch retains the last base.
+    this.blocked = this.#dailyLossLimitExceeded();
+    return this.blocked
+      ? { allowed: false, reason: `Daily loss limit reached (${this.dailyPnL.toFixed(2)})` }
+      : { allowed: true, reason: 'Account risk allows entry' };
   }
 
   recordTrade(pnl) {

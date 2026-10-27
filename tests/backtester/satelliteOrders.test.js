@@ -58,6 +58,13 @@ describe('satellite orders: resting limit', () => {
     assert.equal(t.reason, 'sat_stop');
     assert.equal(t.exitPrice, 96);
   });
+
+  test('a fill bar that opens under the stop exits at the open, not the unreachable stop', () => {
+    const s = sim(); place(s);
+    const t = s.replaySatelliteBar('BTC/USDC#bo', bar(1, 95, 96.5, 94, 95.5));
+    assert.equal(t.reason, 'sat_stop');
+    assert.equal(t.exitPrice, 95);
+  });
 });
 
 describe('satellite orders: exits after the fill', () => {

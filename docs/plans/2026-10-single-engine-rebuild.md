@@ -1322,3 +1322,33 @@ Where A–D leave the bot: the breakout satellite is the only addition that held
 exit tried on top of it or the scalper failed before a build. The open problem is C8: the scalper's
 per-coin settings are in-sample since 2024-05, and an honest re-fit needs the optimizer to run the
 full filter stack first.
+## Execution and reporting corrections (2026-10-27)
+
+- Satellite entries now consult the same account-level daily-loss gate as scalper entries,
+  including a fresh check between orders. Stops and cancellations remain active while blocked.
+- A partial live fill becomes a managed position immediately, while only the unfilled quote
+  remains reserved. Stops cancel the remainder and re-read the final cumulative fill before
+  selling; a cancellation failure does not prevent closing the known exposure. The exit intent
+  survives retries and restarts, including any later fills of an uncancelled order.
+- Position state adds `orderId`, `orderFilledQty`, `orderFilledCost` and `satelliteExitReason`;
+  pending orders add cumulative fill bookkeeping and an optional exit reason. Old files still
+  load. Saving the position before the pending-order update prevents duplicate credit after an
+  interrupted write; wallet claims do not count a managed partial fill twice. Per-position
+  polling stays locked through the entire asynchronous exit, and atomic state renames retry
+  briefly on transient Windows file locks.
+- Replay price bars, deposits, signal cycles and breakout cycles now share one chronological
+  timeline. Every held leg is marked from the same observation before valuation. Equity points
+  carry their observation time, including intrabar core marks, rather than a future interval's
+  result labelled with its start. The breakout uses live's one-minute scheduler delay.
+  `toTs` still means the last signal cycle: its following interval is included, but later
+  deposits and bars are not. Intrabar fill times remain 15m-bar estimates, not exchange ticks.
+- Baselines, walk-forward, recalibration, superbot and optimizer scoring share calendar-day
+  returns and sample-deviation Sharpe annualized with 365 days. Deposits are excluded from
+  returns, the first day is retained, and missing calendar days carry the last valuation
+  forward rather than compressing elapsed time. This does not reconstruct missing prices or
+  make the USDC market gap tradable. DSR uses matching observation units. Trade-order Monte
+  Carlo reports a per-trade Sharpe, not a fictional daily annualization.
+
+Strategy settings and opt-in flags are unchanged; nothing is deployed by these corrections.
+The historical tables above must be regenerated on their frozen datasets before being used for
+new configuration decisions.

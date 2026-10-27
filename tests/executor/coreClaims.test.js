@@ -148,6 +148,15 @@ describe('calcCoreClaims — persisted core legs', () => {
 });
 
 describe('calcCoreClaims — shape and edge cases', () => {
+  test('an already managed partial fill is not claimed twice by its pending order', () => {
+    const { claimsByBase } = calcCoreClaims({
+      livePositions: new Map([['ETH/USDC#bo', { qty: 0.5, orderFilledQty: 0.5, isSatellite: true }]]),
+      pendingOrders: new Map([['ETH/USDC#bo', { qty: 1, filledQty: 0.5 }]]),
+      freeBalances: { ETH: 2 },
+    });
+    assert.equal(claimsByBase.get('ETH'), 1);
+  });
+
   test('empty inputs are safe', () => {
     const { claimsByBase, restorable, dropped } = calcCoreClaims();
     assert.equal(claimsByBase.size, 0);

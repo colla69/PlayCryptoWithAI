@@ -919,6 +919,7 @@ export function createTradingEngine(deps) {
     const placed = [];
     try {
       const status = await trader.getStatus();
+      if (!riskManager.canOpenRisk(status).allowed) return placed;
       const equity = calcEquityFromStatus(status);
       const busy = new Set([
         ...(status.positions ?? []).filter((p) => p.isSatellite).map((p) => p.symbol),
@@ -930,6 +931,11 @@ export function createTradingEngine(deps) {
         if (open >= (kindCfg.maxOpen ?? 2)) break;
         const key = satelliteKey(symbol, kind);
         if (busy.has(key)) continue;
+        const accountRisk = riskManager.canOpenRisk(await trader.getStatus());
+        if (!accountRisk.allowed) {
+          logger.info(`[SATELLITE] ${key}: ${accountRisk.reason}`);
+          break;
+        }
         const entry = planSatelliteEntry({
           signal, refPrice: signal.refClose, kindCfg, equity, freeBalance: free, now: now(), minNotional: FALLBACK_MIN_NOTIONAL,
         });

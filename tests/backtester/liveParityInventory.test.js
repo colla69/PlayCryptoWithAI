@@ -220,6 +220,12 @@ const PARITY_INVENTORY = [
     shared: 'src/engine/satellites.js',
   },
   {
+    rule: 'Satellite account-level daily-loss brake',
+    live: { file: 'src/core/engine.js', symbol: 'canOpenRisk' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'RiskManager' },
+    shared: 'src/risk/riskManager.js',
+  },
+  {
     // The satellite order and its exits: a resting limit buy that locks its cash, and one
     // copy of the exit rules (stepSatellitePosition) — on 15m bars in the simulator, on
     // risk-loop ticks live (behaviour: liveSatellite.test.js, satelliteOrders.test.js).

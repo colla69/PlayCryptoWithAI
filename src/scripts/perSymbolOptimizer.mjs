@@ -28,7 +28,7 @@ import { dirname, join } from 'path';
 
 import config from '../../config/default.js';
 import { BacktestSimulator } from '../backtester/backtestSimulator.js';
-import { calculateMetrics } from '../backtester/metrics.js';
+import { calculateMetrics, dailyReturnsFromEquity } from '../backtester/metrics.js';
 import { loadCachedCandles, saveCachedCandles } from '../exchange/candleCache.js';
 import { fetchHistoricalOHLCV } from '../exchange/binanceClient.js';
 
@@ -220,26 +220,6 @@ const SEARCH_BURDEN_N_TRIALS     = 2280;  // per-symbol: ~1140 combos × 2 conf
 
 import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
 
-function dailyReturnsFromEquity(equityCurve, initialBalance) {
-  if (!Array.isArray(equityCurve) || equityCurve.length < 2) return [];
-  const byDay = new Map();
-  for (const point of equityCurve) {
-    const ts = Number(point?.timestamp ?? 0);
-    const bal = Number(point?.balance);
-    if (!Number.isFinite(bal) || !Number.isFinite(ts)) continue;
-    byDay.set(new Date(ts).toISOString().slice(0, 10), bal);
-  }
-  const sorted = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
-  if (sorted.length < 2) return [];
-  const rets = [];
-  let prev = initialBalance;
-  for (const bal of sorted) {
-    if (prev > 0) rets.push((bal - prev) / prev);
-    prev = bal;
-  }
-  return rets;
-}
-
 function compositeScore(m) {
   if (!m || m.totalTrades < MIN_TRADES) return -1000;
   if (m.maxDrawdown > 0.5) return -500;
@@ -265,7 +245,7 @@ function compositeScore(m) {
   // burden — each symbol's selection is an independent search.
   const equity = m._equityCurve ?? [];
   const initBal = m._initialBalance ?? 1000;
-  const rets = dailyReturnsFromEquity(equity, initBal);
+  const rets = [...dailyReturnsFromEquity(equity, initBal).values()];
   let dsrFactor = 1;
   if (rets.length >= 4 && Number.isFinite(sharpe)) {
     const dsr = deflatedSharpeRatio({

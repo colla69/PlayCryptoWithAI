@@ -26,6 +26,7 @@ import { timeframeMs } from '../utils/candleFreshness.js';
 import { hourlyRsiByClose } from '../engine/satellites.js';
 
 const CYCLE_DELAY_MS = 3_000; // live's cycles fire at the close + 3 s
+const SATELLITE_DELAY_MS = 60_000; // main.js runs the breakout one minute after the close
 const iso = (ts) => new Date(ts).toISOString();
 
 /** Index of the last element with timestamp ≤ ts (binary search), or -1. */
@@ -152,13 +153,15 @@ export async function replayEngine({
   const symbols = cfg.symbols.filter((s) => symbolCandles[s]?.length);
   const signalConfig = cfg.signals;
   let clock = fromTs;
-  let cycleTs = fromTs;
   const now = () => clock;
+  const equity = [{ timestamp: fromTs - 1, balance: initialBalance }];
+  let replayHwm = initialBalance;
 
   // What live holds at the cycle on T: closed bars plus the bar that opened at T,
   // seconds old — flat at its open. A symbol with no bar at T shows its closed bars.
   const visibleCache = new Map();
   const visible = (s) => {
+    const cycleTs = Math.floor(clock / tfMs) * tfMs;
     const key = `${s}|${cycleTs}`;
     if (visibleCache.has(key)) return visibleCache.get(key);
     const c = symbolCandles[s] ?? [];
@@ -218,18 +221,13 @@ export async function replayEngine({
     notifyTrade: () => {}, notifyAlert: async () => {}, pushEvent: () => {}, recordEquitySnapshot: () => {},
     // The sleeve's feeds as of the clock: its HWM ladder reads account equity, its
     // macro overlay the NASDAQ closes.
-    loadEquityHistory: () => [...equityHistory, ...equity.map((p) => ({ equity: p.balance }))],
+    loadEquityHistory: () => [...equityHistory, { equity: replayHwm }],
     loadNasdaqHistory: async () => ({ rows: nasdaqRows.filter((r) => r.t <= clock) }),
     modeLabel: 'replay',
     now,
   });
   engine.state.fearGreedData = fearGreedData;
 
-  // Satellites (config.satellites) step the 12h interval in 4h sub-windows: at each
-  // 4h close the breakout cycle runs, then the scalper's positions meet that window's
-  // 15m bars, then each resting order and satellite position does. Window by window,
-  // so a satellite never sees cash from a scalper exit that has not happened yet. The
-  // hourly RSI the tier exit reads comes from the 15m bars, keyed by each hour's close.
   const satellitesOn = cfg.satellites?.enabled === true;
   const rsiBySymbol = new Map();
   const rsiAt = (symbol, ts) => {
@@ -238,74 +236,95 @@ export async function replayEngine({
   };
   const SUB_MS = timeframeMs(cfg.satellites?.breakout?.timeframe ?? '4h');
   const M15 = 15 * 60 * 1000;
-
-  /** The scalper's open positions through their 15m bars in [from, to). */
-  async function scalperTicks(from, to) {
-    for (const pos of (await trader.getStatus()).positions) {
-      if (pos.isCore || pos.isSatellite) continue; // the sleeve exits on the vote flip, satellites by their plan
-      const bars = mtf15mCandles[pos.symbol];
-      if (!bars?.length) continue;
-      const entry = sim.positions.get(pos.symbol)?.entryTime ?? from;
-      for (let j = lastAtOrBefore(bars, from - 1) + 1; j < bars.length && Number(bars[j].timestamp) < to; j++) {
-        if (Number(bars[j].timestamp) < entry) continue;
-        clock = Number(bars[j].timestamp) + M15;
-        if (await engine.onPriceTick(pos.symbol, Number(bars[j].close), bars[j])) break;
-      }
-    }
-  }
-
-  async function intervalWithSatellites(from12, to12) {
-    for (let s = from12; s < to12; s += SUB_MS) {
-      const end = Math.min(s + SUB_MS, to12);
-      cycleTs = s; clock = s + CYCLE_DELAY_MS; sim.setTimestamp(s);
-      await engine.runSatelliteCycle('breakout');
-      await scalperTicks(s, end);
-      const keys = [...new Set([
-        ...trader.pendingSatelliteKeys(),
-        ...[...sim.positions.entries()].filter(([, p]) => p.isSatellite).map(([k]) => k),
-      ])];
-      for (const key of keys) {
-        const symbol = key.split('#')[0];
-        const bars = mtf15mCandles[symbol];
-        if (!bars?.length) continue;
-        for (let j = lastAtOrBefore(bars, s - 1) + 1; j < bars.length && Number(bars[j].timestamp) < end; j++) {
-          const t = Number(bars[j].timestamp);
-          clock = t + M15;
-          await engine.onSatelliteBar(key, bars[j], { rsi: rsiAt(symbol, t + M15) });
-          if (!sim.pendingSatellite.has(key) && !sim.positions.has(key)) break;
-        }
-      }
-    }
-    cycleTs = from12;
-  }
-
-  const equity = [];
+  // toTs names the last signal cycle; include that cycle's interval, but no later data.
+  const endTs = toTs + tfMs;
   const cycles = [...new Set(symbols.flatMap((s) => symbolCandles[s]
     .map((c) => Number(c.timestamp)).filter((t) => t >= fromTs && t <= toTs)))].sort((a, b) => a - b);
-  const pending = [...deposits].filter((d) => d.ts >= fromTs).sort((a, b) => a.ts - b.ts);
-
-  for (let k = 0; k < cycles.length; k++) {
-    cycleTs = cycles[k];
-    while (pending.length && pending[0].ts <= cycleTs) sim.deposit(pending.shift().amount);
-    clock = cycleTs + CYCLE_DELAY_MS;
-    sim.setTimestamp(cycleTs);
-    await engine.runAllSymbols();
-    // Live's risk loop marks core positions every 2 min; the replay marks them per cycle.
-    for (const [key, pos] of sim.positions) {
-      if (!pos.isCore) continue;
-      const price = Number(visible(key.split('#')[0]).at(-1)?.close);
-      if (price > 0) sim.markPrice(key, price);
+  const cycleEvents = new Map(cycles.map((t) => [t + CYCLE_DELAY_MS, t]));
+  const breakoutEvents = new Map();
+  const times = new Set([fromTs, endTs, ...cycleEvents.keys()]);
+  if (satellitesOn && cfg.satellites.breakout?.enabled) {
+    for (let t = Math.ceil(fromTs / SUB_MS) * SUB_MS; t + SATELLITE_DELAY_MS <= endTs; t += SUB_MS) {
+      breakoutEvents.set(t + SATELLITE_DELAY_MS, t);
+      times.add(t + SATELLITE_DELAY_MS);
     }
+  }
+  const pending = [...deposits].filter((d) => d.ts >= fromTs && d.ts <= endTs).sort((a, b) => a.ts - b.ts);
+  for (const d of pending) times.add(d.ts);
+  let nextDeposit = 0;
+  const priceSymbols = [...new Set([...symbols, ...Object.keys(mtf15mCandles)])];
+  const pointers = {};
+  const prices = {};
+  for (const symbol of priceSymbols) {
+    const bars = mtf15mCandles[symbol] ?? [];
+    const first = lastAtOrBefore(bars, fromTs - M15 - 1) + 1;
+    pointers[symbol] = first;
+    for (let k = first; k < bars.length && Number(bars[k].timestamp) + M15 <= endTs; k++) {
+      times.add(Number(bars[k].timestamp) + M15);
+    }
+  }
+  const markPositions = () => {
+    for (const key of sim.positions.keys()) {
+      const price = prices[key.split('#')[0]];
+      if (price > 0) trader.markPrice(key, price);
+    }
+  };
 
-    // Price ticks until the next close: each open position meets its 15m bars.
-    const nextTs = cycles[k + 1] ?? cycleTs + tfMs;
-    if (satellitesOn) await intervalWithSatellites(cycleTs, nextTs);
-    else await scalperTicks(cycleTs, nextTs);
+  for (const ts of [...times].sort((a, b) => a - b)) {
+    clock = ts;
+    // At a shared boundary, close the previous bars before deposits and new entries.
+    // Update every quote first so valuation never mixes one symbol's future with another's past.
+    const closed = new Map();
+    for (const symbol of priceSymbols) {
+      const bars = mtf15mCandles[symbol] ?? [];
+      let k = pointers[symbol];
+      while (k < bars.length && Number(bars[k].timestamp) + M15 <= ts) {
+        closed.set(symbol, bars[k]);
+        prices[symbol] = Number(bars[k].close);
+        k++;
+      }
+      pointers[symbol] = k;
+    }
+    markPositions();
+    for (const [key, pos] of [...sim.positions]) {
+      if (pos.isCore || pos.isSatellite) continue;
+      const bar = closed.get(key);
+      if (bar && Number(bar.timestamp) >= pos.entryTime) await engine.onPriceTick(key, Number(bar.close), bar);
+    }
+    if (satellitesOn) {
+      const keys = new Set([
+        ...trader.pendingSatelliteKeys(),
+        ...[...sim.positions].filter(([, p]) => p.isSatellite).map(([key]) => key),
+      ]);
+      for (const key of keys) {
+        const symbol = key.split('#')[0];
+        const bar = closed.get(symbol);
+        if (bar) await engine.onSatelliteBar(key, bar, { rsi: rsiAt(symbol, Number(bar.timestamp) + M15) });
+      }
+    }
+    while (nextDeposit < pending.length && pending[nextDeposit].ts <= ts) {
+      sim.deposit(pending[nextDeposit++].amount);
+    }
+    if (cycleEvents.has(ts)) {
+      const cycleTs = cycleEvents.get(ts);
+      for (const symbol of symbols) {
+        const bars = symbolCandles[symbol];
+        const k = lastAtOrBefore(bars, cycleTs);
+        if (k >= 0 && Number(bars[k].timestamp) === cycleTs) prices[symbol] = Number(bars[k].open);
+      }
+      markPositions();
+      sim.setTimestamp(cycleTs);
+      await engine.runAllSymbols();
+    }
+    if (breakoutEvents.has(ts)) {
+      sim.setTimestamp(breakoutEvents.get(ts));
+      await engine.runSatelliteCycle('breakout');
+    }
+    markPositions();
     const status = await trader.getStatus();
-    equity.push({
-      timestamp: cycleTs,
-      balance: status.balance + (status.reserved ?? 0) + status.positions.reduce((s, p) => s + p.qty * p.currentPrice, 0),
-    });
+    const balance = status.balance + (status.reserved ?? 0) + status.positions.reduce((s, p) => s + p.qty * p.currentPrice, 0);
+    equity.push({ timestamp: ts, balance });
+    if (cycleEvents.has(ts)) replayHwm = Math.max(replayHwm, balance);
   }
 
   return { trades: trader.trades, signals: dashboardState.signals, equity, sim };

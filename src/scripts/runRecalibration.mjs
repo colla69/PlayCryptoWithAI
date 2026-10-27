@@ -37,6 +37,7 @@ import config from '../../config/default.js';
 import * as bf from '../backtester/baselineFramework.js';
 import { replayEngine } from '../backtester/engineReplay.js';
 import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
+import { annualizedSharpe, dailyReturnsFromEquity } from '../backtester/metrics.js';
 
 const argv = process.argv.slice(2);
 const arg = (n, d = null) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : d);
@@ -136,27 +137,23 @@ function applyCell(cell) {
 
 /** Deposit-adjusted metrics from the per-cycle equity curve. */
 function metrics(equity, deposits, fromTs, nTrials, start = START_BALANCE) {
-  const daily = new Map();
   let prev = start;
   let index = 1;
   let peak = 1;
   let maxDD = 0;
   let k = 0;
   for (const p of equity) {
+    if (p.timestamp < fromTs) continue;
     let dep = 0;
     while (k < deposits.length && deposits[k].ts <= p.timestamp) dep += deposits[k++].amount;
     const r = prev > 0 ? (p.balance - dep) / prev - 1 : 0;
     index *= 1 + r;
     peak = Math.max(peak, index);
     maxDD = Math.max(maxDD, 1 - index / peak);
-    const day = Math.floor(p.timestamp / 86_400_000);
-    daily.set(day, (daily.get(day) ?? 1) * (1 + r));
     prev = p.balance;
   }
-  const rets = [...daily.values()].map((g) => g - 1);
-  const mean = rets.reduce((s, x) => s + x, 0) / Math.max(rets.length, 1);
-  const sd = Math.sqrt(rets.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(rets.length - 1, 1));
-  const sharpe = sd > 0 ? (mean / sd) * Math.sqrt(252) : 0;
+  const rets = [...dailyReturnsFromEquity(equity, start, deposits, fromTs).values()];
+  const sharpe = annualizedSharpe(rets);
   return {
     twr: index - 1, maxDD, sharpe,
     dsr: deflatedSharpeRatio({ observedSharpe: sharpe, returns: rets, nTrials }).dsr,

@@ -228,7 +228,12 @@ export function calcCoreClaims({
     claim(baseOfCoreKey(key), Number(position?.qty ?? 0));
   }
   const pendingEntries = pendingOrders instanceof Map ? [...pendingOrders.entries()] : Object.entries(pendingOrders ?? {});
-  for (const [key, order] of pendingEntries) claim(baseOfCoreKey(key), Number(order?.qty ?? 0));
+  const liveByKey = new Map(liveEntries);
+  for (const [key, order] of pendingEntries) {
+    const position = liveByKey.get(key) ?? savedState[key];
+    const accounted = Math.max(Number(order?.filledQty ?? 0), Number(position?.orderFilledQty ?? 0));
+    claim(baseOfCoreKey(key), Math.max(0, Number(order?.qty ?? 0) - accounted));
+  }
 
   for (const [key, saved] of Object.entries(savedState ?? {})) {
     if (!isCoreRecord(key, saved)) continue;

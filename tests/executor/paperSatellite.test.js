@@ -31,6 +31,14 @@ describe('paper satellites', () => {
     assert.equal(t.getStatus().positions[0].isSatellite, true);
   });
 
+  test('a filling tick already under the stop exits on that tick', () => {
+    const t = trader(); place(t);
+    const exit = t.satelliteTick('ETH/USDC#bo', 95.5, { now: T0 + 60_000 });
+    assert.equal(exit.reason, 'sat_stop');
+    assert.equal(exit.exitPrice, 95.5);
+    assert.equal(t.getStatus().positions.length, 0);
+  });
+
   test('unfilled by validUntil → cancelled, cash back', () => {
     const t = trader(); place(t);
     assert.equal(t.satelliteTick('ETH/USDC#bo', 98, { now: T0 + 4 * H }), null);

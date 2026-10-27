@@ -32,6 +32,7 @@
 import config from '../../config/default.js';
 import { PortfolioBacktester } from './index.js';
 import { deflatedSharpeRatio } from './deflatedSharpe.js';
+import { annualizedSharpe, dailyReturnsFromEquity } from './metrics.js';
 import {
   buildPerSymbolOverrides,
   FULL_LIVE_FILTERS,
@@ -298,26 +299,8 @@ export function aggregateFolds(foldResults, { budget, nTrialsForDSR = 16280 }) {
   const totalReturn = (finalBalance - budget) / budget;
 
   // Daily returns from stitched equity
-  const byDay = new Map();
-  for (const p of stitched) {
-    const day = new Date(p.timestamp).toISOString().slice(0, 10);
-    byDay.set(day, p.balance);
-  }
-  const dailyBalances = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
-  const dailyReturns = [];
-  let prev = budget;
-  for (const bal of dailyBalances) {
-    if (prev > 0) dailyReturns.push((bal - prev) / prev);
-    prev = bal;
-  }
-  const meanRet = dailyReturns.length
-    ? dailyReturns.reduce((s, v) => s + v, 0) / dailyReturns.length
-    : 0;
-  const variance = dailyReturns.length > 1
-    ? dailyReturns.reduce((s, v) => s + (v - meanRet) ** 2, 0) / (dailyReturns.length - 1)
-    : 0;
-  const std = Math.sqrt(variance);
-  const sharpe = std > 0 ? (meanRet / std) * Math.sqrt(252) : 0;
+  const dailyReturns = [...dailyReturnsFromEquity(stitched, budget).values()];
+  const sharpe = annualizedSharpe(dailyReturns);
 
   // Max drawdown from stitched curve
   let peak = budget;
@@ -399,12 +382,8 @@ export function monteCarloShuffle({
       if (peak > 0) maxDD = Math.max(maxDD, (peak - balance) / peak);
       if (prev > 0) rets.push((balance - prev) / prev);
     }
-    const meanR = rets.length ? rets.reduce((s, v) => s + v, 0) / rets.length : 0;
-    const variance = rets.length > 1
-      ? rets.reduce((s, v) => s + (v - meanR) ** 2, 0) / (rets.length - 1)
-      : 0;
-    const std = Math.sqrt(variance);
-    const sharpe = std > 0 ? (meanR / std) * Math.sqrt(252) : 0;
+    // These are per-trade observations, not daily returns.
+    const sharpe = annualizedSharpe(rets, 1);
     return {
       totalReturn: (balance - initialBalance) / initialBalance,
       maxDD,

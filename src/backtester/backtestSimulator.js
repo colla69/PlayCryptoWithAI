@@ -145,6 +145,7 @@ export class BacktestSimulator {
     const position = this.positions.get(key);
     if (!position?.isCore) return null;
     const p = roundPrice(Number(price));
+    position.lastPrice = p;
     const slip = slippagePct != null ? Number(slippagePct) : this.slippagePct;
     if (deltaUsd > 0) {
       const spend = roundMoney(Math.min(deltaUsd, this.balance));
@@ -258,7 +259,8 @@ export class BacktestSimulator {
       this.totalFees = roundMoney(this.totalFees + position.entryFee);
       this.positions.set(key, position);
       this.satelliteStats.filled += 1;
-      if (low <= position.stopLoss) return this.#closePosition(key, position.stopLoss, 'sat_stop', { slippagePct: order.slippagePct });
+      // A bar that opens under the stop gaps through it: the exit is the open, not the stop.
+      if (low <= position.stopLoss) return this.#closePosition(key, Math.min(position.stopLoss, open), 'sat_stop', { slippagePct: order.slippagePct });
       position.highWaterMark = Math.max(fill, close);
       return { ...position, symbol: key, side: 'BUY' };
     }

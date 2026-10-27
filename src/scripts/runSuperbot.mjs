@@ -20,39 +20,24 @@ import fs from 'fs';
 import config from '../../config/default.js';
 import { loadAllSymbols, loadMtfCandles, SLIPPAGE_TIERS } from '../backtester/baselineFramework.js';
 import { replayEngine } from '../backtester/engineReplay.js';
+import { annualizedSharpe, dailyReturnsFromEquity, DAYS_PER_YEAR } from '../backtester/metrics.js';
 
 const argv = process.argv.slice(2);
 const arg = (name, dflt = null) => (argv.includes(`--${name}`) ? argv[argv.indexOf(`--${name}`) + 1] : dflt);
 const WEEK = 7 * 86_400_000;
 const DAY = 86_400_000;
 
-/** Daily time-weighted returns from equity points, deposits taken out. */
-function dailyReturns(equity, deposits) {
-  const depBy = (t) => deposits.filter((d) => d.ts <= t).reduce((s, d) => s + d.amount, 0);
-  const out = new Map();
-  for (let i = 1; i < equity.length; i++) {
-    const prev = equity[i - 1]; const cur = equity[i];
-    if (!(prev.balance > 0)) continue;
-    const r = (cur.balance - (depBy(cur.timestamp) - depBy(prev.timestamp))) / prev.balance - 1;
-    const d = Math.floor(cur.timestamp / DAY);
-    out.set(d, (1 + (out.get(d) ?? 0)) * (1 + r) - 1);
-  }
-  return out;
-}
-
 function metrics(rets) {
   if (rets.length < 20) return null;
-  const m = rets.reduce((s, v) => s + v, 0) / rets.length;
-  const sd = Math.sqrt(rets.reduce((s, v) => s + (v - m) ** 2, 0) / rets.length);
   let tw = 1; let pk = 1; let dd = 0;
   for (const v of rets) { tw *= 1 + v; pk = Math.max(pk, tw); dd = Math.max(dd, 1 - tw / pk); }
-  return { ret: tw - 1, ann: tw ** (365.25 / rets.length) - 1, sharpe: sd ? (m / sd) * Math.sqrt(365) : 0, dd };
+  return { ret: tw - 1, ann: tw ** (DAYS_PER_YEAR / rets.length) - 1, sharpe: annualizedSharpe(rets), dd };
 }
 
 if (arg('report')) {
   const runs = arg('report').split(',').map((f) => JSON.parse(fs.readFileSync(f, 'utf8')));
   const foldMonths = Number(arg('fold-months', 6));
-  const series = runs.map((r) => ({ cell: r.cell, rets: dailyReturns(r.equity, r.deposits), final: r.equity.at(-1).balance, deposited: r.deposited, sim: r.sim }));
+  const series = runs.map((r) => ({ cell: r.cell, rets: dailyReturnsFromEquity(r.equity, r.start, r.deposits, Date.parse(r.from)), final: r.equity.at(-1).balance, deposited: r.deposited, sim: r.sim }));
   const days = [...series[0].rets.keys()].sort((a, b) => a - b);
   const pct = (x, d = 1) => (x == null ? '—' : `${(100 * x).toFixed(d)}%`);
   console.log('Whole period');

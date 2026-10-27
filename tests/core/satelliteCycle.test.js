@@ -72,7 +72,7 @@ function build({ breakouts = SYMBOLS, rising = true, satPatch = {}, traderHasLim
     notifyTrade: () => {}, notifyAlert: async () => {}, pushEvent: () => {}, recordEquitySnapshot: () => {},
     modeLabel: 'replay', now: () => NOW,
   });
-  return { engine, sim, riskManager };
+  return { engine, sim, riskManager, trader };
 }
 
 describe('engine: satellite breakout cycle', () => {
@@ -101,6 +101,25 @@ describe('engine: satellite breakout cycle', () => {
     assert.equal((await build({ satPatch: { enabled: false } }).engine.runSatelliteCycle('breakout')).length, 0);
     assert.equal((await build({ traderHasLimits: false }).engine.runSatelliteCycle('breakout')).length, 0);
   });
+
+  test('the daily-loss brake blocks new satellite orders', async () => {
+    const { engine, sim, riskManager } = build();
+    riskManager.recordTrade(-100);
+    assert.equal(riskManager.getDailyStats().blocked, true);
+    assert.equal((await engine.runSatelliteCycle('breakout')).length, 0);
+    assert.equal(sim.reserved, 0);
+  });
+
+  test('the daily-loss brake is checked again between satellite orders', async () => {
+    const { engine, riskManager, trader } = build();
+    const place = trader.placeSatelliteOrder;
+    trader.placeSatelliteOrder = async (...args) => {
+      const order = await place(...args);
+      riskManager.recordTrade(-100);
+      return order;
+    };
+    assert.equal((await engine.runSatelliteCycle('breakout')).length, 1);
+  });
 });
 
 describe('engine: satellite bars', () => {
@@ -109,9 +128,10 @@ describe('engine: satellite bars', () => {
     const [order] = await engine.runSatelliteCycle('breakout');
     const fill = await engine.onSatelliteBar('AAA/USDC#bo', { timestamp: T, open: 103.5, high: 103.6, low: order.limitPrice - 0.1, close: 103.4 });
     assert.equal(fill.side, 'BUY');
+    riskManager.recordTrade(-100);
     const exit = await engine.onSatelliteBar('AAA/USDC#bo', { timestamp: T + 900_000, open: 100, high: 100, low: 90, close: 91 });
     assert.equal(exit.reason, 'sat_stop');
     assert.ok(exit.pnl < 0);
-    assert.equal(riskManager.getDailyStats().dailyPnL, exit.pnl);
+    assert.equal(riskManager.getDailyStats().dailyPnL, Number((-100 + exit.pnl).toFixed(2)));
   });
 });
