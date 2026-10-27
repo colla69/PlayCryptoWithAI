@@ -2221,3 +2221,27 @@ universes and costs of § G, combo + M1 as the base.
   section G backtests of EX1/EX7 were biased by later relabelling.
 - Before reading the window, `runTrendCore.mjs` gets a snapshot input for EX1/EX7 that calls
   `gaugesAsOf()`, checked against the downloaded history on days where both exist.
+
+## Section I: the 10% stop rule on the scalper (pre-registered 2026-10-28, before any run)
+
+The user's rule: no stop more than 10% below entry. The SL/TP × 1.5 change (`4b2f365`) left 15 of
+the 37 traded coins above it: 14 at 10.5% (XRP, BCH, LSK, PAXG, SOL, AVAX, DOGE, INJ, WLD, PEPE,
+GRAM, RENDER, ENA, ICP) and TRX at 18% (12% on master). The satellites already cap at 10%
+(`maxStopPct`). User request: "I would like to know what happens when we enforce the 10%; run
+tests first."
+
+**Change measured:** every `perSymbol.*.stopLossPct` above 0.10 set to 0.10, in memory by a
+preload (`--import`), config file unchanged. Targets, break-even and everything else unchanged.
+
+**Runs, each against a reference run made the same day with no preload:**
+1. Six-year replay, bot + breakout (`runSuperbot.mjs --cell bot+bo`, deep set, $190 + $10 a week,
+   2020-06-01 → 2026-08-10). The reference must reproduce $6,721.65 / Sharpe 1.9826, or the set
+   is wrong and nothing is reported.
+2. Two-window baseline (`runBaseline.mjs`, deep set, the scalper): every window, WR gap.
+3. Walk-forward at live sizing (`runWalkForward.mjs --live-sizing`, deep set).
+4. Unseen 2026-08-10 → 10-24 (`runSuperbot.mjs`, live set): reference $311.97.
+
+**Reported:** return, Sharpe, worst drop, trade count, and the worst single scalper trade (a 10%
+stop can still lose more on a gap). **No pass/fail:** the rule is the user's, so the cap is the
+user's decision; the runs show its cost. Expected: the 14 coins at 10.5% barely move; TRX moves
+most. The TSM sleeve has no stop (it exits on a vote flip); its worst trade is reported too.
