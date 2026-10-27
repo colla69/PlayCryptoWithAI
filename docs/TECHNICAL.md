@@ -87,6 +87,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | `backtestSimulator.js` | Per-trade execution (next-open fills, tiered slippage, ATR/two-stage infra) |
 | `metrics.js` | Sharpe, Sortino, drawdown, profit factor, win rate |
 | `deflatedSharpe.js` | Deflated/Probabilistic Sharpe (Bailey & López de Prado) — multiple-testing correction |
+| `overfitting.js` | Probability of backtest overfitting (CSCV, Bailey et al. 2017) and combinatorial purged cross-validation (López de Prado 2018; same splits as skfolio's `CombinatorialPurgedCV`) — does picking the best trial work? |
 | `baselineFramework.js` | Reusable multi-window baseline runner (full live filter stack) |
 | `walkForward.js` | Forward-only walk-forward harness + Monte Carlo trade shuffle |
 | `stressReport.js` | Pure stoplight verdict (🟢/🟡/🔴) over stress windows — used by `runBaseline --stoplight` |
@@ -101,6 +102,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | `perSymbolOptimizer.mjs` | Exhaustive strategy combo search; MIN_TRADES≥8, deflated-Sharpe gate, shared aggregator |
 | `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
 | `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
+| `runOverfitting.mjs` | PBO, CPCV paths and the deflated Sharpe for a set of trials (`--runs` runSuperbot outputs or `--matrix`) |
 | `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
 | `repairPhantomState.mjs` | One-shot ops repair (2026-08-03 incident): strip the phantom scalper position that absorbed the core sleeve's ETH from state/trade/equity files. Bot stopped; dry-run by default, `--apply` to write; idempotent, refuses to write if files don't match the incident state |
 | `repairFrozenCoreEquity.mjs` | One-shot ops repair (2026-08-10 incident): rewrite the 08-04→08-09 `equity_history.json` snapshots frozen by the unmarked core legs, from verified Binance 1m closes. Bot stopped; dry-run by default, `--apply` to write; idempotent, writes `.bak` |
