@@ -103,6 +103,7 @@ Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/
 | `npm run paper` | Force paper mode |
 | `npm run backtest:portfolio` | Full 37-coin portfolio backtest |
 | `npm run download-history` | Download candle history from Binance |
+| `npm run record-gauges` | Daily snapshot of Coin Metrics exchange flows for the forward check (plan doc § H) |
 | `npm run optimize` | Per-symbol strategy optimizer |
 | `npm run compare` | Strategy comparison across symbols |
 | `npm test` | Unit tests (Node test runner) |

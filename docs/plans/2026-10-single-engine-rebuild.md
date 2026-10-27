@@ -2187,3 +2187,35 @@ Test (b) is what Arefev's warning is about. Remove the best 1% of bars and both 
 their Sharpe: the returns of either come from a few big bars. combo stays ahead of buy and hold
 in every row, so the sleeve does not depend on one outlier any more than holding the coins does.
 Nothing changes.
+
+## Section H: record the untestable gauges forward (pre-registered 2026-10-27, before any forward data exists)
+
+Three web searches (sections D–G) found no new entry signal that survives costs. Two gauges looked
+good but could not be tested honestly. This section records data from now on, so they can be
+judged on data nobody has seen.
+
+**What is recorded.** `src/scripts/recordContextGauges.mjs` (`npm run record-gauges`) appends one
+snapshot a day per asset (BTC, ETH) to `data/context/snapshots/cm_exchange_<asset>.jsonl`: the
+last 45 days of Coin Metrics `SplyExNtv`, `FlowInExNtv` and `FlowOutExNtv`, exactly as the API
+returns them at that time. `src/backtester/gaugeSnapshots.js` rebuilds EX1 and EX7 (§ G2) at a
+decision time from the newest snapshot recorded at or before it, never from a later one. A
+snapshot older than 2 days is a gap (gauge neutral). `--report` prints the latest gauges and how
+much published values changed between snapshots. The first snapshot (2026-10-27 22:15 UTC) gives
+the same BTC gauges as the downloaded history for 2026-10-26.
+
+**What is not recorded, and why.** The 30-day Coinbase premium (CB30, § F2) and perp open interest
+are built from price and exchange history that is not revised, so they can be rebuilt later from
+the same downloads.
+
+**Forward check, decided now.** Window: 2026-10-28 → 2027-04-28, Binance USDT 12h bars, the
+universes and costs of § G, combo + M1 as the base.
+- EX7 (BTC gauge, from the snapshots) and CB30 (from prices), each as a half-size overlay on
+  combo + M1.
+- **Pass:** the overlay's Sharpe is above combo + M1's on **both** universes over the window.
+  Six months is about 360 bars, so a pass only earns a second six-month check. It does not earn a
+  build. A fail on either universe closes the gauge.
+- Reported, not deciding: EX1, the share of bars each gauge is on, the number of gap days, and
+  the largest revision seen between snapshots. A revision of more than 1% in `SplyExNtv` means the
+  section G backtests of EX1/EX7 were biased by later relabelling.
+- Before reading the window, `runTrendCore.mjs` gets a snapshot input for EX1/EX7 that calls
+  `gaugesAsOf()`, checked against the downloaded history on days where both exist.
