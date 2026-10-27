@@ -313,6 +313,32 @@ export async function fetchOrderStatus(orderId, symbol) {
   return client.fetchOrder(orderId, symbol);
 }
 
+/**
+ * Read-only: this account's commission rates for `symbol` (GET /api/v3/account/commission),
+ * as fractions — the standard maker/taker rate, any special per-pair rate added on top, and
+ * the BNB-payment discount. Places no order.
+ */
+export async function fetchCommission(symbol) {
+  if (paperMode) throw new Error('fetchCommission needs API keys (PAPER_MODE off)');
+  await ensureMarketsLoaded();
+  const r = await withRetry(
+    () => client.privateGetAccountCommission({ symbol: client.marketId(symbol) }),
+    { label: `fetchCommission(${symbol})` },
+  );
+  const rates = (c) => ({ maker: Number(c?.maker ?? 0), taker: Number(c?.taker ?? 0) });
+  return {
+    symbol,
+    standard: rates(r.standardCommission),
+    special: rates(r.specialCommission),
+    tax: rates(r.taxCommission),
+    discount: {
+      enabled: Boolean(r.discount?.enabledForAccount && r.discount?.enabledForSymbol),
+      asset: r.discount?.discountAsset ?? null,
+      rate: Number(r.discount?.discount ?? 0),
+    },
+  };
+}
+
 export async function testConnection() {
   const mode = paperMode ? 'paper' : testnetMode ? 'testnet' : 'live';
 
@@ -355,6 +381,7 @@ export default {
   cancelOrder,
   fetchOpenOrders,
   fetchOrderStatus,
+  fetchCommission,
   testConnection,
   paperMode,
   testnetMode,
