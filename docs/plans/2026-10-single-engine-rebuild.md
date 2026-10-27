@@ -1437,3 +1437,28 @@ level with or slightly behind realized vol. Per the pre-registration, stage 2 (l
   cent. Paper boot: BTC sized on implied vol 38%, ETH 53%.
 
 E2 (DVOL sizing on the breakout) is next and gets its own pre-registration.
+
+## Section E2: DVOL sizing on the breakout (pre-registered 2026-10-27, before any breakout-by-DVOL number was read)
+
+Baseline: bot + breakout with E1 on, the six-year replay through the config path ($6,721.90 above),
+same window, deposits and candle set.
+
+**Rule.** Each breakout entry is sized `equity × perTradePct × f` instead of `equity × perTradePct`,
+with `f = min(1, max(0.2, 0.6 / dvol))` — the sleeve's own target and floor, unchanged, so no new
+number is fitted. `dvol` = BTC's DVOL ÷ 100, the close of the last 12h bar closed by the cycle time
+(`impliedVolAsOf`, null after 24 h). One gauge for all 8 breakout coins, ETH included: the alts have
+no index, and BTC DVOL stands for market-wide fear. No DVOL (before 2021-03-24, or none within 24 h)
+→ `f = 1`, today's size. The cap at the free balance and the $11 floor apply after `f`, so a smaller
+order can be refused at small equity — that is counted, not corrected. The strongest-coin satellite
+is off and is not changed. No other target, floor, gauge or per-coin variant is tried.
+
+Why it might help: the breakout's losers cluster in panics (wide 4h ranges, false breaks, gap-through
+stops); implied vol is high exactly then. Expected effect: it bites only when BTC DVOL is above 60,
+mostly 2021–22, so the post-2024 folds should be nearly identical.
+
+1. *Stage 1 — replay only* (research flag). Pass: beat the baseline's six-year Sharpe **and** its
+   Sharpe in at least half of the 6-month folds starting on or after 2021-04-01. Report 2024-05 →
+   2026-08 and the unseen 2026-08 → 10 separately, plus breakout trades taken, orders refused under
+   the floor, and the mean `f` at entry. A fail ends the idea.
+2. *Stage 2 — live side*, only on a pass: config flag, the shared engine path (`planSatelliteEntry`),
+   the DVOL loader both sides already have, a row in `liveParityInventory.test.js`, tests.
