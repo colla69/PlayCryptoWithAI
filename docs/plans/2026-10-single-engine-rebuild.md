@@ -1645,3 +1645,30 @@ the parity tests hold equal to live:
   static parity fixtures now require it to score through `symbolTrial.js`.
 - Smoke run, ETH (live set): of 2,280 training combos, 648 take a trade under the live filters and
   53 reach 8 trades; the current combo takes 2 holdout trades.
+
+## Section E, item 4, part 2: does a per-coin combo pick hold up? (pre-registered 2026-10-27, before any trial was run)
+
+M3 measures the optimizer's search now that it runs the live filters. Diagnostic first: no bot
+setting changes from it.
+
+- Trials: for each of the 37 coins, the optimizer's menu — 1,140 three-strategy combos × minConfidence
+  0.55 / 0.70 = 2,280 single-coin trials (`symbolTrial.js`: live filters and sizing, the coin's own
+  stop and target from config, $1,000, no deposits). Deep set (`724b7eed`), trading 2020-06-01 →
+  2026-08-10. Series: each trial's daily return.
+- R1, per coin: PBO (CSCV, 16 blocks) and the share of halvings where the in-sample winner loses
+  money; also how many trials trade at all and how many reach 8 trades.
+- R2, walk-forward refit (decides): at each fold start (every 6 months from 2022-06-01, 9 folds, the
+  last one ends 2026-08-10), each coin picks the trial with the best Sharpe over the prior 24 months
+  among trials with ≥ 8 entries in those 24 months, and holds it for the fold; no eligible trial →
+  the coin sits out. Book = equal-weight mean of the 37 coins' daily returns (sitting out = 0).
+  Control A: EMA+HeikinAshi+PSAR at 0.55 on every coin (the C8/M1 best shared combo), same engine.
+  Control B (report only, in-sample after 2024-05): today's per-coin config.
+  **Pass:** R2's Sharpe over 2022-06-01 → 2026-08-10 beats A, and R2 beats A in at least 5 of the 9
+  folds.
+- Approximation: R2 switches between trial columns at a fold boundary, so a position open in the
+  old trial is dropped there and the new trial's state is taken as it stands.
+- Expected in advance: high per-coin PBO (2,280 overlapping trials, few trades each) and an R2 fail
+  — C8 point 3 saw menu refits pick yesterday's winner.
+- What it decides: a fail means no per-coin retune is applied; the optimizer stays a tool, and the
+  per-coin question moves to the cross-coin ranker (one model for all coins, part 3). A pass sends
+  the forward-only picks to the portfolio replay (stage 2, pass rule as section D).

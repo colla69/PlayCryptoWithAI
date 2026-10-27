@@ -214,8 +214,9 @@ if (inSpan < candleCount * 0.8) {
 
 const { symbolRisk } = buildPerSymbolOverrides(symbols);
 const fearGreedData = await loadFearGreedHistory();
-const mtf15m = loadMtfCandles(symbols, '15m');
-const mtf4h = loadMtfCandles(symbols, '4h');
+// Only the coin under test trades, so only its 15m/4h bars are read (gates, stop replay)
+const mtf15m = loadMtfCandles([symbol], '15m');
+const mtf4h = loadMtfCandles([symbol], '4h');
 const btConfig = (tradeFromTs) => ({
   risk: {
     ...(config.risk ?? {}), initialBalance: 1000, basePctOverride: config.risk?.maxPositionPct,
