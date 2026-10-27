@@ -226,11 +226,13 @@ export class PortfolioBacktester {
 
   /**
    * @param {object} symbolCandles
-   * @param {{rows?: object}} [opts] — rows from computeSignalRows() on the same
-   *   candles and signal config. Stop, target and sizing settings do not change the
-   *   rows, so a sweep over them computes the signals once (runStopSweep.mjs).
+   * @param {{rows?: object, shared?: object}} [opts] — rows from computeSignalRows()
+   *   on the same candles and signal config. Stop, target and sizing settings do not
+   *   change the rows, so a sweep over them computes the signals once
+   *   (runStopSweep.mjs). `shared` from computeSharedSeries() on the same candles
+   *   object: a sweep over strategy sets reuses it (symbolTrial.js).
    */
-  run(symbolCandles, { rows: precomputed = null } = {}) {
+  run(symbolCandles, { rows: precomputed = null, shared = null } = {}) {
     const symbols = Object.keys(symbolCandles);
     if (!symbols.length) throw new Error('No candles provided');
 
@@ -286,39 +288,8 @@ export class PortfolioBacktester {
     });
 
     const allData = precomputed ?? this.#precomputeData(symbolCandles, symbols);
-
-    // Build per-symbol 12h→15m index for MTF alignment filter AND early exit
-    const mtfIndex = {};
-    if (this.mtfFilter || this.mtfEarlyExit) {
-      for (const sym of symbols) {
-        const c15m = this.mtfSymbolCandles[sym];
-        if (c15m?.length) {
-          mtfIndex[sym] = buildMtfIndex(symbolCandles[sym], c15m);
-        }
-      }
-    }
-
-    // Build per-symbol 12h→4h index for 4h momentum filter
-    const mtf4hIndex = {};
-    if (this.mtf4hFilter) {
-      for (const sym of symbols) {
-        const c4h = this.mtf4hSymbolCandles[sym];
-        if (c4h?.length) {
-          mtf4hIndex[sym] = buildMtf4hIndex(symbolCandles[sym], c4h);
-        }
-      }
-    }
-
-    // ── Regime series (Phase 4) ────────────────────────────────────────────
-    // Pre-compute BTC regime at every bar so per-step logic can branch on it
-    // deterministically. classifySeries handles all warm-up + hysteresis.
-    const btcKey = symbolCandles['BTC/USDC'] ? 'BTC/USDC' : (symbolCandles['BTC/USDT'] ? 'BTC/USDT' : null);
-    const regimeSeries = btcKey
-      ? classifySeries(symbolCandles[btcKey], this.config.regimeClassifier ?? {})
-      : [];
-    // Index regimeSeries by timestamp for fast per-step lookup.
-    const regimeByTs = new Map();
-    for (const r of regimeSeries) regimeByTs.set(r.ts, r.regime);
+    if (shared && shared.source !== symbolCandles) throw new Error('run: shared series were computed on other candles');
+    const { mtfIndex, mtf4hIndex, btcKey, regimeSeries, regimeByTs, macroBullAt } = shared ?? this.computeSharedSeries(symbolCandles);
 
     // ── One clock for every symbol ─────────────────────────────────────────
     // Live evaluates every symbol at the same candle close, so a step is one
@@ -463,7 +434,7 @@ export class PortfolioBacktester {
       // Macro bear filter: check BTC vs EMA(emaPeriod) using BTC bars up to this step's time
       let macroBull = true;
       if (this.macroFilter && btcCandles) {
-        macroBull = isBullTrend(btcCandles.slice(0, btcIdx + 1), this.macroEMAPeriod);
+        macroBull = macroBullAt(btcIdx);
       }
 
       // MTF early exit: for each open losing position, check if 15m trend is strongly
@@ -852,11 +823,59 @@ export class PortfolioBacktester {
    * directly. Used by the live reconciliation; `run()` builds its rows with the
    * same private routine, so the two cannot drift.
    */
-  computeSignalRows(symbolCandles) {
-    return this.#precomputeData(symbolCandles, Object.keys(symbolCandles));
+  computeSignalRows(symbolCandles, { base = null } = {}) {
+    return this.#precomputeData(symbolCandles, Object.keys(symbolCandles), base);
   }
 
-  #precomputeData(symbolCandles, symbols) {
+  /**
+   * The series `run()` reads that depend on the candles only, not on the strategies
+   * or the thresholds: the 12h→15m and 12h→4h indexes, the BTC regime at every bar
+   * (classifySeries handles warm-up and hysteresis), and the macro trend as of each
+   * BTC bar (filled on first use). `run()` builds them here; a sweep over strategy
+   * sets on the same candles object passes them back in.
+   */
+  computeSharedSeries(symbolCandles) {
+    const symbols = Object.keys(symbolCandles);
+    // Per-symbol 12h→15m index for the MTF alignment filter AND early exit
+    const mtfIndex = {};
+    if (this.mtfFilter || this.mtfEarlyExit) {
+      for (const sym of symbols) {
+        const c15m = this.mtfSymbolCandles[sym];
+        if (c15m?.length) mtfIndex[sym] = buildMtfIndex(symbolCandles[sym], c15m);
+      }
+    }
+    // Per-symbol 12h→4h index for the 4h momentum filter
+    const mtf4hIndex = {};
+    if (this.mtf4hFilter) {
+      for (const sym of symbols) {
+        const c4h = this.mtf4hSymbolCandles[sym];
+        if (c4h?.length) mtf4hIndex[sym] = buildMtf4hIndex(symbolCandles[sym], c4h);
+      }
+    }
+    const btcKey = symbolCandles['BTC/USDC'] ? 'BTC/USDC' : (symbolCandles['BTC/USDT'] ? 'BTC/USDT' : null);
+    const regimeSeries = btcKey
+      ? classifySeries(symbolCandles[btcKey], this.config.regimeClassifier ?? {})
+      : [];
+    const regimeByTs = new Map();
+    for (const r of regimeSeries) regimeByTs.set(r.ts, r.regime);
+    // BTC above its EMA on BTC bars 0..k (k = -1: none closed yet)
+    const macroMemo = new Map();
+    const macroBullAt = (k) => {
+      if (!macroMemo.has(k)) macroMemo.set(k, isBullTrend(symbolCandles[btcKey].slice(0, k + 1), this.macroEMAPeriod));
+      return macroMemo.get(k);
+    };
+    return { source: symbolCandles, mtfIndex, mtf4hIndex, btcKey, regimeSeries, regimeByTs, macroBullAt };
+  }
+
+  /** Detach the aggregators from the signal bus — for callers that build thousands (symbolTrial.js). */
+  destroy() {
+    for (const agg of Object.values(this.aggregators)) agg.destroy();
+  }
+
+  // `base`: rows from an earlier call on the same candles. Their price-only fields
+  // (ATR%, ADX, volume, momentum) do not depend on the strategies and are reused, so
+  // a sweep over strategy sets recomputes only the vote.
+  #precomputeData(symbolCandles, symbols, base = null) {
     const allData = {};
 
     for (const sym of symbols) {
@@ -864,6 +883,10 @@ export class PortfolioBacktester {
       allData[sym] = [];
 
       for (let i = MIN_WARMUP; i < candles.length; i++) {
+        const prior = base?.[sym]?.[i - MIN_WARMUP];
+        if (base && Number(prior?.timestamp) !== Number(candles[i].timestamp)) {
+          throw new Error(`${sym}: base rows do not match the candles at bar ${i}`);
+        }
         const start = this.maxLookback > 0 ? Math.max(0, i - this.maxLookback) : 0;
         const slice = candles.slice(start, i + 1);
         const candle = slice.at(-1);
@@ -878,10 +901,10 @@ export class PortfolioBacktester {
         // the closed bars plus a forming bar seconds old — flat at the open. The
         // strategies drop the last bar either way, so the decision is unchanged.
         const open = Number(candle.open);
-        const atCycle = [...slice.slice(0, -1), {
+        const sellVotes = (result.signals ?? []).filter((x) => x.signal === 'SELL').length;
+        const atCycle = prior ? null : [...slice.slice(0, -1), {
           timestamp: Number(candle.timestamp), open, high: open, low: open, close: open, volume: 0,
         }];
-        const sellVotes = (result.signals ?? []).filter((x) => x.signal === 'SELL').length;
 
         allData[sym].push({
           decision: result.decision,
@@ -894,10 +917,10 @@ export class PortfolioBacktester {
           sellVotes,
           totalVotes: result.signals?.length ?? 0,
           timestamp: Number(candle.timestamp),
-          atrPct: this.#computeATRpct(atCycle),
-          adxValue: this.#computeADX(atCycle),
-          volumeOk: this.#computeVolumeOk(atCycle),
-          mom: this.#computeMomentum(atCycle), // trailing-return relative strength (no lookahead)
+          atrPct: prior ? prior.atrPct : this.#computeATRpct(atCycle),
+          adxValue: prior ? prior.adxValue : this.#computeADX(atCycle),
+          volumeOk: prior ? prior.volumeOk : this.#computeVolumeOk(atCycle),
+          mom: prior ? prior.mom : this.#computeMomentum(atCycle), // trailing-return relative strength (no lookahead)
         });
       }
     }

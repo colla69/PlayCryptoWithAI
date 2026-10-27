@@ -192,7 +192,8 @@ These apply whenever backtest/optimizer code is touched:
 - **Validation tooling**: `runBaseline.mjs` (multi-window + deflated Sharpe), `runWalkForward.mjs` (forward-only + Monte Carlo). Revert any change that worsens risk-adjusted metrics vs the committed baseline.
 - **Two-window reporting**: always report both Y2 (in-sample) and Y1+Y2 (full OOS)
 - **WR gap**: >10pp = warning, >15pp = blocker
-- **Optimizer aggregator must match live** — if aggregator logic changes, re-run optimizer
+- **The optimizer scores through the live engine** — every combo is a `PortfolioBacktester` run with
+  the full filter stack (`symbolTrial.js`); if aggregator, gate or sizing logic changes, re-run it
 
 ```bash
 PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 730   # Y2

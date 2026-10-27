@@ -101,12 +101,18 @@ const STRATEGY_BUILDERS = {
 export function buildStrategiesForSymbol(symbol) {
   const symCfg = config.perSymbol?.[symbol];
   const names = symCfg?.strategies ?? config.strategies ?? Object.keys(STRATEGY_BUILDERS);
-  return names.map((name) => {
-    const build = STRATEGY_BUILDERS[name];
-    if (!build) throw new Error(`Unknown strategy: ${name}`);
-    return build(symbol);
-  });
+  return names.map((name) => buildStrategy(name, symbol));
 }
+
+/** One strategy by its config name, with the symbol's parameters — live's builder, used by the optimizer too. */
+export function buildStrategy(name, symbol) {
+  const build = STRATEGY_BUILDERS[name];
+  if (!build) throw new Error(`Unknown strategy: ${name}`);
+  return build(symbol);
+}
+
+/** Every strategy name the builder knows, in its table order. */
+export const STRATEGY_NAMES = Object.freeze(Object.keys(STRATEGY_BUILDERS));
 
 export function getStrategyNamesForSymbol(symbol) {
   const symCfg = config.perSymbol?.[symbol];

@@ -1615,3 +1615,33 @@ NumPy CSCV written from the paper (largest logit difference 4e-16, three matrice
   was never the in-sample winner: the plateau centre is a better choice than the grid's top.
 - No bot setting changes. Item 4's optimizer retune reports PBO and CPCV paths with this tool, on
   scalper-only series where it can.
+
+## Section E, item 4, part 1: the optimizer runs the live filter stack (2026-10-27)
+
+C8 point 1 found the cause of the 21 never-trading coins: `perSymbolOptimizer.mjs`'s `runWindow`
+scored combos on raw votes in a bare simulator. Fixed by running every combo through the engine
+the parity tests hold equal to live:
+
+- `src/backtester/symbolTrial.js`: a trial is a `PortfolioBacktester` run with `FULL_LIVE_FILTERS`,
+  live sizing (`basePctOverride` = `risk.maxPositionPct`), multi-bar confirmation and the scaled
+  threshold, in which only the coin under test has strategies. Every other coin is silent context:
+  BTC feeds the regime/bear policy and the macro filter, all of them feed the median ATR that sizes
+  the entry. Not modelled per coin: the 4-slot competition and the correlation cap, so a config
+  change is still decided by the portfolio replay.
+- Each window trades on the full history before it (warm indicators, `tradeFromTs`), and the
+  holdout sees no bar after its end. The optimizer's own rule is unchanged (train on the later half
+  of the last `--candles` bars, validate on the earlier half, `MIN_TRADES` 8, deflated-Sharpe
+  penalty); it now reads candles from disk only.
+- Speed: the 20 strategies run once per coin (`precomputeStrategyResults`), each combo replays them
+  through the real `SignalAggregator`; `PortfolioBacktester.computeSharedSeries()` (regime, 15m/4h
+  indexes, macro trend) and the context's price-only row fields (`computeSignalRows(…, { base })`)
+  are computed once per window. 360 → ~70 ms a combo; coins run in parallel child processes
+  (~2 min a coin, 37 coins ≈ 8 min on 10 workers). Run with `FILE_LOG_LEVEL=warn`: the aggregator's
+  per-bar debug lines otherwise go to `logs/`.
+- Checks: `tests/backtester/symbolTrial.test.js` — a trial equals a plain run with the other coins
+  silent (trades, equity curve, filter counts; a mutated ATR base fails it), the threshold is
+  scaled, mismatched shared series are refused. `runEngineReplay.mjs` on 2026-08-20 → 10-24:
+  6/6 identical after the backtester change. The optimizer's local `aggregate()` is gone; the two
+  static parity fixtures now require it to score through `symbolTrial.js`.
+- Smoke run, ETH (live set): of 2,280 training combos, 648 take a trade under the live filters and
+  53 reach 8 trades; the current combo takes 2 holdout trades.

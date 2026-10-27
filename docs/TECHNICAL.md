@@ -87,6 +87,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | `backtestSimulator.js` | Per-trade execution (next-open fills, tiered slippage, ATR/two-stage infra) |
 | `metrics.js` | Sharpe, Sortino, drawdown, profit factor, win rate |
 | `deflatedSharpe.js` | Deflated/Probabilistic Sharpe (Bailey & López de Prado) — multiple-testing correction |
+| `symbolTrial.js` | One coin through the `PortfolioBacktester` with every other coin as silent context (regime, macro, median ATR); cached strategy results and shared candle-only series make a combo ~70 ms — the optimizer's scorer |
 | `overfitting.js` | Probability of backtest overfitting (CSCV, Bailey et al. 2017) and combinatorial purged cross-validation (López de Prado 2018; same splits as skfolio's `CombinatorialPurgedCV`) — does picking the best trial work? |
 | `baselineFramework.js` | Reusable multi-window baseline runner (full live filter stack) |
 | `walkForward.js` | Forward-only walk-forward harness + Monte Carlo trade shuffle |
@@ -99,7 +100,7 @@ Architecture, data flow, module responsibilities, and deployment.
 |--------|---------|
 | `portfolioBacktest.mjs` | CLI backtest runner with all flags |
 | `downloadHistory.js` | Fetch OHLCV from Binance, save to disk |
-| `perSymbolOptimizer.mjs` | Exhaustive strategy combo search; MIN_TRADES≥8, deflated-Sharpe gate, shared aggregator |
+| `perSymbolOptimizer.mjs` | Exhaustive strategy combo search, each combo through the live filter stack (`symbolTrial.js`), coins in parallel; MIN_TRADES≥8, deflated-Sharpe gate |
 | `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
 | `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
 | `runOverfitting.mjs` | PBO, CPCV paths and the deflated Sharpe for a set of trials (`--runs` runSuperbot outputs or `--matrix`) |

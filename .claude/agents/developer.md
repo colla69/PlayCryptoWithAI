@@ -16,8 +16,8 @@ The rules in `CLAUDE.md` and `project.md` apply to every change. The ones implem
 - Orchestration stays in `main.js`; business logic goes in a module.
 - Strategy changes follow Strategy Registration in `project.md`.
 - Only past/closed candles feed a decision. Secrets never appear in code.
-- An aggregator change lands in `src/engine/aggregatorVoting.js` and the optimizer's `aggregate()`
-  in `src/scripts/perSymbolOptimizer.mjs` is synced to match.
+- An aggregator change lands in `src/engine/aggregatorVoting.js`; the backtester and the optimizer
+  (through `src/backtester/symbolTrial.js`) run the same `SignalAggregator`.
 
 Before you finish, check your own diff against "What the breaks look like in a diff" under
 Live ≡ Backtest in `project.md` — those five patterns are how this codebase has lost live/backtest

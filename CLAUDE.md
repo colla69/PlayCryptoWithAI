@@ -14,9 +14,10 @@ in the trading code.
 
 ## Non-negotiables (restated so they are never missed)
 
-- **Aggregator parity:** `src/engine/signalAggregator.js` ≡ `PortfolioBacktester` ≡
-  `perSymbolOptimizer.aggregate()`. Change all three together; the shared math lives in
-  `src/engine/aggregatorVoting.js`. `tests/engine/aggregatorParity.test.js` must stay green.
+- **Aggregator parity:** `src/engine/signalAggregator.js` ≡ `PortfolioBacktester` ≡ the
+  optimizer, which scores every combo through the `PortfolioBacktester` and the live filter stack
+  (`src/backtester/symbolTrial.js`). The shared math lives in `src/engine/aggregatorVoting.js`.
+  `tests/engine/aggregatorParity.test.js` must stay green.
 - **Engine parity:** the cycle live runs is `src/core/engine.js`; `src/backtester/engineReplay.js`
   replays it over history. `tests/backtester/engineReplayParity.test.js` requires it to trade
   exactly like `PortfolioBacktester` — when it fails, one engine changed without the other.
