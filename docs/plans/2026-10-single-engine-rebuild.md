@@ -1547,3 +1547,40 @@ set `126 724b7eed…` (was `36a73a13`); the protected frozen copy is unchanged a
   once before the first boot (~10 minutes, paced for the rate limit), or copy
   `data/exchangeEvents.json` over. Without it the first refresh reads only the newest page of each
   catalog (about six weeks of news), and an older monitoring tag would be missed.
+
+## Section E, item 3: CPCV and PBO (pre-registered 2026-10-27, before any PBO number was computed)
+
+Tool, beside the deflated Sharpe (`src/backtester/overfitting.js`):
+- `pboCscv(matrix)` — probability of backtest overfitting by combinatorially symmetric
+  cross-validation (Bailey, Borwein, López de Prado & Zhu 2017). Rows = days, columns = trials. The
+  days are cut into 16 equal blocks; for each of the C(16, 8) = 12,870 halvings, the trial with the
+  best Sharpe in one half is ranked in the other half. PBO = the share of halvings where that trial
+  ranks at or below the median. Also reported: how often it loses money in the other half, and the
+  slope of its other-half Sharpe on its in-half Sharpe.
+- `cpcvSplits()` and `cpcvPathIds()` — combinatorial purged cross-validation (López de Prado 2018,
+  ch. 12), for the ranker in item 4. Same fold, purge and embargo convention as skfolio 1.12.2
+  `CombinatorialPurgedCV`. `cpcvSelection(matrix)` gives the out-of-sample Sharpe of each
+  recombined path for "pick the trial with the best Sharpe on the training groups".
+- Cross-check, run once (skfolio in a scratch venv, not a dependency): skfolio's train and test
+  indices and path ids must equal ours exactly on a set of sizes, purges and embargoes. skfolio has
+  no PBO, so PBO is checked against an independent NumPy version written from the paper (equal to
+  1e-9).
+
+Two measurements. They are diagnostics: no bot setting changes from them. They are for item 4,
+whose optimizer retune will report PBO and CPCV paths.
+- *M1 — the C8 shared menu*, rerun on the current engine: the six shared trend combos of the C8
+  table (bot cell, deep set, 2020-06-01 → 2026-08-10, $190 + $10 a week, sleeve on). The per-coin
+  bot is left out (its settings were fitted on part of the period). Expected in advance: a high PBO,
+  since picking the menu's best past Sharpe every 6 months already failed (C8 point 3).
+- *M2 — the breakout plateau grid* (the research simulator's 4h trades, large coins, 27 setups ×
+  4 entries × 4 exits = 432 trials, one position per coin, net of the same costs as
+  `gridAnalyze.mjs`). Daily series = the sum of the net returns of the trades that close that day
+  (a constant position size does not change a Sharpe ranking). 2020-07 → 2026-08, so the final
+  year, read once before, is inside. Also reported: the out-of-sample rank of the committed cell
+  (48 bars, 1.5× volume, 1.5 ATR stop, limit 0.5% under, 2R, 48 h) — the bot took the plateau
+  centre, not the grid's best, so PBO describes the grid and not that choice.
+- CPCV settings for both: 10 groups, 2 test groups (45 splits, 9 paths), purge 7 days (the aging
+  exit's longest hold), embargo 7 days.
+
+How to read PBO: below 0.25, picking the best past Sharpe from that menu is mostly sound; 0.25–0.5,
+weak; 0.5 or more, worse than picking at random — do not select from that menu by past Sharpe.
