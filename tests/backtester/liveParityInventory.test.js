@@ -241,6 +241,14 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'resolveDecision' },
     shared: 'src/core/decisionCore.js',
   },
+  {
+    // Section E1 (2026-10-27). The replay throws when the config enables it and no
+    // DVOL rows are passed, so a script cannot silently size on realized vol.
+    rule: 'Sleeve vol targeting on implied vol (DVOL)',
+    live: { file: 'src/main.js', symbol: 'loadDvolHistory' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'impliedVolRows' },
+    shared: 'src/engine/tsmCore.js',
+  },
 ];
 
 /**

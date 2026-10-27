@@ -283,7 +283,7 @@ describe('tsmCore: sleeveFeasibility', () => {
 
 describe('impliedVolAsOf — DVOL as of the cycle, closed bars only', () => {
   const H12 = 43_200_000;
-  const rows = [{ t: 0, c: 80 }, { t: H12, c: 60 }, { t: 2 * H12, c: 50 }];
+  const rows = [{ timestamp: 0, close: 80 }, { timestamp: H12, close: 60 }, { timestamp: 2 * H12, close: 50 }];
 
   test('reads the bar that closed at the cycle time, never the one opening then', () => {
     assert.equal(impliedVolAsOf(rows, 2 * H12), 0.6);       // bar 1 closes exactly now; bar 2 is forming

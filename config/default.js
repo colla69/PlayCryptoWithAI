@@ -826,6 +826,16 @@ export default {
     volWindowBars: 60,            // realized-vol window (30 days of 12h bars)
     minFraction: 0.2,             // floor on the vol fraction
     resizeThresholdPct: 0.15,     // rebalance a held slot when drift > 15% of the slot
+    // Implied vol (Deribit DVOL, BTC and ETH) in place of realized vol in the vol
+    // fraction above — section E1 (2026-10-27): six-year replay Sharpe 1.97 → 1.98,
+    // worst drop 9.4% → 8.5%, better in the 2021–23 bear/flat folds, level since
+    // 2024. BNB/SOL have no index and keep realized vol; a DVOL close older than
+    // maxAgeHours (or a feed outage) falls back to realized vol. Cache data/dvol.json,
+    // read by the replays too.
+    impliedVol: {
+      enabled: true,
+      maxAgeHours: 24,
+    },
     // Equity risk-off overlay (M1): half size while NASDAQ < its 100d EMA.
     // The one context overlay that improved Sharpe AND DD in every universe
     // tested (1.23→1.27, DD −44→−36%, DSR 0.94). FRED feed, keyless, 12h cache;

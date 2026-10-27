@@ -143,7 +143,8 @@ function replayDashboard(getVisible) {
  * @param {object} [p.cfg] — config for the engine (defaults to config/default.js)
  * @param {Array<{t:number, v:number}>} [p.nasdaqRows] — the sleeve's macro feed; cut to the clock
  * @param {Record<string, Array<{t:number, c:number}>>} [p.impliedVolRows] — 12h implied-vol bars
- *   (DVOL) by base coin, e.g. { BTC: [...] }; when given, the sleeve sizes on them (section E1)
+ *   (DVOL, `readDvolCache()`) by base coin; when given, the sleeve sizes on them (section E1).
+ *   Required when the config enables `tsmCore.impliedVol` and the sleeve
  * @param {Array<{equity:number}>} [p.equityHistory] — account equity before the window (the
  *   sleeve's high-water mark); the replay appends its own daily points
  */
@@ -153,6 +154,12 @@ export async function replayEngine({
   nasdaqRows = [], equityHistory = [], impliedVolRows = null,
 }) {
   const tfMs = timeframeMs(cfg.timeframe);
+  // Live sizes the sleeve on DVOL when the config says so; a replay without the rows
+  // would silently size on realized vol — a rule on one side only.
+  if (cfg.tsmCore?.enabled && cfg.tsmCore.impliedVol?.enabled && !impliedVolRows) {
+    throw new Error('replayEngine: tsmCore.impliedVol is enabled but no impliedVolRows were passed (readDvolCache())');
+  }
+  const impliedVolMaxAgeMs = Number(cfg.tsmCore?.impliedVol?.maxAgeHours ?? 24) * 3_600_000;
   const symbols = cfg.symbols.filter((s) => symbolCandles[s]?.length);
   const signalConfig = cfg.signals;
   let clock = fromTs;
@@ -227,7 +234,7 @@ export async function replayEngine({
     loadEquityHistory: () => [...equityHistory, { equity: replayHwm }],
     loadNasdaqHistory: async () => ({ rows: nasdaqRows.filter((r) => r.t <= clock) }),
     loadImpliedVol: impliedVolRows
-      ? (symbol) => impliedVolAsOf(impliedVolRows[symbol.split('/')[0]], clock)
+      ? (symbol) => impliedVolAsOf(impliedVolRows[symbol.split('/')[0]], clock, { maxAgeMs: impliedVolMaxAgeMs })
       : null,
     modeLabel: 'replay',
     now,

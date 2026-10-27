@@ -280,7 +280,9 @@ asset-class upside, not alpha); infrastructure is shipped, operator chooses whet
 activate and how much capital to allocate.
 
 **Sizing (combo rule):** each slot is `deploymentPct/n × volFraction × macroFactor` —
-vol targeting (`min(1, volTarget/realized 30d vol)`, floor 0.2, no leverage) times the equity
+vol targeting (`min(1, volTarget/vol)`, floor 0.2, no leverage; vol = Deribit DVOL implied vol for
+BTC and ETH — `impliedVol`, section E1 of the 2026-10 rebuild plan, cache `data/dvol.json`, realized
+vol when no DVOL close is under 24h old — and realized 30d vol for BNB and SOL) times the equity
 risk-off overlay (×0.5 while the NASDAQ Composite is below its 100d EMA; FRED keyless feed with
 12h cache, neutral on fetch failure). Held positions drift-rebalance when they deviate >15% of
 their slot (`resizeCorePosition`, partial fills carry post-state for restart restore). Full combo

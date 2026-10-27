@@ -1378,8 +1378,9 @@ reason alone. Sharpe, not return, decides; the mean sleeve fraction is reported 
    on or after 2021-04-01 (earlier folds are identical by construction and are not counted).
    Report 2024-05 → 2026-08 and the unseen 2026-08 → 10 (on the current live set) separately.
    A fail ends the idea.
-2. *Stage 2 — live side*, only if stage 1 passes: DVOL fetched and stored on disk through
-   `runtimeDir()`, stale or missing DVOL falls back to realized vol (logged), a row in
+2. *Stage 2 — live side*, only if stage 1 passes: DVOL fetched and stored on disk (as a
+   market-data cache under `data/`, beside `nasdaqTrend.json` — not `runtimeDir()`, which holds bot
+   state; corrected 2026-10-27, stage 2), stale or missing DVOL falls back to realized vol (logged), a row in
    `liveParityInventory.test.js`, tests; then the same replay through the shared engine path.
 
 **E2 — DVOL sizing on the breakout** is pre-registered only after E1's result, and before any
@@ -1420,3 +1421,19 @@ both are capped at 1. E1 changes *when* the sleeve cuts size, not how much it ho
 
 Reading: the gain is a lower worst drop (9.4 → 8.5%) and better bear-market folds; since 2024 E1 is
 level with or slightly behind realized vol. Per the pre-registration, stage 2 (live side) follows.
+
+### E1 stage 2 (2026-10-27): built, on by default
+
+- `src/data/dvolFeed.js`: Deribit fetch (15 s timeout), cache `data/dvol.json`, closed bars only,
+  merged payload-wins through `mergeCandles()`; refreshes when the cache lacks the bar that closed at
+  the last 12h boundary (a time-to-live would let a cycle size on the bar before it). Values outside
+  5–500 are dropped; an outage keeps the cache. The backfill matched the stage 1 download on all
+  8,174 values.
+- `config.tsmCore.impliedVol = { enabled: true, maxAgeHours: 24 }`. Live (`main.js`) and every
+  replay script read the same file; `replayEngine` throws if the config enables it and no rows are
+  passed. Inventory row "Sleeve vol targeting on implied vol (DVOL)". Tests: `tests/data/dvolFeed.test.js`,
+  `impliedVolAsOf` in `tests/engine/tsmCore.test.js`.
+- Six-year replay through the config path (no `--dvol`): **$6,721.90**, the stage 1 figure to the
+  cent. Paper boot: BTC sized on implied vol 38%, ETH 53%.
+
+E2 (DVOL sizing on the breakout) is next and gets its own pre-registration.

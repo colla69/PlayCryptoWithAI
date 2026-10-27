@@ -25,9 +25,10 @@ import { loadFearGreedHistory } from './data/fearGreed.js';
 import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
 import { resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
-import { baseSymbol } from './engine/tsmCore.js';
+import { baseSymbol, impliedVolAsOf } from './engine/tsmCore.js';
 import { rsiOfLastClosedBar } from './engine/satellites.js';
 import { loadNasdaqHistory } from './data/nasdaqTrend.js';
+import { loadDvolHistory, DVOL_COINS } from './data/dvolFeed.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -67,6 +68,20 @@ const riskManager = new RiskManager(config.risk);
 // UI and used by routing/filters/sizing decisions.
 const regimeTracker = new RegimeTracker(config.regimeClassifier ?? {});
 
+// The sleeve's implied-vol feed (section E1). Only BTC and ETH have a DVOL index;
+// any other symbol, or a close older than maxAgeHours, sizes on realized vol.
+const impliedVolCfg = config.tsmCore?.impliedVol ?? {};
+const loadImpliedVol = impliedVolCfg.enabled
+  ? async (symbol) => {
+    const coin = symbol.split('/')[0];
+    if (!DVOL_COINS.includes(coin)) return null;
+    const dvol = await loadDvolHistory();
+    const vol = impliedVolAsOf(dvol?.[coin], Date.now(), { maxAgeMs: Number(impliedVolCfg.maxAgeHours ?? 24) * 3_600_000 });
+    if (vol == null) logger.warn(`[TSM-CORE] ${symbol}: no DVOL close within ${impliedVolCfg.maxAgeHours ?? 24}h — sizing on realized vol`);
+    return vol;
+  }
+  : null;
+
 // ── The trading engine ────────────────────────────────────────────────────────
 // One bar-close cycle (src/core/engine.js). It owns the cycle state — correlation
 // matrix, median ATR, BTC macro, regime, bear policy, the 15m/4h caches, Fear &
@@ -77,7 +92,7 @@ const engine = createTradingEngine({
   fetchOHLCV,
   marketContext: { getBtcDominanceTrend, getEthBtcTrend },
   notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot,
-  loadEquityHistory, loadNasdaqHistory,
+  loadEquityHistory, loadNasdaqHistory, loadImpliedVol,
   modeLabel: (paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase(),
   initialState: { currentRegime: REGIME_LABELS.BULL_RANGE },
 });

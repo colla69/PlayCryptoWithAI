@@ -39,7 +39,7 @@ function inputs({ satellites = true, core = false } = {}) {
       tsmCore: {
         ...config.tsmCore, enabled: core, equityLadder: [], symbols: [SYMBOLS[0]],
         lookbackBars: [1], enterVotes: 1, stayVotes: 1, deploymentPct: 0.5,
-        volTarget: null, macroOverlay: { enabled: false },
+        volTarget: null, macroOverlay: { enabled: false }, impliedVol: { enabled: false },
       },
       satellites: {
         ...config.satellites, enabled: satellites, symbols: SYMBOLS,

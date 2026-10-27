@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import config from '../../config/default.js';
 import * as bf from '../backtester/baselineFramework.js';
 import { replayEngine } from '../backtester/engineReplay.js';
+import { readDvolCache } from '../data/dvolFeed.js';
 import { loadFearGreedHistory } from '../data/fearGreed.js';
 
 const argv = process.argv.slice(2);
@@ -39,6 +40,7 @@ const r = await replayEngine({
   deposits: readJson('data/deposits.json').map((d) => ({ ts: Date.parse(d.timestamp), amount: Number(d.amount) })),
   slippage: bf.SLIPPAGE_TIERS,
   nasdaqRows: readJson('data/nasdaqTrend.json').rows,
+  impliedVolRows: readDvolCache(),
   equityHistory: (Array.isArray(history) ? history : []).filter((p) => Date.parse(p.date ?? p.timestamp ?? 0) < fromTs),
 });
 

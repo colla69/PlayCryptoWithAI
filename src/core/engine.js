@@ -51,8 +51,8 @@ import { FALLBACK_MIN_NOTIONAL } from '../exchange/exchangeLimits.js';
  * @param {Function} deps.recordEquitySnapshot
  * @param {Function} deps.loadEquityHistory — the sleeve's high-water-mark source
  * @param {Function} deps.loadNasdaqHistory — the sleeve's macro overlay feed
- * @param {Function} [deps.loadImpliedVol] — (symbol) → annualised implied vol or null; when
- *   given, it replaces realized vol in the sleeve's vol targeting (research, section E1)
+ * @param {Function} [deps.loadImpliedVol] — async (symbol) → annualised implied vol or null;
+ *   when given, a non-null value replaces realized vol in the sleeve's vol targeting (E1)
  * @param {string} deps.modeLabel — 'paper' | 'testnet' | 'live', for the logs
  * @param {Function} [deps.now] — the clock; a replay passes its own
  * @param {object} [deps.initialState] — e.g. the starting regime label
@@ -759,7 +759,7 @@ export function createTradingEngine(deps) {
         const closed = withFormingBar(candles, config.timeframe, now()).slice(0, -1);
         const vote = computeTsmVote(closed, coreCfg.lookbackBars ?? [60, 90, 120]);
         // Implied vol, when a feed is injected and has a fresh value, replaces realized vol.
-        const impliedVol = loadImpliedVol ? loadImpliedVol(symbol) : null;
+        const impliedVol = loadImpliedVol ? await loadImpliedVol(symbol) : null;
         const realizedVol = impliedVol ?? computeRealizedVolAnnual(closed, { windowBars: coreCfg.volWindowBars ?? 60 });
         const fraction = computeTargetFraction({
           volTarget: coreCfg.volTarget ?? null,

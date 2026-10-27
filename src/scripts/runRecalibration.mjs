@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import config from '../../config/default.js';
 import * as bf from '../backtester/baselineFramework.js';
 import { replayEngine } from '../backtester/engineReplay.js';
+import { readDvolCache } from '../data/dvolFeed.js';
 import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
 import { annualizedSharpe, dailyReturnsFromEquity } from '../backtester/metrics.js';
 
@@ -191,7 +192,7 @@ async function worker(cell, from, to) {
   const r = await replayEngine({
     symbolCandles: c12, mtf15mCandles: bf.loadMtfCandles(config.symbols, '15m'), mtf4hCandles: bf.loadMtfCandles(config.symbols, '4h'),
     fearGreedData: fg, fromTs, toTs, initialBalance: start, deposits, slippage: bf.SLIPPAGE_TIERS,
-    nasdaqRows: nasdaq, cfg: config, equityHistory,
+    nasdaqRows: nasdaq, cfg: config, equityHistory, impliedVolRows: readDvolCache(),
   });
   const trades = r.trades;
   // Live's equity history has one point a day: the replay sampled at the same times too.

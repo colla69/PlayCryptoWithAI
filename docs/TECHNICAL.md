@@ -408,6 +408,7 @@ config
 │   ├── volTarget          Annualised vol target — slot × min(1, target/realized) (default 0.6)
 │   ├── volWindowBars      Realized-vol window (default 60 = 30 days)
 │   ├── minFraction        Vol-fraction floor (default 0.2)
+│   ├── impliedVol{}       DVOL (BTC/ETH) in place of realized vol; maxAgeHours → realized fallback (on)
 │   ├── resizeThresholdPct Drift rebalance trigger, share of slot (default 0.15)
 │   └── macroOverlay{}     Equity risk-off: ×riskOffFactor while NASDAQ < EMA(emaDays)
 ├── btcDominance{}         BTC.D entry gate (CoinGecko)
