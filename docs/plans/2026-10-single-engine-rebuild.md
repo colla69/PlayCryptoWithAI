@@ -1782,3 +1782,35 @@ out of sample, 2022-06-01 → 2026-08-10 (195 weeks, gate on in 102), net of cos
 - Per the pre-registration nothing is built. What it suggests for a *new* test (to be pre-registered,
   mostly 2024+ data): use the ranker's score as a filter on entries the bot already makes, or to
   skip the coins it ranks lowest, rather than as a stand-alone basket.
+
+## Section E, item 4, part 4: the ranker as a filter on the bot's own entries (pre-registered 2026-10-27, before any entry was scored)
+
+Part 3 found a real cross-coin signal (IC +0.10, t 3.7) but no basket that beats BTC. This test
+asks the narrower question it suggested: does the ranker's score pick out the bot's *bad* entries?
+
+- Trades: the baseline six-year replay (bot + breakout, E1 on, venue veto on; deep set `724b7eed`;
+  $190 + $10 a week; 2020-06-01 → 2026-08-10; $6,721.65). Scalper and breakout are judged
+  separately; the sleeve is not filtered.
+- Score at an entry: decision time τ = the latest 12h boundary at or before the entry's cycle time
+  (scalper: the entry bar's open; breakout: its 4h cycle time, floored to 12h). Part 3's features,
+  from 12h bars closed by τ, for every coin eligible at τ (≥ 400 closed bars and a bar opening at τ),
+  ranked across those coins as in part 3. The feature code is shared with part 3 and must reproduce
+  its Monday rows exactly.
+- Model: part 3's primary, **ridge α = 10 on all features**, kept unchanged although ridge on the
+  price features alone did better out of sample (switching now would be choosing on that result).
+  Refit on the 1st of every month from 2021-01-01 on every Monday row of part 3's dataset whose
+  outcome week ended before the refit; an entry uses the latest refit before τ.
+- q = the entered coin's percentile among the eligible coins at τ, (rank − 1) ÷ (n − 1), 0 = lowest.
+  An entry is unscored (kept, counted apart) when n < 6, when the coin itself is not eligible, or
+  when τ is before 2021-01-01.
+- **Rule R: skip an entry with q < 1/3** (the bottom third). Reported, not deciding: q < 1/2. No
+  other cutoff is tried.
+- **Pass (stage 1, section D's rule, per stream):** the trades R removes have a mean net return
+  (fees and slippage included) below 0 **and** below the kept trades' mean, and both hold in each
+  half (entries before 2024-01-01 and from then on). Reported: n, mean, win rate, dollar P&L,
+  Welch t. A fail ends the idea; nothing is built.
+- Expected in advance: the bot's entries are already chosen by trend strategies, so few fall in the
+  bottom third, and the pre-2024 half has few scalper trades (only 8–10 coins had USDC pairs then).
+  A fail on sample size is the likely outcome for the scalper.
+- Stage 2, only on a pass: ridge inference and the monthly refit in one JS module used by live and
+  the replay, a `liveParityInventory` row, then the engine replay with section D's stage 2 rule.
