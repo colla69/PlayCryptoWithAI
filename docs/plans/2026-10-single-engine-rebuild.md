@@ -1881,3 +1881,31 @@ exists in our universe at all, on every event.
 Expected in advance: published research (Keyrock 2024, ~16,000 unlocks) finds prices drift down
 before large team and investor unlocks. Here most events are monthly unlocks of the same few
 coins, which the market can see coming, so a weaker effect than in that study is likely.
+
+### Item 5 result (2026-10-27): stage 1 passes as written, but a control shows no unlock effect; stage 2 not started
+
+Scripts in the session scratchpad (`tu/events.mjs`, `tu/study.mjs`, `tu/placebo2.mjs`). 149 events
+had prices on both sides of the window.
+
+| Window (coin − BTC) | Mean | t | Median |
+|---|---|---|---|
+| **τ − 14 d → τ (primary)** | **−3.17%** | **−2.87** | −3.74% |
+| τ − 30 d → τ | −6.46% | −4.19 | −8.33% |
+| τ → τ + 7 d | −2.54% | −2.89 | −2.56% |
+| τ → τ + 14 d | −4.91% | −4.35 | −4.75% |
+
+- By the written rule stage 1 **passes**: mean and median below 0, t −2.87, both halves negative
+  (−3.88% before 2025-03-20, −2.45% after), and negative with any single coin left out (−2.79% to −3.93%).
+- **The rule had no control, and that decides the reading.** It measured the coin against BTC only,
+  and in 2024–26 these coins trailed BTC in *any* window. A check added after the result (not
+  pre-registered): each coin's 14 days before an unlock against its 14-day return on every day of
+  the same span. Excess **+1.71%, t 1.47**: before an unlock, coins did no worse than usual. ARB,
+  SUI, ENA, APT and JUP unlock monthly, so "an unlock within 14 days" covers about half of all days.
+  The 14 days *after* an unlock are weaker than the 14 days before (−4.91% vs −3.17%), which also
+  points to a steady trend, not an event.
+- Reading: there is no unlock-timed effect in our universe; what the test measured is that the
+  VC-funded coins with monthly unlocks lose ground to BTC almost all the time (ENA −12% per
+  14 days, ARB −5%, APT −4% on average over their spans), as part 3 found for alt baskets in general.
+- Stage 2 is **not started**: the veto would act as a part-time ban on a handful of coins, with no
+  measured benefit, and the bot barely trades them (see above). If the user wants it anyway, the
+  stage 2 rule above still applies. Section E is complete.
