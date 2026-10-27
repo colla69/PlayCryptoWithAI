@@ -1909,3 +1909,60 @@ had prices on both sides of the window.
 - Stage 2 is **not started**: the veto would act as a part-time ban on a handful of coins, with no
   measured benefit, and the bot barely trades them (see above). If the user wants it anyway, the
   stage 2 rule above still applies. Section E is complete.
+
+## Section F: two ideas from published research (pre-registered 2026-10-27, before either was run on our data)
+
+Both are tested where the sleeve itself was validated: `runTrendCore.mjs` (honest fills — decide on
+a closed 12h bar, fill at the next open — 0.1% fee per side plus the slippage tier; closed bars
+only). **Data:** Binance USDT 12h bars 2017-08-17 → 2026-08-10, fetched keyless into a scratch
+directory (the USDC pairs have the 2022-09 → 2023-03 hole and start in 2020); a new
+`--candle-dir` flag points the tool at it. Sharpe on 12h returns, as in `TREND_CORE_STUDY.md`.
+**Reference rule ("combo"):** the sleeve's price rule as studied there — vote 30/45/60 d, slow-in
+(enter 3/3, stay ≥ 2), vol target 0.6. Universes: BTC+ETH and BTC+ETH+BNB+SOL (the sleeve's).
+
+### F1 — multi-lookback Donchian trend (Zarattini, Pagani & Barbon 2025, "Catching Crypto Trends")
+
+- Daily closes = the closes of the 12h bars that end at 00:00 UTC; decisions once a day on them.
+- Per coin and per lookback n ∈ {5, 10, 20, 30, 60, 90, 150, 250, 360} days: **enter** when the
+  daily close is above the highest of the previous n daily closes; the **stop** is the higher of
+  the previous stop and the midpoint of the highest and lowest of the last n daily closes
+  (today's included), so it never falls; **exit** when the daily close is below the stop.
+- Coin target fraction = (lookbacks open ÷ 9) × min(1, 0.25 ÷ σ), σ = annualized std of the last
+  90 daily returns (×√365). The paper allows 2×; we cap at 1× (spot, no borrowing). Capital split
+  equally across the universe's coins, as for combo. A trade fills at the next 12h open when the
+  target differs from the holding by more than 0.05 of the coin's capital, or opens/closes it fully.
+- No other lookback set, vol target or band is tried. The 0.25 target means F1 holds much less
+  than combo (0.6), so its return will be lower; **Sharpe decides**.
+- **Pass (stage 1):** F1's full-window Sharpe beats combo's on **both** universes, **and** F1 has
+  the higher Sharpe in at least 5 of the 9 calendar years 2018–2026 (2026 to 08-10) on
+  BTC+ETH+BNB+SOL. Reported, not deciding: return, worst drop, exposure, round trips, the
+  deflated Sharpe (search count charged), the 8-major universe (+XRP, ADA, LTC, DOGE), and the
+  unseen 2026-08-10 → 10-24.
+- Expected: a Sharpe close to combo's (both are trend rules on the same coins) and a smaller worst
+  drop from the lower vol target; a fail on the yearly count is likely.
+- Stage 2, only on a pass: F1 as the sleeve's signal in the engine (`tsmCore`), DVOL and NASDAQ
+  overlays kept, a `liveParityInventory` row, tests; judged by the six-year engine replay (Sharpe
+  not below 1.9826) and the unseen window not worse.
+
+### F2 — Coinbase premium (US spot demand) as a sleeve overlay
+
+- **Data:** Coinbase Exchange 1h candles for BTC-USD and USDT-USD (keyless public API; USDT-USD
+  starts 2021-05-04) and Binance BTCUSDT 1h. Hourly premium
+  p = CB(BTC-USD) ÷ (BN(BTCUSDT) × CB(USDT-USD)) − 1, on hours where all three closed — the USDT
+  term removes tether's own drift from the dollar, which the usual (unadjusted) index includes.
+- **Gauge:** the mean of p over the 168 hours closed by the decision bar's close (null if fewer than
+  120 are present → neutral). One market-wide gauge for every coin, like the NASDAQ overlay M1.
+- **Rule CB1:** half the sleeve's target while the gauge is below 0. Applied to combo and to
+  combo + M1 (factors multiply), since M1 ships. No other threshold or window is tried; the 30-day
+  gauge is reported only.
+- Window: the sims run on the whole history (overlay neutral before its data); metrics are taken
+  on **2021-06-01 → 2026-08-10**.
+- **Pass (stage 1):** combo + CB1 beats combo **and** combo + M1 + CB1 beats combo + M1 on Sharpe, on
+  **both** universes, **and** combo + M1 + CB1 has the higher Sharpe in at least 3 of the 6 calendar
+  years 2021 (from 06-01) – 2026 (to 08-10) on BTC+ETH+BNB+SOL. Reported, not deciding: worst drop,
+  share of time the gauge is below 0, the 30-day gauge, the unseen 2026-08-10 → 10-24.
+- Expected: most market-wide overlays failed here (funding, dollar, MVRV, greed); only NASDAQ
+  worked. Analysts' claims are the only evidence for this one, so a fail is the likely outcome.
+- Stage 2, only on a pass: a Coinbase market-data feed cached under `data/` (fail-neutral,
+  payload-wins merge), read by `main.js` and the replay alike, a `liveParityInventory` row, tests;
+  judged by the six-year engine replay (Sharpe not below 1.9826) and the unseen window not worse.
