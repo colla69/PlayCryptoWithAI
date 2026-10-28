@@ -2338,3 +2338,29 @@ and 2022-01-01 → 2026-08-10; unseen 2026-08-10 → 10-24 reported only.
 15m replay), the stopped state persisted through `runtimeDir()`, a `liveParityInventory` row,
 tests; judged by the six-year replay (Sharpe not below 1.99 with the 9% scalper cap) and the
 unseen window.
+
+### Section J results (2026-10-28): J1 fails; a stop costs the sleeve a third of its return
+
+`runTrendCore.mjs --sleeve-stop pct:reentry` (stop at the bar's low against the average fill
+price). Checks: without the flag the section G full run reproduces byte for byte; a 100% stop
+equals combo + M1 exactly. Sharpe · CAGR · worst drop; stop-outs over the whole history:
+
+| combo + M1 | BTC+ETH full | 4 majors full | BTC+ETH 2022+ | 4 majors 2022+ | unseen (2 / 4) |
+|---|---|---|---|---|---|
+| no stop (as shipped) | 1.21 · 42.5% · 49.5% | 1.27 · 40.0% · 35.7% | 0.75 | 0.74 | 2.07 / 2.42 |
+| **J1: 9%, out until the vote turns off** | 0.96 · 29.4% · 39.9% (27 stops) | 1.00 · 26.0% · 31.2% (58) | 0.88 | 0.64 | 1.82 / 2.16 |
+| J1b: 9%, re-buy at the next bar (reported) | 1.17 · 40.8% · 48.3% (42) | 1.19 · 36.9% · 36.8% (99) | 0.75 | 0.70 | 2.08 / 2.37 |
+| J10: 10%, out until off (reported) | 0.93 · 28.1% · 41.2% (26) | 1.11 · 31.1% · 32.0% (53) | 0.84 | 0.68 | 1.82 / 2.46 |
+
+- **J1 fails the written reading:** Sharpe lower on both universes over the full window
+  (1.21 → 0.96, 1.27 → 1.00). After 2022 it is mixed (BTC+ETH 0.75 → 0.88, 4 majors 0.74 →
+  0.64). The cost is in 2017–21 (Sharpe 1.58 → 1.05 on BTC+ETH): the stop sold dips inside big
+  trends and the coin sat in cash until the vote turned off, missing the rest. Worst drop falls
+  (49.5% → 39.9%), but return falls more.
+- J1b obeys the rule's letter (each trade ends at −9%) at a small cost, but it buys back at the
+  next 12h bar, so the exposure and the drawdown are nearly unchanged: it relabels losses, it
+  does not reduce them.
+- Account view, six-year replay with the current config: the sleeve's worst trade cost **1.1% of
+  the account** (SOL 2024-07-22, −37% in price: the slot is part of the equity and vol-sized);
+  the scalper's worst cost 1.9% (BTC 2024-01-02).
+- Not built. Stage 2 does not start; the user decides how the 10% rule reads for the sleeve.
