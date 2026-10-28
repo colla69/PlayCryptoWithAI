@@ -232,6 +232,13 @@ raises Sharpe (0.93→1.04 BTC+ETH) and cuts round trips ~3×. Position key is `
 (e.g. `BTC/USDC#core`) with `isCore: true` flag, coexisting with the scalper's positions on the 
 same asset.
 
+**Faster exit with a buy-back proof (built, OFF):** `stayVotes: 3` sells on the first negative
+vote; `rebuyConfirmBars: 40` then buys a sold coin back only on a close above its 20-day high
+while a majority of votes is still positive (a broken trend clears the wait). Six-year replay:
+Sharpe 1.99 → 2.08, worst drop 8.2% → 6.7% (plan doc § M). `reentryPauseHours` adds a pause after
+a sell (§ L, not adopted). The wait and the last-sell times persist in
+`data/tsm_sleeve_state.json` (`src/data/sleeveStateStore.js`), so a restart does not buy back early.
+
 **Portfolio treatment:** core positions are excluded from:
 - Stop-loss/take-profit/break-even/aging (only exit trigger is vote flip)
 - Portfolio correlation cap (don't block a new core entry or penalise it)

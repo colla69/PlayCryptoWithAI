@@ -57,6 +57,9 @@ import { exchangeEventState } from '../risk/exchangeEvents.js';
  * @param {Function} [deps.loadExchangeEvents] — async () → Binance venue events announced by
  *   now (monitoring tags, USDC-pair removals, delistings) or null; when given, they veto
  *   entries and sell a held position whose pair is going away (src/risk/exchangeEvents.js)
+ * @param {{load: Function, save: Function}} [deps.sleeveStore] — persists the sleeve's buy-back
+ *   gate and last-sell times across restarts (src/data/sleeveStateStore.js); without it they
+ *   live in memory only (the replay, which starts empty like a fresh live boot)
  * @param {string} deps.modeLabel — 'paper' | 'testnet' | 'live', for the logs
  * @param {Function} [deps.now] — the clock; a replay passes its own
  * @param {object} [deps.initialState] — e.g. the starting regime label
@@ -66,6 +69,7 @@ export function createTradingEngine(deps) {
     config, dashboardState, trader, riskManager, regimeTracker, symbolAggregators, signalConfig,
     fetchOHLCV, notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot, modeLabel,
     loadEquityHistory, loadNasdaqHistory, loadImpliedVol = null, loadExchangeEvents = null,
+    sleeveStore = null,
   } = deps;
   const { getBtcDominanceTrend, getEthBtcTrend } = deps.marketContext;
   const now = deps.now ?? (() => Date.now());
@@ -84,9 +88,10 @@ export function createTradingEngine(deps) {
     // TSM sleeve: vote-flip closes that failed (the risk loop retries them), and the
     // rung bookkeeping (alert on transitions, once per boot on infeasibility).
     tsmCoreFailedCloses: new Set(),
-    // Section L: when each core key was last sold (in memory), for the re-entry pause.
+    // Section L: when each core key was last sold, for the re-entry pause.
     tsmLastExitAt: new Map(),
-    // Section M: core keys sold and not yet bought back on proof (in memory).
+    // Section M: core keys sold and not yet bought back on proof. Both persisted by
+    // deps.sleeveStore when given (loaded below).
     tsmRebuyGate: new Map(),
     tsmLastRungKey: null,
     tsmFeasibilityAlerted: false,
@@ -94,6 +99,27 @@ export function createTradingEngine(deps) {
     exchangeEvents: [],
     ...(deps.initialState ?? {}),
   };
+  // Sleeve memory that must survive a restart: a forgotten sell would be bought straight back.
+  if (sleeveStore) {
+    const saved = sleeveStore.load();
+    state.tsmRebuyGate = saved.rebuyGate;
+    state.tsmLastExitAt = saved.lastExitAt;
+    if (saved.rebuyGate.size || saved.lastExitAt.size) {
+      logger.info(`[TSM-STATE] restored: waiting for a buy-back proof [${[...saved.rebuyGate.keys()].join(', ') || 'none'}]`
+        + ` · last sells ${[...saved.lastExitAt].map(([k, t]) => `${k} ${new Date(t).toISOString()}`).join(', ')}`);
+    }
+  }
+  const sleeveStateKey = () => JSON.stringify([[...state.tsmRebuyGate.keys()].sort(), [...state.tsmLastExitAt].sort()]);
+  const persistSleeveState = () => {
+    if (sleeveStore) sleeveStore.save({ rebuyGate: state.tsmRebuyGate, lastExitAt: state.tsmLastExitAt });
+  };
+  /** A sleeve sell went through (the cycle, or live's retried close in the risk loop). */
+  function noteCoreExit(key) {
+    state.tsmLastExitAt.set(key, now());
+    if (Number(config.tsmCore?.rebuyConfirmBars ?? 0) > 0) state.tsmRebuyGate.set(key, true);
+    persistSleeveState();
+  }
+
   // 15m / 4h bars for the entry filters, refreshed at every cycle.
   const mtf15mCache = new Map();
   const mtf4hCache = new Map();
@@ -846,9 +872,15 @@ export function createTradingEngine(deps) {
         enterVotes: coreCfg.enterVotes ?? null,
         stayVotes: coreCfg.stayVotes ?? null,
       }), state.tsmLastExitAt, now(), Number(coreCfg.reentryPauseHours ?? 0) * 3_600_000);
+      // Gate bookkeeping before it filters: off means no gates at all (none left to block a
+      // later switch-on), and a coin the sleeve holds is never waiting for a buy-back.
+      const gateKeyBefore = sleeveStateKey();
+      if (rebuyBars <= 0) state.tsmRebuyGate.clear();
+      for (const p of status.positions ?? []) if (p.isCore) state.tsmRebuyGate.delete(p.symbol);
       const actions = rebuyBars > 0
         ? applyRebuyGate(planned, state.tsmRebuyGate, { votes: signals, proofs: rebuyProofs })
         : planned;
+      if (sleeveStateKey() !== gateKeyBefore) persistSleeveState();
       let traded = 0;
       for (const action of actions) {
         const price = prices.get(action.symbol);
@@ -866,10 +898,7 @@ export function createTradingEngine(deps) {
           }
           continue;
         }
-        if (action.type === 'close') {
-          state.tsmLastExitAt.set(action.key, now());
-          if (rebuyBars > 0) state.tsmRebuyGate.set(action.key, true);
-        }
+        if (action.type === 'close') noteCoreExit(action.key);
         emit(result); traded++;
       }
 
@@ -1087,5 +1116,6 @@ export function createTradingEngine(deps) {
 
   return {
     runAllSymbols, onPriceTick, runSatelliteCycle, onSatelliteBar, onSatelliteTick, refreshMtfCache, closedCandles, mtf15mCache, mtf4hCache, state,
+    noteCoreExit,
   };
 }

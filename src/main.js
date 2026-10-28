@@ -31,6 +31,7 @@ import { loadNasdaqHistory } from './data/nasdaqTrend.js';
 import { loadDvolHistory, DVOL_COINS } from './data/dvolFeed.js';
 import { loadExchangeEvents } from './data/exchangeEventsFeed.js';
 import { recordSnapshots } from './data/gaugeRecorder.js';
+import { loadSleeveState, saveSleeveState } from './data/sleeveStateStore.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -105,6 +106,7 @@ const engine = createTradingEngine({
   marketContext: { getBtcDominanceTrend, getEthBtcTrend },
   notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot,
   loadEquityHistory, loadNasdaqHistory, loadImpliedVol, loadExchangeEvents: loadVenueEvents,
+  sleeveStore: { load: loadSleeveState, save: saveSleeveState },
   modeLabel: (paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase(),
   initialState: { currentRegime: REGIME_LABELS.BULL_RANGE },
 });
@@ -691,8 +693,7 @@ let riskCheckId = null;
                 const retried = await trader.closeCorePosition(pos.symbol, price);
                 if (retried) {
                   engine.state.tsmCoreFailedCloses.delete(pos.symbol);
-                  engine.state.tsmLastExitAt.set(pos.symbol, Date.now());
-                  if (Number(config.tsmCore?.rebuyConfirmBars ?? 0) > 0) engine.state.tsmRebuyGate.set(pos.symbol, true);
+                  engine.noteCoreExit(pos.symbol);
                   logger.info(`[RISK-LOOP] ${pos.symbol}: core close retry succeeded`);
                   dashboardState.pushTrade(retried);
                   notifyTrade(retried);

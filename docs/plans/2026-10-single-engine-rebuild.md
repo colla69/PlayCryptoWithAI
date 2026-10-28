@@ -2552,3 +2552,15 @@ replay: 10 d $6,682 · 1.99 · 7.5%; 30 d $6,858 · 2.08 · 6.7%; unseen 10 d $3
   `rebuyConfirmBars` 40). Before that, the gate and the pause must survive a restart (persisted
   through `runtimeDir()`), and it ships as its own release, one change at a time, after the
   PR #13 releases — user decision.
+
+**Persistence (2026-10-28, before any switch-on).** `src/data/sleeveStateStore.js` keeps the
+buy-back gate and the last-sell times in `data/tsm_sleeve_state.json` (through `runtimeDir()`;
+atomic temp-file + rename; an unreadable file is logged and treated as empty = the shipped
+behaviour). The engine loads it at start (`deps.sleeveStore`, wired in `main.js`; the replay
+passes none), saves on every sleeve sell (`noteCoreExit`, also used by live's retried closes)
+and whenever the gate changes; switched off, leftover gates are cleared, and a held coin is never
+gated. Proof: the six-year replay is identical trade for trade with the rule off ($6,762.89) and
+on ($6,808.89); `tests/core/sleeveRebuyRestart.test.js` runs the engine's sleeve cycle through a
+restart (sell saved → restarted engine does not buy back below the 20-day high; a new 20-day
+high buys and clears the file; a vote-flip sell saves the gate; off clears a leftover gate);
+a paper boot with a saved gate logged it restored and cleared it when the trend had broken.
