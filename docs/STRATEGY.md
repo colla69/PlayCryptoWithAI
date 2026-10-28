@@ -165,6 +165,16 @@ Every BUY signal must pass a cascade before execution:
    missed that: LSK, TON and GMX each fed the aggregator a frozen series for weeks during the
    2026-07 soak, every cycle re-deriving an identical confidence. The guard covers the signal cycle,
    the startup seed, and the TSM core sleeve (`src/utils/candleFreshness.js`).
+   - **Binance venue veto** (`exchangeEvents`, section E item 2 of the 2026-10 rebuild plan) — no
+     new entry in a coin from the day Binance gives it a monitoring tag (until the tag is lifted)
+     or announces the removal of its USDC pair or the delisting of the token; a held scalper
+     position in such a coin is sold at the next cycle. After the halt the fresh-data guard skips
+     the symbol before any exit runs, so a position held through a removal is stranded. In 2026
+     LSK/USDC and GMX/USDC were removed with three days' notice and VANRY was delisted a month
+     after its tag; TON was renamed GRAM (the bot now trades GRAM/USDC). Feed: Binance's
+     announcement pages (`src/data/exchangeEventsFeed.js`, cache `data/exchangeEvents.json`,
+     re-read every 4h; an outage keeps the cache). The replay reads the same file. Covers the
+     scalper and the satellites.
 1. **Bear-regime block** (Phase 6a) — no new entries while regime is `BEAR_TREND`.
 2. **Max positions** — 4 concurrent slots (`risk.maxOpenPositions`; core sleeve legs don't count);
    a BUY that arrives with every slot full is skipped, not queued. The backtester fills free slots
@@ -209,7 +219,7 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 BTC+ETH+BNB+SOL) sized as a fixed sleeve (default 50% of equity, split equally) 
 that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
-env var; runs in **paper and live** — on the live bot it places real market orders sized to 
+env var; runs in **paper and live** — on the live bot it places real orders (IOC limits capped 0.5% past the price) sized to 
 `deploymentPct` of the account, so enabling it is a deliberate capital-deployment decision. A 
 vote-flip close that fails on the exchange fires a Telegram alert and is retried by the fast risk 
 loop (~2 min) until it fills.
@@ -221,6 +231,13 @@ that. Validated on 9yr USDT data incl. the 2018 + 2022 bears: vs the symmetric 2
 raises Sharpe (0.93→1.04 BTC+ETH) and cuts round trips ~3×. Position key is `'<symbol>#core'` 
 (e.g. `BTC/USDC#core`) with `isCore: true` flag, coexisting with the scalper's positions on the 
 same asset.
+
+**Faster exit with a buy-back proof (built, OFF):** `stayVotes: 3` sells on the first negative
+vote; `rebuyConfirmBars: 40` then buys a sold coin back only on a close above its 20-day high
+while a majority of votes is still positive (a broken trend clears the wait). Six-year replay:
+Sharpe 1.99 → 2.08, worst drop 8.2% → 6.7% (plan doc § M). `reentryPauseHours` adds a pause after
+a sell (§ L, not adopted). The wait and the last-sell times persist in
+`data/tsm_sleeve_state.json` (`src/data/sleeveStateStore.js`), so a restart does not buy back early.
 
 **Portfolio treatment:** core positions are excluded from:
 - Stop-loss/take-profit/break-even/aging (only exit trigger is vote flip)
@@ -280,7 +297,9 @@ asset-class upside, not alpha); infrastructure is shipped, operator chooses whet
 activate and how much capital to allocate.
 
 **Sizing (combo rule):** each slot is `deploymentPct/n × volFraction × macroFactor` —
-vol targeting (`min(1, volTarget/realized 30d vol)`, floor 0.2, no leverage) times the equity
+vol targeting (`min(1, volTarget/vol)`, floor 0.2, no leverage; vol = Deribit DVOL implied vol for
+BTC and ETH — `impliedVol`, section E1 of the 2026-10 rebuild plan, cache `data/dvol.json`, realized
+vol when no DVOL close is under 24h old — and realized 30d vol for BNB and SOL) times the equity
 risk-off overlay (×0.5 while the NASDAQ Composite is below its 100d EMA; FRED keyless feed with
 12h cache, neutral on fetch failure). Held positions drift-rebalance when they deviate >15% of
 their slot (`resizeCorePosition`, partial fills carry post-state for restart restore). Full combo

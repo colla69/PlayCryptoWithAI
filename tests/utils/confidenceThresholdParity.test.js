@@ -143,3 +143,18 @@ describe('static guard', () => {
     );
   });
 });
+
+describe('the optimizer gates at the scaled threshold', () => {
+  // perSymbolOptimizer.mjs is a script (top-level run), so this reads its source.
+  // It compared the vote with the raw 0.55 / 0.70 while live trades at 0.65× that:
+  // every combo it picked was chosen under a stricter gate (follow-ups item 13). It now
+  // passes the raw value to the PortfolioBacktester (symbolTrial.js), which scales it
+  // like live; tests/backtester/symbolTrial.test.js checks the scaled gate.
+  test('the trial gets the raw threshold and the live scale', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../../src/scripts/perSymbolOptimizer.mjs', import.meta.url), 'utf8');
+    assert.match(src, /confidenceThresholdScale: config\.risk\?\.confidenceThresholdScale/);
+    assert.match(src, /runSymbolTrial\(ctx, \{ symbol, strategies, minConfidence: minConf \}\)/);
+    assert.doesNotMatch(src, /confidence < minConf\b/);
+  });
+});

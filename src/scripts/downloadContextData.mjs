@@ -10,11 +10,16 @@
  *      for BTC/ETH.
  *   4. Fear & Greed full history (alternative.me, limit=0 — the bot's own cache
  *      only keeps the last 1000 days).
+ *   5. Coinbase premium, hourly since 2021-05 (Coinbase Exchange + Binance spot,
+ *      public) — US spot demand relative to Binance.
+ *   6. Exchange flows (CoinMetrics community): BTC held on exchanges, daily
+ *      inflow/outflow. Recomputed history — exchange labels applied after the fact.
+ *   7. Attention: daily user pageviews of the English Wikipedia "Bitcoin" article.
  *
  * Everything lands in data/context/*.json as sorted [{t, ...}] arrays.
  * Idempotent: re-running refreshes the files. All endpoints are free/keyless.
  *
- * Usage: node src/scripts/downloadContextData.mjs [--only funding|fred|onchain|fng]
+ * Usage: node src/scripts/downloadContextData.mjs [--only funding|fred|onchain|fng|coinbase|flows|attention]
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +98,77 @@ if (!only || only === 'fng') {
     .filter((r) => Number.isFinite(r.v))
     .sort((a, b) => a.t - b.t);
   save('fng.json', rows);
+}
+
+// ── 5. Coinbase premium, hourly (US spot demand vs Binance) ──────────────────
+// p = Coinbase BTC-USD ÷ (Binance BTCUSDT × Coinbase USDT-USD) − 1. The USDT term
+// strips tether's own drift from the dollar out of the gap; Coinbase's USDT-USD
+// starts 2021-05-04, so the series does too. Closed hours only, all three present.
+if (!only || only === 'coinbase') {
+  const H = 3_600_000;
+  const now = Date.now();
+  const from = Date.parse('2021-05-01');
+  const closes = new Map();
+  const bn = new Map();
+  for (let start = from; ;) {
+    const batch = await (await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&startTime=${start}&limit=1000`)).json();
+    for (const k of batch) if (k[0] + H <= now) bn.set(k[0], Number(k[4]));
+    if (batch.length < 1000) break;
+    start = batch.at(-1)[0] + H;
+    await sleep(150);
+  }
+  closes.set('BN', bn);
+  for (const product of ['BTC-USD', 'USDT-USD']) {
+    const m = new Map();
+    for (let s = from; s < now; s += 300 * H) {
+      const e = Math.min(s + 300 * H, now);
+      const url = `https://api.exchange.coinbase.com/products/${product}/candles?granularity=3600&start=${new Date(s).toISOString()}&end=${new Date(e).toISOString()}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'playAIStocks-research' } });
+      if (!res.ok) throw new Error(`Coinbase ${product} ${res.status}`);
+      for (const [t, , , , close] of await res.json()) {
+        const ms = t * 1000;
+        if (ms >= s && ms < e && ms + H <= now) m.set(ms, Number(close));
+      }
+      await sleep(150);
+    }
+    closes.set(product, m);
+  }
+  const rows = [];
+  for (const [t, b] of [...bn].sort((x, y) => x[0] - y[0])) {
+    const cb = closes.get('BTC-USD').get(t);
+    const usdt = closes.get('USDT-USD').get(t);
+    if (cb && usdt && b) rows.push({ t, p: cb / (b * usdt) - 1 });
+  }
+  save('coinbase_premium_1h.json', rows);
+}
+
+// ── 6. Exchange flows (CoinMetrics community) ────────────────────────────────
+// Every row carries a recent computation time: the exchange address labels are
+// applied to the whole history after the fact, so this is NOT point-in-time data.
+if (!only || only === 'flows') {
+  const rows = [];
+  let url = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc' +
+    '&metrics=SplyExNtv,FlowInExNtv,FlowOutExNtv&frequency=1d&start_time=2016-01-01&page_size=10000&paging_from=start';
+  while (url) {
+    const body = await (await fetch(url)).json();
+    for (const e of body.data ?? []) {
+      rows.push({ t: Date.parse(e.time), sply: Number(e.SplyExNtv), fin: Number(e.FlowInExNtv), fout: Number(e.FlowOutExNtv) });
+    }
+    url = body.next_page_url ?? null;
+    await sleep(300);
+  }
+  rows.sort((a, b) => a.t - b.t);
+  save('cm_btc_exchange.json', rows.filter((r) => Number.isFinite(r.sply)));
+}
+
+// ── 7. Attention: Wikipedia pageviews ────────────────────────────────────────
+if (!only || only === 'attention') {
+  const url = 'https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/Bitcoin/daily/20150701/20991231';
+  const body = await (await fetch(url, { headers: { 'User-Agent': 'playAIStocks-research' } })).json();
+  const rows = (body.items ?? [])
+    .map((e) => ({ t: Date.parse(`${e.timestamp.slice(0, 4)}-${e.timestamp.slice(4, 6)}-${e.timestamp.slice(6, 8)}T00:00:00Z`), v: e.views }))
+    .sort((a, b) => a.t - b.t);
+  save('wiki_bitcoin.json', rows);
 }
 
 console.log('CONTEXT-DOWNLOAD-DONE');

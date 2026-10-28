@@ -16,7 +16,7 @@ export default {
   //   DOT  — no optimizer upgrade found (best alt was -0.1% holdout)
   //   AAVE — no optimizer upgrade found (best alt was -5.9% holdout)
   //   MATIC— insufficient history (515 candles < 1460 required)
-  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC', 'ETH/USDC', 'WLD/USDC', 'PEPE/USDC', 'TON/USDC', 'RENDER/USDC', 'ENA/USDC', 'ICP/USDC', 'APT/USDC', 'ARB/USDC', 'JUP/USDC'],
+  symbols: ['BTC/USDC', 'XRP/USDC', 'LINK/USDC', 'BNB/USDC', 'LTC/USDC', 'NEAR/USDC', 'TRX/USDC', 'BCH/USDC', 'ACH/USDC', 'CRV/USDC', 'ENS/USDC', 'GMX/USDC', 'JTO/USDC', 'LDO/USDC', 'LSK/USDC', 'MANTA/USDC', 'PAXG/USDC', 'PIXEL/USDC', 'SUI/USDC', 'THETA/USDC', 'TIA/USDC', 'VANRY/USDC', 'SOL/USDC', 'ADA/USDC', 'AVAX/USDC', 'DOGE/USDC', 'INJ/USDC', 'ETH/USDC', 'WLD/USDC', 'PEPE/USDC', 'GRAM/USDC', 'RENDER/USDC', 'ENA/USDC', 'ICP/USDC', 'APT/USDC', 'ARB/USDC', 'JUP/USDC'],
   timeframe: '12h',
   pollIntervalMs: 43_200_000,   // 12 hours — matches candle close interval
   candleLimit: 200,             // candles fetched per live cycle (enough for all indicators)
@@ -27,6 +27,16 @@ export default {
   // soak. 2 periods (24h on 12h candles) clears the normal case (the forming
   // bar is ~0 periods old; a not-yet-published one is 1) with a wide margin.
   maxCandleStalenessPeriods: 2,
+  // Binance venue veto (src/risk/exchangeEvents.js, feed src/data/exchangeEventsFeed.js,
+  // cache data/exchangeEvents.json, backfill src/scripts/buildExchangeEvents.mjs). A
+  // monitoring tag blocks new entries until removed; a USDC-pair removal or a token
+  // delisting blocks entries and sells a held scalper position at the next cycle —
+  // after the halt the stale guard above skips the symbol and the position is stranded
+  // (LSK/USDC and GMX/USDC were removed with 3 days' notice, VANRY delisted 2026-08).
+  // Covers the scalper and the satellites; the sleeve trades only BTC/ETH/BNB/SOL.
+  exchangeEvents: {
+    enabled: true,
+  },
   rsi: { period: 14, oversold: 30, overbought: 70 },
   ema: { fast: 12, slow: 26 },
   macd: { fast: 12, slow: 26, signal: 9 },
@@ -52,10 +62,24 @@ export default {
                             // breaker) scale off LIVE equity once known — this value
                             // only anchors them before the first balance reading.
     maxPositionPct: 0.15,
-    stopLossPct: 0.05,
-    takeProfitPct: 0.12,
+    // The user's rule: no trade's stop sits more than 10% below entry. Per-symbol stops are
+    // capped at 0.09, so fees and slippage (~0.3%) keep the realised loss under 10% too
+    // (plan doc § I/I2: 9% gives the same trades as the old 10.5%; 8% cuts recoveries).
+    // tests/config/stopLossRule.test.js fails on any stop above 10%.
+    stopLossPct: 0.075,
+    takeProfitPct: 0.18,
     trailingStopPct: 0,      // OFF — always underperforms hard TP/SL on higher timeframes
-    breakEvenTriggerPct: 0.05, // Lock stop at entry once trade is +5% — free downside protection
+    // With a trailing stop on: start trailing only once the trade is this far up
+    // (e.g. 0.05), so noise right after the entry cannot stop it out. 0 = trail from
+    // entry. Shared by live, paper and the simulator (calcTrailingStop).
+    trailArmPct: 0,
+    // Once a trade is up this much, the stop locks at entry × 1.002 (the 0.2% covers
+    // round-trip fees — see calcBreakEven). 0.05 → 0.10 on 2026-10-24: under real stop
+    // timing (the backtester replays each period's 15m bars, as live's 2-minute loop
+    // meets prices) the +5% lock closed too many trades that went on to their target.
+    // Stop sweep (docs/plans/2026-10-single-engine-rebuild.md), with every SL/TP ×1.5:
+    // +10% walk-forward Sharpe 1.38, DSR 0.53 (off: the same; +5%: 1.33, 0.45).
+    breakEvenTriggerPct: 0.10,
     // Floor on the compounded sizing brakes, as a fraction of maxPositionPct.
     // The brakes (ATR × macro × ADX regime × confidence) multiply and are
     // positively correlated — bear macro, chop and low confidence co-occur — so
@@ -66,6 +90,19 @@ export default {
     // shows uniform size scaling is Sharpe-neutral at best. Requires a baseline
     // run before enabling. Applied identically in live and backtest.
     minSizeMultiplier: 0,
+    // Order under Binance's floor ($11, exchangeLimits.js) but at least minRatio of it:
+    // buy the floor instead of skipping. A small account loses 7–14% of signals to the
+    // floor (2026-09/10 live sizing). Off until the 2026-10 recalibration measures it.
+    minNotionalBump: { enabled: false, minRatio: 0.5 },
+    // Live sends every scalper and sleeve order as an IOC limit at most this far past
+    // the price: a buy fills now at no more than price × (1 + cap) and buys nothing past
+    // it; a sell fills at no less than price × (1 − cap), and only what that leaves sells
+    // at market (the catastrophe fallback, logged as an error). 0.5% sits above the
+    // highest slippage tier the backtests charge (micro 0.35%), so the cap binds only on
+    // a fill worse than the model assumes. A resting limit under the price was tested
+    // instead (2026-10-26, six-year replay): every offset broke even or lost — the misses
+    // are the scalper's winners. Satellites keep their own 0.3% cap (large coins only).
+    limitCapPct: 0.005,
     maxDailyLossPct: 0.05,
     maxOpenPositions: 4,     // Post-fix sweep (commits 6113b0e/5952815, 2026-06-22):
                               //   slots=3 mtf=0.50  Y2 +111% Sh 2.17 DD -17%  OOS +84% Sh 1.83 DD -14%
@@ -160,278 +197,278 @@ export default {
     'BTC/USDC': {
       // ADX+PSAR+HeikinAshi  SL5/TP12  conf=0.55 → optimizer holdout: +7.7%  Sharpe 0.34 ✅
       strategies: ["EMA","PSAR","HeikinAshi"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'XRP/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +31.7%  Y1 +46.8%  Sharpe 1.10/1.16 ✅
       strategies: ["BB","Stoch","EMA"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'LINK/USDC': {
       // MOM:MACD+Stoch+RSI  SL5/TP12  conf=0.55 → Y2 +85.6%  Y1 +78.8%  Sharpe 1.51/1.35 ✅
       strategies: ["BB","Stoch","Supertrend"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
     'BNB/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +12.0%  Y1 +6.7%  Sharpe 0.49/0.34 ✅
       strategies: ["WilliamsR","HeikinAshi","SR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'LTC/USDC': {
       // MOM:MACD+Stoch+RSI  SL5/TP12  conf=0.55 → Y2 +42.6%  Y1 +37.5%  Sharpe 0.98/0.82 ✅
       strategies: ["BB","EMA","WilliamsR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
     'TRX/USDC': {
       // TREND:EMA+MACD+ADX  SL12/TP30  conf=0.55 → Y2 +36.4%  Y1 +129.9%  Sharpe 1.83/1.01 ✅
       strategies: ["CCI","Stoch","StochRSI"],
-      stopLossPct: 0.12,
-      takeProfitPct: 0.30,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.45,
       minConfidence: 0.70,
       adx: { period: 14, threshold: 20 },
     },
     'BCH/USDC': {
       // MOM:MACD+Stoch+RSI  SL7/TP18  conf=0.55 → Y2 +32.4%  Y1 +31.1%  Sharpe 0.74/0.68 ✅
       strategies: ["BB","OBV","WilliamsR"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
       rsi: { period: 14, oversold: 35, overbought: 65 },
     },
     'ACH/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +30.4%  Y1 +72.3%  Sharpe 1.10/1.50 ✅
       strategies: ['RSI', 'BB', 'CCI'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'ANKR/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +51.4%  Y1 +58.3%  Sharpe 1.07/1.31 ✅
       strategies: ["RSI","BB","CCI"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'AVA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +26.8%  Y1 +59.2%  Sharpe 0.83/1.51 ✅
       // NOTE: No USDC pair — kept as config reference but not in symbols list
       strategies: ["BB","Stoch","WilliamsR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'CHR/USDC': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +1.4%  Y1 +139.0%  Sharpe 0.23/2.40 ✅
       // NOTE: No USDC pair — kept as config reference but not in symbols list
       strategies: ['EMA', 'MACD', 'ADX'],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
     'CRV/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +48.5%  Y1 +91.5%  Sharpe 1.20/1.82 ✅
       strategies: ["ADX","StochRSI","SR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'ENS/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +13.4%  Y1 +63.7%  Sharpe 0.47/1.55 ✅
       strategies: ["BB","PSAR","SR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'GLMR/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +26.7%  Y1 +42.5%  Sharpe 0.58/1.51 ✅
       strategies: ['EMA', 'MACD', 'ADX'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
     'GMX/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +23.3%  Y1 +19.1%  Sharpe 0.80/0.58 ✅
       strategies: ['RSI', 'BB', 'CCI'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'ICX/USDC': {
       // MR:RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +24.6%  Y1 +12.1%  Sharpe 0.78/0.45 ✅
       strategies: ['RSI', 'BB', 'Stoch'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'JTO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +6.0%  Y1 +111.0%  Sharpe 0.30/1.92 ✅
       strategies: ["CCI","PSAR","SR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'LDO/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +22.7%  Y1 +38.7%  Sharpe 0.62/1.05 ✅
       strategies: ["MACD","ADX","WilliamsR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'LSK/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +138.7%  Y1 +66.9%  Sharpe 1.38/1.33 ✅
       strategies: ["MACD","MFI","PSAR"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'MANTA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +76.4%  Y1 +28.8%  Sharpe 1.81/0.76 ✅
       strategies: ['RSI', 'BB', 'CCI'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'MTL/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +22.6%  Y1 +25.2%  Sharpe 0.72/0.91 ✅
       strategies: ["EMA","MFI","WilliamsR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'ONG/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +32.9%  Y1 +38.8%  Sharpe 0.79/1.00 ✅
       strategies: ['RSI', 'BB', 'CCI'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'PAXG/USDC': {
       // TREND:EMA+MACD+ADX  SL7/TP18  conf=0.55 → Y2 +39.7%  Y1 +13.8%  Sharpe 2.48/0.87 ✅
       strategies: ['MACD', 'ADX', 'Supertrend'],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
     'PIXEL/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +103.8%  Y1 +117.6%  Sharpe 0.97/1.35 ✅
       strategies: ["EMA","ADX","SR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
     'RAD/USDC': {
       // MR:RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +34.1%  Y1 +28.6%  Sharpe 0.74/1.06 ✅
       strategies: ['RSI', 'BB', 'Stoch'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'SFP/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.55 → Y2 +21.4%  Y1 +12.6%  Sharpe 0.57/0.43 ✅
       strategies: ['RSI', 'Stoch', 'WilliamsR'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'SPELL/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +26.7%  Y1 +34.3%  Sharpe 0.66/0.87 ✅
       strategies: ["RSI","EMA","PSAR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'SUI/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +12.0%  Y1 +48.3%  Sharpe 0.43/1.37 ✅
       strategies: ["RSI","Stoch","MFI"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'THETA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +54.5%  Y1 +4.8%  Sharpe 1.04/0.27 ✅
       strategies: ["RSI","CCI","OBV"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'TIA/USDC': {
       // MR:RSI+BB+CCI  SL5/TP12  conf=0.70 → Y2 +89.9%  Y1 +15.8%  Sharpe 1.41/0.51 ✅
       strategies: ["CCI","MACD","HeikinAshi"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'VANRY/USDC': {
       // TREND:EMA+MACD+ADX  SL5/TP12  conf=0.55 → Y2 +53.1%  Y1 +62.9%  Sharpe 1.08/1.78 ✅
       strategies: ['EMA', 'MACD', 'ADX'],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
       adx: { period: 14, threshold: 20 },
     },
     'XEC/USDC': {
       // MR:RSI+BB+Stoch  SL5/TP12  conf=0.70 → Y2 +85.7%  Y1 +3.1%  Sharpe 1.70/0.21 ✅
       strategies: ["RSI","Supertrend","OBV"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'YFI/USDC': {
       // MR:RSI+BB+Stoch  SL7/TP18  conf=0.70 → Y2 +74.1%  Y1 +40.0%  Sharpe 1.68/0.95 ✅
       strategies: ['RSI', 'BB', 'Stoch'],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.70,
     },
     'SOL/USDC': {
       // BB+WilliamsR+StochRSI  SL7/TP18  conf=0.55 → optimizer holdout: +34.2%  Sharpe 0.75 ✅
       strategies: ['BB', 'WilliamsR', 'StochRSI'],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'ADA/USDC': {
       // CCI+Stoch+MFI  SL5/TP12  conf=0.55 → optimizer holdout: +16.7%  Sharpe 0.42 ✅
       strategies: ["RSI","BB","CCI"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'AVAX/USDC': {
       // CCI+MFI+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +47.1%  Sharpe 1.15 ✅
       strategies: ["RSI","MACD","PSAR"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'DOGE/USDC': {
       // EMA+PSAR+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +11.6%  Sharpe 0.41 ✅
       strategies: ['EMA', 'PSAR', 'HeikinAshi'],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'INJ/USDC': {
       // RSI+StochRSI+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +54.0%  Sharpe 0.98 ✅
       strategies: ["ADX","OBV","StochRSI"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     // ── New coins — 17 additions, optimizer-pending ────────────────────────
@@ -441,114 +478,117 @@ export default {
     'ETH/USDC': {
       // CCI+Stoch+StochRSI  SL5/TP12  conf=0.70 → optimizer holdout: +9.0%  Sharpe 0.42 [4t] ✅
       strategies: ["Supertrend","MFI","SR"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.55,
     },
     'ZEC/USDC': {
       // CCI+Stoch+OBV  SL5/TP12  conf=0.70 → optimizer holdout: +19.0%  Sharpe 1.19 [3t] ✅
       strategies: ["CCI","Stoch","OBV"],
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'FTM/USDC': {
       // Skipped by optimizer — insufficient candles (1005 < 1460); uses global default
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'XLM/USDC': {
       // No upgrade found — best alt holdout was -13.7%; uses global default
-      stopLossPct: 0.05,
-      takeProfitPct: 0.12,
+      stopLossPct: 0.075,
+      takeProfitPct: 0.18,
       minConfidence: 0.70,
     },
     'FET/USDC': {
       // No upgrade found — best alt holdout was -5.6%; uses global default
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'WLD/USDC': {
       // BB+CCI+ADX  SL7/TP18  conf=0.55 → optimizer holdout: +47.0%  Sharpe 1.01 [7t] ✅
       strategies: ["BB","CCI","ADX"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'PEPE/USDC': {
       // EMA+Supertrend+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +56.8%  Sharpe 1.60 [4t] ✅
       strategies: ["EMA","Supertrend","OBV"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
-    'TON/USDC': {
+    // Toncoin (TON) was rebranded to Gram (GRAM) 1:1 on 2026-06-30: the tuning below was
+    // done on TON/USDC, whose history the GRAM/USDC candle files carry
+    // (src/scripts/stitchRenamedPair.mjs).
+    'GRAM/USDC': {
       // EMA+OBV+StochRSI  SL7/TP18  conf=0.55 → optimizer holdout: +17.7%  Sharpe 0.67 [4t] ✅
       strategies: ["EMA","OBV","StochRSI"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'RENDER/USDC': {
       // EMA+OBV+WilliamsR  SL7/TP18  conf=0.55 → optimizer holdout: +13.1%  Sharpe 0.85 [3t] ✅
       strategies: ["EMA","OBV","WilliamsR"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'ENA/USDC': {
       // RSI+BB+CCI  SL7/TP18  conf=0.55 → optimizer holdout: +47.6%  Sharpe 0.98 [4t] ✅
       strategies: ["RSI","BB","CCI"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'ICP/USDC': {
       // RSI+BB+Stoch  SL7/TP18  conf=0.55 → optimizer holdout: +28.8%  Sharpe 0.70 [7t] ✅
       strategies: ["RSI","BB","Stoch"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'DOT/USDC': {
       // No upgrade found — best alt holdout was -0.1%; uses global default
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'AAVE/USDC': {
       // No upgrade found — best alt holdout was -5.9%; uses global default
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'MATIC/USDC': {
       // Skipped by optimizer — insufficient candles (515 < 1460); uses global default
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'APT/USDC': {
       // BB+Stoch+MFI  SL7/TP18  conf=0.55 → optimizer holdout: +139.7%  Sharpe 2.02 [8t] ✅
       strategies: ["BB","Stoch","MFI"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'ARB/USDC': {
       // RSI+WilliamsR+HeikinAshi  SL7/TP18  conf=0.55 → optimizer holdout: +30.4%  Sharpe 0.98 [3t] ✅
       strategies: ["RSI","WilliamsR","HeikinAshi"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
     'JUP/USDC': {
       // BB+CCI+OBV  SL7/TP18  conf=0.55 → optimizer holdout: +47.0%  Sharpe 1.07 [5t] ✅
       strategies: ["BB","CCI","OBV"],
-      stopLossPct: 0.07,
-      takeProfitPct: 0.18,
+      stopLossPct: 0.09,
+      takeProfitPct: 0.27,
       minConfidence: 0.55,
     },
   },
@@ -794,6 +834,14 @@ export default {
     // rule: Sharpe 1.27, DD −36%, DSR 0.94 on the 4-major 9yr study.
     enterVotes: 3,                // open a new core position: positives ≥ this
     stayVotes: 2,                 // keep an open core position: positives ≥ this
+    // Section L: hours after a sleeve sell before that coin may be bought again. 0 = off.
+    reentryPauseHours: 0,
+    // Section M: after a sell, while a majority of votes is still positive, buy back only on a
+    // close above every close of this many previous bars (40 = 20 days). 0 = off. Tested ONLY
+    // together with stayVotes: 3 — switch both or neither (six-year replay Sharpe 1.99 → 2.08,
+    // worst drop 8.2% → 6.7%; see plan doc § M and its review before switching on).
+    // The gate and the last-sell times persist in data/tsm_sleeve_state.json (sleeveStateStore).
+    rebuyConfirmBars: 0,
     // Static fallback deployment (rung A) — see equityLadder above, which is
     // what actually drives sizing. A pure risk dial: DD scales ~linearly with it.
     deploymentPct: 0.50,
@@ -803,6 +851,16 @@ export default {
     volWindowBars: 60,            // realized-vol window (30 days of 12h bars)
     minFraction: 0.2,             // floor on the vol fraction
     resizeThresholdPct: 0.15,     // rebalance a held slot when drift > 15% of the slot
+    // Implied vol (Deribit DVOL, BTC and ETH) in place of realized vol in the vol
+    // fraction above — section E1 (2026-10-27): six-year replay Sharpe 1.97 → 1.98,
+    // worst drop 9.4% → 8.5%, better in the 2021–23 bear/flat folds, level since
+    // 2024. BNB/SOL have no index and keep realized vol; a DVOL close older than
+    // maxAgeHours (or a feed outage) falls back to realized vol. Cache data/dvol.json,
+    // read by the replays too.
+    impliedVol: {
+      enabled: true,
+      maxAgeHours: 24,
+    },
     // Equity risk-off overlay (M1): half size while NASDAQ < its 100d EMA.
     // The one context overlay that improved Sharpe AND DD in every universe
     // tested (1.23→1.27, DD −44→−36%, DSR 0.94). FRED feed, keyless, 12h cache;
@@ -811,6 +869,60 @@ export default {
       enabled: true,
       emaDays: 100,
       riskOffFactor: 0.5,
+    },
+  },
+
+  // ── Satellite strategies (2026-10-26) — short trades on the idle cash ─────────
+  // Two strategies that survived the setup search (plan 2026-10 single-engine
+  // rebuild, "Combining the streams"): the 4h volume breakout and the strongest-coin
+  // breakout, each 12.5% of equity per trade on cash the scalper and the sleeve leave
+  // free. Entries are resting limit buys (no fill → no trade), stops are stop-limit
+  // sells, targets and time exits limit sells. Pure logic in src/engine/satellites.js.
+  // OFF by default (SATELLITES=true turns them on). Live places REAL resting GTC limit buys
+  // (LiveTrader.placeSatelliteOrder); see the PR #13 reviews in the plan doc before enabling.
+  satellites: {
+    enabled: process.env.SATELLITES === 'true',
+    // The 8 large coins of the symbol list: on all 37 the breakout loses (small coins
+    // fail more often and pay 0.20–0.35% slippage a side).
+    symbols: ['BTC/USDC', 'ETH/USDC', 'BNB/USDC', 'SOL/USDC', 'XRP/USDC', 'DOGE/USDC', 'ADA/USDC', 'AVAX/USDC'],
+    breakout: {
+      enabled: true,
+      timeframe: '4h',
+      trend: { fast: 50, slow: 200 },   // on 12h bars
+      lookbackBars: 48,                  // the plateau centre of the 27-setting grid
+      volumeMult: 1.5,
+      volumeAvgBars: 48,
+      closeInRangeMin: 0.7,
+      stopAtr: 1.5,                      // a 1.0 ATR stop lost almost everywhere
+      limitOffsetPct: 0.005,             // 0.5% under: fills ~78%, best of the order types
+      entryValidMs: 4 * 3_600_000,       // the limit rests one 4h bar
+      maxStopPct: 0.10,                  // the user's rule: no trade risks more than 10%
+      perTradePct: 0.125,
+      maxOpen: 2,
+      breakEvenAtR: 1,
+      targetR: null,                     // no 2R target: winners run (tiered-exit test)
+      timeLimitMs: 48 * 3_600_000,
+      tiers: [{ minProfit: 0.01, rsiBelow: 35 }, { minProfit: 0.02, rsiBelow: 45 }, { minProfit: 0.04, rsiBelow: 55 }],
+    },
+    strongest: {
+      // Off: in the engine walk-forward (2026-10-26) it lowered the Sharpe alone (1.91 → 1.78)
+      // and next to the breakout (2.13 → 1.96). Its research estimate carried selection bias.
+      enabled: false,
+      timeframe: '12h',
+      trend: { fast: 100, slow: 400 },   // on 12h bars (≈ the daily 50/200)
+      rankBars: 14,                      // 7-day return
+      topN: 3,                           // ranked among every symbol in config.symbols
+      lookbackBars: 24,
+      stopAtr: 1.5,
+      limitOffsetPct: 0.002,
+      entryValidMs: 12 * 3_600_000,
+      maxStopPct: 0.10,
+      perTradePct: 0.125,
+      maxOpen: 2,
+      breakEvenAtR: 1,
+      targetR: 2,
+      timeLimitMs: 120 * 3_600_000,
+      tiers: null,
     },
   },
 
@@ -864,5 +976,13 @@ export default {
   dashboard: {
     enabled: true,
     port: 3001,
+  },
+  // Research only, feeds no decision: records Coin Metrics exchange flows as published,
+  // once a day, for the forward check in plan doc § H (the downloaded history is
+  // recomputed, so it cannot be backtested). Off the trading cycle; a failure only logs.
+  gaugeRecorder: {
+    enabled: true,
+    checkEveryMs: 6 * 60 * 60 * 1000,  // how often to look; restarts and misses catch up
+    minGapMs: 20 * 60 * 60 * 1000,     // at most one snapshot per ~day per asset
   },
 };

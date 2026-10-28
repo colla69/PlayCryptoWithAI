@@ -16,45 +16,14 @@ import { loadCachedCandles } from '../exchange/candleCache.js';
 import { candleSeriesAgeMs, formatAge } from '../utils/candleFreshness.js';
 import { PortfolioBacktester } from './index.js';
 import { loadFearGreedHistory } from '../data/fearGreed.js';
-import {
-  RSIStrategy, BollingerBandsStrategy, CCIStrategy, StochasticStrategy,
-  EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
-  MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
-  StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
-} from '../strategies/index.js';
+// Live's own builder (follow-ups item 7): a private copy here knew 15 of the 20
+// strategies and defaulted a symbol without a list to ['RSI'] where live uses all.
+import { buildStrategiesForSymbol as buildStrategies } from '../utils/strategyBuilder.js';
 import { deflatedSharpeRatio } from './deflatedSharpe.js';
+import { dailyReturnsFromEquity } from './metrics.js';
 
-const STRATEGY_BUILDERS = {
-  RSI:        (s) => new RSIStrategy(symCfg(s, 'rsi', config.rsi)),
-  EMA:        (s) => new EMAStrategy(symCfg(s, 'ema', config.ema)),
-  MACD:       (s) => new MACDStrategy(symCfg(s, 'macd', config.macd)),
-  BB:         (s) => new BollingerBandsStrategy(symCfg(s, 'bollinger', config.bollinger)),
-  Stoch:      (s) => new StochasticStrategy(symCfg(s, 'stochastic', config.stochastic)),
-  ADX:        (s) => new ADXStrategy(symCfg(s, 'adx', config.adx)),
-  CCI:        (s) => new CCIStrategy(symCfg(s, 'cci', config.cci)),
-  Supertrend: (s) => new SupertrendStrategy(symCfg(s, 'supertrend', config.supertrend)),
-  MFI:        (s) => new MFIStrategy(symCfg(s, 'mfi', config.mfi)),
-  OBV:        (s) => new OBVStrategy(symCfg(s, 'obv', config.obv)),
-  PSAR:       (s) => new PSARStrategy(symCfg(s, 'psar', config.psar)),
-  WilliamsR:  (s) => new WilliamsRStrategy(symCfg(s, 'williamsR', config.williamsR)),
-  StochRSI:   (s) => new StochRSIStrategy(symCfg(s, 'stochRsi', config.stochRsi ?? {})),
-  HeikinAshi: (s) => new HeikinAshiStrategy(symCfg(s, 'heikinAshi', config.heikinAshi ?? {})),
-  SR:         (s) => new SupportResistanceStrategy(symCfg(s, 'supportResistance', config.supportResistance ?? {})),
-};
 
-function symCfg(symbol, key, defaults) {
-  return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
-}
 
-function buildStrategies(symbol) {
-  const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];
-  return names
-    .map((n) => {
-      const b = STRATEGY_BUILDERS[n];
-      if (!b) throw new Error(`Unknown strategy '${n}' for ${symbol}`);
-      return b(symbol);
-    });
-}
 
 // ── Slippage tiers (kept in sync with src/scripts/portfolioBacktest.mjs) ──────
 const LARGE_CAP_SLIP = 0.0010;
@@ -75,6 +44,7 @@ export const SLIPPAGE_TIERS = {
   'ZEC/USDC': LARGE_CAP_SLIP, 'FTM/USDC': LARGE_CAP_SLIP, 'XLM/USDC': LARGE_CAP_SLIP,
   'FET/USDC': MID_CAP_SLIP,   'WLD/USDC': MID_CAP_SLIP,   'PEPE/USDC': MID_CAP_SLIP,
   'TON/USDC': MID_CAP_SLIP,   'RENDER/USDC': MID_CAP_SLIP,'ENA/USDC': MID_CAP_SLIP,
+  'GRAM/USDC': MID_CAP_SLIP,  // TON, renamed 2026-06-30
   'ICP/USDC': MID_CAP_SLIP,   'DOT/USDC': MID_CAP_SLIP,   'AAVE/USDC': MID_CAP_SLIP,
   'MATIC/USDC': MID_CAP_SLIP, 'APT/USDC': MID_CAP_SLIP,   'ARB/USDC': MID_CAP_SLIP,
   'JUP/USDC': MID_CAP_SLIP,
@@ -95,6 +65,11 @@ export const FULL_LIVE_FILTERS = Object.freeze({
   mtf4hFilter:         true,
   mtf4hMinScore:       0.45,
   mtf4hLookback:       21,
+  // ATR inverse-volatility sizing: live applies it first in computePositionSize()
+  // whenever config.atr.enabled. Missing here until 2026-10-24, so every baseline
+  // was sized without it (found by the live reconciliation, layer 3).
+  atrPositionSizing:   config.atr?.enabled ?? false,
+  atrPeriod:           config.atr?.period ?? 14,
   regimeSizing:        true,
   regimeBoostThresh:   25,
   regimePenaltyThresh: 15,
@@ -201,14 +176,18 @@ export function loadMtfCandles(symbols, suffix) {
 }
 
 /**
- * Slice each symbol's candles to a [startTs, endTs] window. Symbols whose data
- * doesn't overlap the window get an empty array (caller filters).
+ * A window's candles WITH the history before it, for warm indicators: every bar up
+ * to `endTs`, for the symbols with at least 60 bars inside [startTs, endTs]. Pair
+ * it with `tradeFromTs: startTs`, so the run trades and measures only the window.
+ * Live decides with ~1,600 bars behind every cycle; a window cut at its start
+ * restarted every indicator there — `last_90d` traded 65 of its 90 days, all on cold
+ * EMA200 / ADX / PSAR state (runSignalIntegrity.mjs, recursive check).
  */
-export function sliceWindow(symbolCandles, startTs, endTs) {
+export function sliceWithHistory(symbolCandles, startTs, endTs) {
   const out = {};
   for (const [sym, candles] of Object.entries(symbolCandles)) {
-    const slice = candles.filter((c) => c.timestamp >= startTs && c.timestamp <= endTs);
-    if (slice.length >= 60) out[sym] = slice;
+    const inWindow = candles.filter((c) => c.timestamp >= startTs && c.timestamp <= endTs).length;
+    if (inWindow >= 60) out[sym] = candles.filter((c) => c.timestamp <= endTs);
   }
   return out;
 }
@@ -372,7 +351,7 @@ export function runWindow({
   basePctOverride = 0,
   riskOverrides = {},
 }) {
-  const sliced = sliceWindow(symbolCandles, window.startTs, window.endTs);
+  const sliced = sliceWithHistory(symbolCandles, window.startTs, window.endTs);
   const symbols = Object.keys(sliced);
   if (symbols.length === 0) {
     return {
@@ -409,7 +388,7 @@ export function runWindow({
       initialBalance:      budget,
       stopLossPct:         slMedian,
       takeProfitPct:       tpMedian,
-      trailingStopPct:     riding ? rideWinnersTrail : 0,
+      trailingStopPct:     riding ? rideWinnersTrail : (config.risk?.trailingStopPct ?? 0), // live reads config.risk
       // Riding winners requires lifting the 14-bar position-aging cap — otherwise
       // every position is force-closed at 7 days and a multi-week 10x can never run.
       ...(riding && { positionAgingExit: { enabled: false } }),
@@ -441,13 +420,15 @@ export function runWindow({
       ? config.risk.confidenceThresholdScale
       : 1,
     ...FULL_LIVE_FILTERS,
+    // Warm indicators from the history before the window; trade only inside it.
+    tradeFromTs: window.startTs,
     // WS3 sweep hook: override individual filter knobs (e.g. mtfMinScore) without
     // mutating the frozen FULL_LIVE_FILTERS. Spread last so overrides win.
     ...filterOverrides,
   });
 
   const result = backtester.run(sliced);
-  const dailyReturns = extractDailyReturns(result.equityCurve, budget);
+  const dailyReturns = [...dailyReturnsFromEquity(result.equityCurve, budget).values()];
   const dsr = deflatedSharpeRatio({
     observedSharpe: result.metrics.sharpeRatio,
     returns: dailyReturns,
@@ -483,27 +464,6 @@ export function runWindow({
     // combined drawdown cannot be derived from summary metrics alone.
     ...(includeRaw && { trades: result.trades, symbol_stats: result.symbolStats, equity_curve: result.equityCurve }),
   };
-}
-
-function extractDailyReturns(equityCurve, initialBalance) {
-  if (!Array.isArray(equityCurve) || equityCurve.length < 2) return [];
-  const byDay = new Map();
-  for (const point of equityCurve) {
-    const ts = Number(point?.timestamp ?? 0);
-    const bal = Number(point?.balance);
-    if (!Number.isFinite(bal) || !Number.isFinite(ts)) continue;
-    const day = new Date(ts).toISOString().slice(0, 10);
-    byDay.set(day, bal);
-  }
-  const sorted = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
-  if (sorted.length < 2) return [];
-  const rets = [];
-  let prev = initialBalance;
-  for (const bal of sorted) {
-    if (prev > 0) rets.push((bal - prev) / prev);
-    prev = bal;
-  }
-  return rets;
 }
 
 function median(arr) {

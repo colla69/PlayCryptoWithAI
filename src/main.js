@@ -10,27 +10,25 @@ import SignalAggregator from './engine/signalAggregator.js';
 import PaperTrader from './executor/paperTrader.js';
 import { LiveTrader } from './executor/liveTrader.js';
 import RiskManager from './risk/index.js';
-import { calcPositionAgingExit, calcWeeklyDDBreaker, calcEquityFromStatus } from './risk/portfolioRisk.js';
-import { computeLiveStats, evaluateDrift } from './monitor/driftMonitor.js';
+import { calcEquityFromStatus } from './risk/portfolioRisk.js';
 import { checkCycleGap, updateWatchdogLatch } from './monitor/cycleWatchdog.js';
 import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWebhookServer } from './signals/index.js';
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
 import { runtimeDir } from './utils/runtimePaths.js';
-import { isMarketTrending, computeATRPct, isBullTrend } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import { recordEquitySnapshot, loadEquityHistory } from './dashboard/equityHistory.js';
 import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
-import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
-import { runEntryFilters } from './core/filters.js';
-import { calcFearGreedAdjustedThreshold } from './core/filters.js';
-import { loadFearGreedHistory, getFearGreedValue } from './data/fearGreed.js';
+import { loadFearGreedHistory } from './data/fearGreed.js';
 import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
-import { computeBearPolicy, resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
-import { computePositionSize } from './core/positionSizing.js';
-import { computeTsmVote, planCoreActions, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey, baseSymbol, selectSleeveRung, sleeveFeasibility } from './engine/tsmCore.js';
-import { loadNasdaqHistory, computeEquityRiskOff } from './data/nasdaqTrend.js';
+import { baseSymbol, impliedVolAsOf } from './engine/tsmCore.js';
+import { rsiOfLastClosedBar } from './engine/satellites.js';
+import { loadNasdaqHistory } from './data/nasdaqTrend.js';
+import { loadDvolHistory, DVOL_COINS } from './data/dvolFeed.js';
+import { loadExchangeEvents } from './data/exchangeEventsFeed.js';
+import { recordSnapshots } from './data/gaugeRecorder.js';
+import { loadSleeveState, saveSleeveState } from './data/sleeveStateStore.js';
 import {
   buildStrategiesForSymbol,
   getStrategyNamesForSymbol,
@@ -41,8 +39,10 @@ import {
   scaleMinConfidence,
 } from './utils/strategyBuilder.js';
 import { buildCorrelationMatrix } from './utils/correlation.js';
-import { checkCandleFreshness, formatAge } from './utils/candleFreshness.js';
+import { checkCandleFreshness } from './utils/candleFreshness.js';
+import { withFormingBar } from './utils/formingBar.js';
 import { createAlignedScheduler } from './core/cycleScheduler.js';
+import { createTradingEngine } from './core/engine.js';
 
 const signalConfig = config.signals;
 
@@ -62,39 +62,51 @@ const trader = paperMode
   : new LiveTrader({ ...config.risk, quoteCurrency });
 const riskManager = new RiskManager(config.risk);
 
-// ── Correlation filter state ───────────────────────────────────────────────────
-// Rebuilt after candle init and after each cycle so it always reflects recent data.
-let correlationMatrix = {};
-
-// ── MTF candle cache (15m + 4h) ───────────────────────────────────────────────
-// Stores last-fetched candles keyed by symbol. Refreshed every 15m / 4h respectively.
-// Filters read from these caches instead of hitting the exchange API each cycle.
-const mtf15mCache = new Map(); // symbol → Candle[]
-const mtf4hCache  = new Map(); // symbol → Candle[]
-
-// ── ATR position sizing state ─────────────────────────────────────────────────
-// Median ATR% across all symbols, updated once per cycle in runAllSymbols().
-// Used in runCycle to scale individual position sizes inversely to volatility.
-let medianATRPct = null;
-
-// ── BTC macro filter state ────────────────────────────────────────────────────
-// True when BTC price is above its EMA(200) — normal sizing applies.
-// False in bear phase — new positions are opened at sizeReduceFactor × base size.
-let btcMacroBull = true;
-
-// ── Fear & Greed history (Phase 3) ───────────────────────────────────────────
-// Loaded once at startup; refreshed daily by loadFearGreedHistory's own TTL.
-let fearGreedData = null;
-
 // ── BTC Regime classifier (Phase 4) ──────────────────────────────────────────
 // One stateful tracker shared across all symbols. Updated at the start of each
 // cycle from BTC candles. Current regime is exposed on dashboardState for the
 // UI and used by routing/filters/sizing decisions.
 const regimeTracker = new RegimeTracker(config.regimeClassifier ?? {});
-let currentRegime = REGIME_LABELS.BULL_RANGE;
-// Latest bear-policy decision, computed once per cycle in runAllSymbols
-// and consumed by runCycle to block new entries.
-let bearPolicy = { shouldBlockEntries: false, shouldCashExitOpen: false };
+
+// The sleeve's implied-vol feed (section E1). Only BTC and ETH have a DVOL index;
+// any other symbol, or a close older than maxAgeHours, sizes on realized vol.
+const impliedVolCfg = config.tsmCore?.impliedVol ?? {};
+const loadImpliedVol = impliedVolCfg.enabled
+  ? async (symbol) => {
+    const coin = symbol.split('/')[0];
+    if (!DVOL_COINS.includes(coin)) return null;
+    const dvol = await loadDvolHistory();
+    const vol = impliedVolAsOf(dvol?.[coin], Date.now(), { maxAgeMs: Number(impliedVolCfg.maxAgeHours ?? 24) * 3_600_000 });
+    if (vol == null) logger.warn(`[TSM-CORE] ${symbol}: no DVOL close within ${impliedVolCfg.maxAgeHours ?? 24}h — sizing on realized vol`);
+    return vol;
+  }
+  : null;
+
+// Binance's notices (monitoring tags, USDC-pair removals, delistings) as of now; the
+// engine vetoes entries and sells a position whose pair is going away. The feed is
+// re-read once per 4h period; on an outage the cache stays and nothing new is blocked.
+const loadVenueEvents = config.exchangeEvents?.enabled
+  ? async () => {
+    const nowMs = Date.now();
+    return (await loadExchangeEvents({ now: nowMs }))?.events.filter((e) => e.announcedAt <= nowMs) ?? null;
+  }
+  : null;
+
+// ── The trading engine ────────────────────────────────────────────────────────
+// One bar-close cycle (src/core/engine.js). It owns the cycle state — correlation
+// matrix, median ATR, BTC macro, regime, bear policy, the 15m/4h caches, Fear &
+// Greed — and reaches the exchange, the stores and the clock only through these
+// deps, so tests and the replay run the same code.
+const engine = createTradingEngine({
+  config, dashboardState, trader, riskManager, regimeTracker, symbolAggregators, signalConfig,
+  fetchOHLCV,
+  marketContext: { getBtcDominanceTrend, getEthBtcTrend },
+  notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot,
+  loadEquityHistory, loadNasdaqHistory, loadImpliedVol, loadExchangeEvents: loadVenueEvents,
+  sleeveStore: { load: loadSleeveState, save: saveSleeveState },
+  modeLabel: (paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase(),
+  initialState: { currentRegime: REGIME_LABELS.BULL_RANGE },
+});
 
 // Register active strategies and full strategy catalog in the dashboard once at startup
 dashboardState.setStrategiesConfig(defaultStrategies);
@@ -111,13 +123,7 @@ const telegramChannelIds = (process.env.TELEGRAM_CHANNEL_IDS?.split(',') ?? sign
   .map((channelId) => String(channelId).trim())
   .filter(Boolean);
 
-let cycleInProgress = false;
-// Watchdog heartbeat: ms timestamp of the last COMPLETED cycle (null until the
-// first one). Declared here because runAllSymbols writes it and executes before
-// the watchdog block at the bottom of this file is reached.
-let lastCycleAt = null;
 const watchdogLatch = { alerted: false };
-const driftAlertLatch = { alerted: false };
 let shuttingDown = false;
 let webhookApp = null;
 let telegramBot = null;
@@ -125,12 +131,6 @@ let twitterSentimentService = null;
 let copyTradingService = null;
 let dashboardServer = null;
 
-function medianOfArray(arr) {
-  if (!arr.length) return null;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
 
 function initializeExternalSignalSources() {
   if (signalConfig.webhook?.enabled) {
@@ -153,653 +153,11 @@ function initializeExternalSignalSources() {
 
 }
 
-async function runCycle(symbol) {
-  try {
-    const freshCandles = await fetchOHLCV(symbol, config.timeframe, config.candleLimit);
 
-    if (!freshCandles.length) {
-      logger.warn(`${symbol}: no candles returned`);
-      return;
-    }
 
-    // Merge fresh candles into the historical cache so indicators always use
-    // the full history (730 candles), not just the last 200 from the exchange.
-    // This keeps signal values consistent with runInitialSignals().
-    dashboardState.updateCandles(symbol, freshCandles);
-    const candles = dashboardState.getCandles(symbol);
 
-    // ── Stale-series guard ───────────────────────────────────────────────────
-    // A thin or delisted market still returns klines, they just stop advancing.
-    // The `!freshCandles.length` check above misses that entirely: during the
-    // 2026-07 soak LSK/TON/GMX fed frozen bars to the aggregator for weeks,
-    // each emitting an identical confidence every cycle. They stayed HOLD so
-    // nothing was lost, but a frozen series can just as easily emit a BUY and
-    // the bot would enter an illiquid market at a stale price.
-    const freshness = checkCandleFreshness(
-      candles, config.timeframe, config.maxCandleStalenessPeriods,
-    );
-    if (freshness.stale) {
-      const message = `${symbol}: candle series stale (newest bar ${formatAge(freshness.ageMs)} old) — skipping cycle`;
-      logger.warn(message);
-      dashboardState.pushError(message);
-      return;
-    }
 
-    logger.debug(`[CYCLE] ${symbol}: starting cycle, candles=${candles.length} lastClose=${Number(candles.at(-1).close).toFixed(8)} lastTs=${new Date(candles.at(-1).timestamp).toISOString()}`);
 
-    const aggregator = symbolAggregators[symbol];
-    const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
-    const result = aggregator.aggregate(candles, symbol, symSignalConfig);
-    const currentPrice = Number(candles.at(-1).close);
-    const currentStatus = await trader.getStatus();
-    const symRisk = getRiskForSymbol(symbol);
-    const hasPosition = currentStatus.positions.some((p) => p.symbol === symbol);
-
-    // ── Position aging exit (Phase 7) ────────────────────────────────────────
-    // Close positions open more than maxAgeBars without hitting TP/SL.
-    // Runs BEFORE the BUY/SELL decision so an aging exit frees the slot for
-    // a new entry candidate this same cycle.
-    const agingCfg = config.risk?.positionAgingExit;
-    if (agingCfg?.enabled && hasPosition) {
-      const myPos = currentStatus.positions.find((p) => p.symbol === symbol);
-      if (myPos && myPos.openedAt) {
-        const aging = calcPositionAgingExit({
-          entryTs: new Date(myPos.openedAt).getTime(),
-          nowTs: Date.now(),
-          candleIntervalMs: Number(config.pollIntervalMs ?? 12 * 60 * 60 * 1000),
-          maxAgeBars: Number(agingCfg.maxAgeBars ?? 14),
-        });
-        if (aging.shouldExit) {
-          logger.info(`${symbol}: ${aging.reason}`);
-          const agingExit = await trader.execute(symbol, 'SELL', currentPrice, symRisk);
-          if (agingExit) {
-            dashboardState.pushTrade(agingExit);
-            if (typeof agingExit.pnl === 'number') riskManager.recordTrade(agingExit.pnl);
-            notifyTrade(agingExit);
-            pushEvent('trade', agingExit);
-            return; // skip the rest of the cycle for this symbol
-          }
-        }
-      }
-    }
-
-    // ── Easier SELL for open positions: lower confidence threshold ────────────
-    // If we already hold this symbol and the aggregator says SELL but confidence
-    // fell below minConfidence (decision forced to HOLD), re-check at a lower bar.
-    // Exiting a position requires less conviction than entering one.
-    if (hasPosition && result.decision === 'HOLD') {
-      const sellVotes = result.signals.filter((s) => s.signal === 'SELL').length;
-      const totalStrategies = result.signals.length;
-      const sellMajority = totalStrategies > 0 && sellVotes > totalStrategies / 2;
-      const sellThreshold = (symSignalConfig.minConfidence ?? 0.7) * 0.7; // 30% lower bar for exits
-      if (sellMajority && result.confidence >= sellThreshold) {
-        result.decision = 'SELL';
-        logger.info(`${symbol}: SELL threshold lowered for exit (conf=${result.confidence.toFixed(2)} ≥ ${sellThreshold.toFixed(2)})`);
-      }
-    }
-
-    // ── Entry filters: regime, correlation, MTF ──────────────────────────────
-    let blockReason = null;
-    let mtfSizeFactor = 1.0;
-    if (result.decision === 'BUY') {
-      // Phase 6a: hard bear-policy block runs BEFORE the regular filter stack
-      // so we don't waste cycles on filters for a guaranteed-blocked entry.
-      if (bearPolicy.shouldBlockEntries) {
-        blockReason = bearPolicy.reason ?? 'bear regime — entries disabled';
-        logger.info(`${symbol}: BUY suppressed — ${blockReason}`);
-      } else {
-        // Use cached MTF candles — falls back to live fetch and warms cache
-        const cachedFetchOHLCV = async (sym, tf, limit) => {
-          if (tf === '15m' && mtf15mCache.has(sym)) return mtf15mCache.get(sym).slice(-(limit ?? 20));
-          if (tf === '4h' && mtf4hCache.has(sym)) return mtf4hCache.get(sym).slice(-(limit ?? 30));
-          const fresh = await fetchOHLCV(sym, tf, limit);
-          if (fresh.length) {
-            const cache = tf === '15m' ? mtf15mCache : mtf4hCache;
-            cache.set(sym, fresh);
-          }
-          return fresh;
-        };
-        // Core sleeve positions are excluded so the beta sleeve doesn't trip
-        // the scalper's correlation cap or distort its risk gates.
-        const filterResult = await runEntryFilters({
-          symbol, candles, openPositions: currentStatus.positions.filter((p) => !p.isCore),
-          correlationMatrix, fetchOHLCV: cachedFetchOHLCV, config,
-          recentTrades: dashboardState.getTrades?.() ?? [],
-          // Live equity so the weekly DD breaker scales with the account;
-          // configured initialBalance only until the first good reading
-          referenceEquity: calcEquityFromStatus(currentStatus) || (config.risk?.initialBalance ?? 0),
-        });
-        blockReason = filterResult.blockReason;
-        mtfSizeFactor = filterResult.mtfSizeFactor;
-      }
-    }
-
-    // Track filter-level blocks for the dashboard counter
-    if (blockReason) dashboardState.pushBlockedSignal(blockReason);
-
-    // ── Fear & Greed entry threshold modulator (Phase 3) ────────────────────
-    // Adjusts minConfidence based on current sentiment. Greed > 80 demands
-    // more conviction (tighten); Fear < 20 allows easier contrarian entry.
-    const fgValue = fearGreedData
-      ? getFearGreedValue(fearGreedData, Date.now())
-      : 50;
-    const fgAdjusted = calcFearGreedAdjustedThreshold(
-      symRisk.minConfidence,
-      fgValue,
-      config.fearGreed,
-    );
-    if (fgAdjusted.regime !== 'neutral') {
-      logger.debug(`${symbol}: F&G ${fgValue} ${fgAdjusted.regime} → minConf ${symRisk.minConfidence.toFixed(2)} → ${fgAdjusted.minConfidence.toFixed(2)}`);
-    }
-
-    const tradeCheck = blockReason
-      ? { allowed: false, reason: blockReason }
-      : riskManager.canTrade(symbol, result.decision, result.confidence, currentStatus, fgAdjusted.minConfidence);
-    let tradeResult = null;
-
-    // ── Position sizing chain (extracted to src/core/positionSizing.js) ──────
-    const positionPct = computePositionSize({
-      basePct: symRisk.maxPositionPct,
-      candles, medianATRPct, btcMacroBull,
-      confidence: result.confidence,
-      mtfSizeFactor, config,
-    });
-
-    logger.debug(`[CYCLE] ${symbol}: sizing positionPct=${positionPct.toFixed(4)} (base=${symRisk.maxPositionPct} atr=${config.atr?.enabled ? (medianATRPct ?? 'n/a') : 'off'} regime=${config.regimeSizing?.enabled ? 'on' : 'off'} conf=${config.confSizing?.enabled ? (result.confidence ?? 0).toFixed(2) : 'off'} macro=${config.macroFilter?.enabled ? (btcMacroBull ? 'bull' : 'bear') : 'off'} mtf=${mtfSizeFactor < 1.0 ? mtfSizeFactor.toFixed(2) : '1.0'})`);
-
-    // Compute the symbol's current ATR% so the trader's ATR-stops path can use it.
-    // No-op when risk.atrStops.enabled is false.
-    const symbolATRPct = computeATRPct(candles, config.atr?.period ?? 14);
-    const effectiveRisk = {
-      ...symRisk,
-      maxPositionPct: positionPct,
-      atrPct: Number.isFinite(symbolATRPct) ? symbolATRPct : undefined,
-    };
-
-    if (!tradeCheck.allowed) {
-      logger.info(`${symbol}: trade blocked - ${tradeCheck.reason}`);
-    } else {
-      tradeResult = await trader.execute(symbol, result.decision, currentPrice, effectiveRisk);
-
-      if (tradeResult) {
-        logger.info(`[CYCLE] ${symbol}: TRADE EXECUTED → ${tradeResult.side} qty=${tradeResult.qty ?? 'n/a'} price=${tradeResult.entryPrice ?? tradeResult.exitPrice ?? 'n/a'}`);
-        if (typeof tradeResult.pnl === 'number' && tradeResult.side === 'SELL') {
-          riskManager.recordTrade(tradeResult.pnl);
-        }
-        dashboardState.pushTrade(tradeResult);
-        notifyTrade(tradeResult);
-        pushEvent('trade', tradeResult);
-      }
-    }
-
-    logger.info(
-      `${symbol}: decision=${result.decision} confidence=${(result.confidence * 100).toFixed(0)}% price=${currentPrice.toFixed(8)} external_signals=${result.externalSignals.length}`,
-    );
-    logger.info(`${symbol}: ${result.signals.map((signal) => signal.reason).join(' | ')}`);
-
-    if (result.externalSignals.length > 0) {
-      logger.info(
-        `${symbol}: external ${result.externalSignals.map((signal) => `${signal.source}:${signal.signal}@${signal.confidence}`).join(' | ')}`,
-      );
-    }
-
-    dashboardState.updatePrice(symbol, currentPrice);
-    // Include block reason in the signal so the dashboard can show why a BUY/SELL didn't execute
-    const signalBlockReason = !tradeCheck.allowed && result.decision !== 'HOLD' ? tradeCheck.reason : null;
-    dashboardState.pushSignal({
-      symbol,
-      decision: result.decision,
-      confidence: result.confidence,
-      timestamp: Date.now(),
-      reasons: buildSignalReasons(result.signals, result.decision),
-      blockReason: signalBlockReason,
-      strategies: getStrategyNamesForSymbol(symbol),
-      triggerHints: getStrategyTriggerHints(symbol),
-    });
-    dashboardState.updateStrategyResults(symbol, result.signals);
-
-    const status = await trader.getStatus();
-    const dailyStats = riskManager.getDailyStats();
-    dashboardState.updateStatus(status, dailyStats);
-    dashboardState.incrementCycle();
-    pushEvent('cycle', dashboardState.getSummary());
-
-    logger.info(
-      `${symbol}: ${(paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase()} balance=${status.balance.toFixed(2)} pnl=${status.totalPnL.toFixed(2)} open_positions=${status.positions.length} daily_pnl=${dailyStats.dailyPnL.toFixed(2)} blocked=${dailyStats.blocked}`,
-    );
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const message = `${symbol}: cycle failed - ${errorMessage}`;
-    logger.error(message);
-    dashboardState.pushError(message);
-    pushEvent('error', { message, timestamp: Date.now() });
-  }
-}
-
-async function runAllSymbols() {
-  if (cycleInProgress) {
-    logger.warn('Previous cycle still running, skipping this interval');
-    return;
-  }
-
-  cycleInProgress = true;
-
-  try {
-    // Refresh correlation matrix each cycle — new candles may have arrived
-    correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation);
-
-    // Log correlation pairs above threshold
-    if (config.correlation?.enabled) {
-      const threshold = config.correlation.threshold ?? 0.8;
-      const pairs = [];
-      const syms = config.symbols;
-      for (let i = 0; i < syms.length; i++) {
-        for (let j = i + 1; j < syms.length; j++) {
-          const r = correlationMatrix[syms[i]]?.[syms[j]] ?? 0;
-          if (r > threshold) pairs.push(`${syms[i].split('/')[0]}/${syms[j].split('/')[0]}=${r.toFixed(2)}`);
-        }
-      }
-      if (pairs.length) logger.debug(`[CYCLE] Correlated pairs (r>${threshold}): ${pairs.join(', ')}`);
-    }
-
-    // ATR sizing: compute portfolio median ATR% so each symbol can be scaled relative to it
-    if (config.atr?.enabled) {
-      const atrPcts = config.symbols
-        .map((sym) => computeATRPct(dashboardState.getCandles(sym), config.atr.period))
-        .filter((v) => v != null && v > 0);
-      medianATRPct = atrPcts.length ? medianOfArray(atrPcts) : null;
-      logger.debug(`[CYCLE] ATR sizing: medianATRPct=${medianATRPct != null ? (medianATRPct * 100).toFixed(2) + '%' : 'n/a'} (${atrPcts.length} symbols)`);
-    }
-
-    // Macro filter: check BTC vs EMA(200) to determine portfolio-level bear phase
-    if (config.macroFilter?.enabled) {
-      const prevBull = btcMacroBull;
-      btcMacroBull = isBullTrend(dashboardState.getCandles('BTC/USDC'), config.macroFilter.emaPeriod ?? 200);
-      logger.debug(`[CYCLE] BTC macro: bull=${btcMacroBull} EMA${config.macroFilter.emaPeriod ?? 200}`);
-      if (btcMacroBull !== prevBull) {
-        const factor = (config.macroFilter.sizeReduceFactor ?? 0.5) * 100;
-        logger.warn(
-          `Macro filter: BTC ${btcMacroBull ? 'ABOVE' : 'BELOW'} EMA${config.macroFilter.emaPeriod ?? 200} — ` +
-          `new positions ${btcMacroBull ? 'normal size' : `reduced to ${factor.toFixed(0)}%`}`,
-        );
-      }
-    }
-
-    // ── Regime classifier (Phase 4) ────────────────────────────────────────
-    // Update once per cycle from BTC candles (closed bars only — slice off the
-    // forming one). Reports current regime; future routing/sizing changes
-    // will branch off `currentRegime`.
-    let regimeChanged = false;
-    {
-      const btc = dashboardState.getCandles('BTC/USDC');
-      if (btc.length > 0) {
-        const closed = btc.slice(0, -1);
-        const snap = regimeTracker.update(closed, Date.now());
-        const prev = currentRegime;
-        currentRegime = snap.regime;
-        regimeChanged = snap.regimeChanged;
-        if (regimeChanged) {
-          logger.warn(`[REGIME] BTC regime change: ${prev} → ${currentRegime}  (ADX ${snap.raw.adx} BTC ${snap.raw.btcClose.toFixed(0)} vs EMA200 ${snap.raw.ema200.toFixed(0)})`);
-        } else {
-          logger.debug(`[REGIME] ${currentRegime}  candidate=${snap.candidate ?? '-'} streak=${snap.streak}  (ADX ${snap.raw?.adx ?? 'n/a'})`);
-        }
-        // Surface regime to the dashboard (Phase 9 — append-only observability)
-        dashboardState.setRegime({
-          label: currentRegime,
-          previous: prev,
-          candidate: snap.candidate ?? null,
-          streak: snap.streak ?? 0,
-          adx: snap.raw?.adx ?? null,
-          btcClose: snap.raw?.btcClose ?? null,
-          ema200: snap.raw?.ema200 ?? null,
-          changedAt: regimeTracker.changedAt,
-          history: regimeTracker.history.slice(-10),
-        });
-      }
-    }
-
-    // ── Phase 6a: cash-exit on bear regime ──────────────────────────────────
-    // When BTC regime transitions INTO BEAR_TREND or BEAR_CHOP, close ALL
-    // open positions this cycle. Subsequent bars in the same bear regime
-    // continue to block new entries via runEntryFilters (see bear-policy
-    // check) but do NOT repeatedly force-close — open positions are managed
-    // normally by SL/TP/break-even.
-    bearPolicy = computeBearPolicy({
-      regime: currentRegime,
-      regimeChanged,
-      policy: config.bearPolicy,
-    });
-
-    // Surface cross-asset context + circuit-breaker status (Phase 9 — append-only)
-    {
-      const fgValue = fearGreedData ? getFearGreedValue(fearGreedData, Date.now()) : null;
-      dashboardState.setMarketContext({
-        btcDominance: getBtcDominanceTrend(),
-        ethBtc: getEthBtcTrend(),
-        fearGreed: Number.isFinite(fgValue) ? fgValue : null,
-      });
-      const ddCfg = config.risk?.weeklyDDBreaker ?? {};
-      let ddEquity = 0;
-      try {
-        ddEquity = calcEquityFromStatus(await trader.getStatus());
-      } catch {
-        // fall back to configured balance below
-      }
-      const ddBreaker = calcWeeklyDDBreaker({
-        recentTrades: dashboardState.getTrades(),
-        referenceEquity: ddEquity > 0 ? ddEquity : (config.risk?.initialBalance ?? 1000),
-        lossThreshold: ddCfg.lossThreshold ?? 0.10,
-        cooldownHours: ddCfg.cooldownHours ?? 72,
-      });
-      dashboardState.setCircuitBreaker({
-        bearEntriesBlocked: !!bearPolicy.shouldBlockEntries,
-        bearReason: bearPolicy.reason ?? null,
-        weeklyDDActive: (ddCfg.enabled !== false) && !!ddBreaker.blocked,
-        weeklyPnLPct: ddBreaker.weeklyPnLPct ?? 0,
-        cooldownEndsAt: ddBreaker.cooldownEndsAt ?? null,
-      });
-    }
-
-    // ── Live drift monitor (Phase 8) ────────────────────────────────────────
-    // Compare rolling per-trade live performance vs the backtest reference;
-    // warn + notify when it drifts beyond the statistical band. Log-only until
-    // monitor.driftRefSharpe is configured.
-    const monCfg = config.monitor ?? {};
-    if (monCfg.enabled !== false) {
-      const live = computeLiveStats(dashboardState.getTrades(), { windowDays: monCfg.windowDays ?? 30 });
-      const drift = evaluateDrift({
-        liveSharpe: live.sharpe,
-        refSharpe: monCfg.driftRefSharpe ?? null,
-        nLive: live.n,
-        zThreshold: monCfg.zThreshold ?? 2,
-        minTrades: monCfg.minTrades ?? 10,
-      });
-      if (drift.alert) {
-        const msg = `[DRIFT] ${drift.reason} — live ${(live.winRate*100).toFixed(0)}% WR, mean ${(live.meanReturn*100).toFixed(2)}%/trade`;
-        logger.warn(msg);
-        // Telegram once per incident — a log line alone went unread for 24 days
-        // in the July soak. Re-arms when drift clears.
-        if (!driftAlertLatch.alerted) {
-          driftAlertLatch.alerted = true;
-          void notifyAlert(`📉 ${msg}`);
-        }
-      } else {
-        driftAlertLatch.alerted = false;
-        logger.debug(`[DRIFT] ${drift.reason} (n=${live.n}, WR ${(live.winRate*100).toFixed(0)}%)`);
-      }
-    }
-
-    if (bearPolicy.shouldCashExitOpen) {
-      const status = await trader.getStatus();
-      // TSM core positions respond to regime via their own momentum flip —
-      // the bear cash-exit only manages scalper positions.
-      const open = (status.positions ?? []).filter((p) => !p.isCore);
-      if (open.length > 0) {
-        logger.warn(`[PHASE6A] BEAR regime entered — closing ${open.length} open position(s): ${open.map((p) => p.symbol).join(', ')}`);
-        for (const pos of open) {
-          try {
-            const exitResult = await trader.execute(pos.symbol, 'SELL', pos.currentPrice ?? pos.entryPrice, getRiskForSymbol(pos.symbol));
-            if (exitResult) {
-              dashboardState.pushTrade(exitResult);
-              if (typeof exitResult.pnl === 'number') riskManager.recordTrade(exitResult.pnl);
-              notifyTrade(exitResult);
-              pushEvent('trade', exitResult);
-            }
-          } catch (err) {
-            logger.error(`[PHASE6A] failed to close ${pos.symbol}: ${err?.message ?? err}`);
-          }
-        }
-      }
-    }
-
-    await Promise.all(config.symbols.map((symbol) => runCycle(symbol)));
-
-    // TSM core sleeve reconciles AFTER the scalper cycle so it reads the
-    // candles that runCycle just refreshed in dashboardState.
-    await runTsmCoreCycle();
-
-    // Daily valuation point for time-weighted return. Recorded here rather than
-    // in refreshBalance (live-only) or runRiskChecks (early-returns with no open
-    // positions) so a paper soak builds the same series a live account does.
-    try {
-      recordEquitySnapshot(calcEquityFromStatus(await trader.getStatus()));
-    } catch (err) {
-      logger.debug(`Equity snapshot skipped: ${err.message}`);
-    }
-
-    // Watchdog heartbeat — only a COMPLETED cycle counts as alive.
-    lastCycleAt = Date.now();
-  } finally {
-    cycleInProgress = false;
-  }
-}
-
-// ── TSM majors core sleeve ────────────────────────────────────────────────────
-// Once per cycle: recompute the momentum majority vote per core symbol and
-// reconcile positions (open on flip-on, close on flip-off — no other exits).
-// The sleeve is independent of the scalper: core positions skip stop
-// management, entry filters, and bear cash-exit, and their PnL intentionally
-// does NOT feed riskManager's daily-loss accounting. Execution follows the
-// session's trader instance: PaperTrader simulates, LiveTrader places REAL
-// market orders — TSM_CORE=true is the deliberate opt-in in either mode.
-// Vote-flip exits that fail on the exchange are alerted immediately and
-// retried by the fast risk loop (live) instead of waiting 12h.
-const tsmCoreFailedCloses = new Set();
-// Rung bookkeeping: alert on transitions, and only once per boot on infeasibility.
-let tsmLastRungKey = null;
-let tsmFeasibilityAlerted = false;
-async function runTsmCoreCycle() {
-  const coreCfg = config.tsmCore ?? {};
-  if (!coreCfg.enabled) return;
-  // Fresh cycle re-decides everything — stale retry flags would otherwise
-  // outlive a vote that flipped back on.
-  tsmCoreFailedCloses.clear();
-  try {
-    const status = await trader.getStatus();
-
-    // ── Equity-ladder rung selection (HWM ratchet) ──────────────────────────
-    // Sizing keys off the account's all-time-high equity, never current equity:
-    // wins and deposits both step risk DOWN a rung; a drawdown never steps it
-    // back up. See config.tsmCore.equityLadder for the rung rationale.
-    const currentEquity = calcEquityFromStatus(status);
-    const hwmEquity = Math.max(
-      currentEquity,
-      ...loadEquityHistory().map((p) => Number(p.equity) || 0),
-    );
-    const rung = selectSleeveRung(hwmEquity, coreCfg.equityLadder);
-    const active = rung
-      ? { ...coreCfg, symbols: rung.symbols, deploymentPct: rung.deploymentPct }
-      : coreCfg;
-    const nextRung = rung
-      ? (coreCfg.equityLadder ?? [])
-        .filter((r) => Number(r.minHwmEquity) > Number(rung.minHwmEquity))
-        .sort((a, b) => Number(a.minHwmEquity) - Number(b.minHwmEquity))[0] ?? null
-      : null;
-    const rungKey = `${(active.symbols ?? []).length}@${active.deploymentPct}`;
-    logger.info(
-      `[TSM-CORE] rung ${rungKey} (HWM $${hwmEquity.toFixed(2)})`
-      + `${nextRung ? ` · next de-risk at $${nextRung.minHwmEquity} HWM` : ' · top rung'}`,
-    );
-    if (tsmLastRungKey !== null && tsmLastRungKey !== rungKey) {
-      void notifyAlert(
-        `🧲 TSM sleeve de-risked: ${tsmLastRungKey} → ${rungKey} (HWM $${hwmEquity.toFixed(2)}). `
-        + 'Held slots will drift-rebalance to the new size.',
-      );
-    }
-    tsmLastRungKey = rungKey;
-
-    // Advisory only (order-time enforcement lives in the trader): can this rung
-    // actually place an order at CURRENT equity under adverse multipliers?
-    const feas = sleeveFeasibility({
-      equity: currentEquity,
-      nSymbols: (active.symbols ?? []).length,
-      deploymentPct: active.deploymentPct,
-      riskOffFactor: Number(coreCfg.macroOverlay?.riskOffFactor ?? 0.5),
-    });
-    if (!feas.feasible && !tsmFeasibilityAlerted) {
-      tsmFeasibilityAlerted = true;
-      const message = `[TSM-CORE] rung ${rungKey} cannot clear the exchange min-notional floor at current `
-        + `equity $${currentEquity.toFixed(2)} (adverse slot ≈ $${feas.adverseSlotUsd}) — sleeve will idle in cash. `
-        + `Viable from ~$${feas.viableFromEquity} equity.`;
-      logger.warn(message);
-      void notifyAlert(message);
-    }
-
-    // ── Macro overlay (M1): half size while NASDAQ < its 100d EMA ───────────
-    // FRED feed is keyless with a 12h disk cache; any failure → neutral (1).
-    let macroFactor = 1;
-    let macroState = 'off';
-    const mo = coreCfg.macroOverlay ?? {};
-    if (mo.enabled !== false) {
-      const nasdaq = await loadNasdaqHistory();
-      const ro = computeEquityRiskOff(nasdaq?.rows, { emaDays: mo.emaDays ?? 100 });
-      if (ro.available) {
-        macroFactor = ro.above ? 1 : Number(mo.riskOffFactor ?? 0.5);
-        macroState = ro.above ? 'risk-on' : `RISK-OFF ×${macroFactor}`;
-      } else {
-        macroState = 'unavailable → neutral';
-        logger.warn('[TSM-CORE] NASDAQ feed unavailable — macro overlay neutral this cycle');
-      }
-    }
-
-    const signals = new Map();
-    const prices = new Map();
-    const fractions = new Map();
-    const vols = new Map();
-    for (const symbol of active.symbols ?? []) {
-      const candles = dashboardState.getCandles(symbol);
-      if (!candles || candles.length < 2) {
-        logger.warn(`[TSM-CORE] ${symbol}: no candles cached — skipping`);
-        continue;
-      }
-      // The sleeve places REAL market orders in live mode, so a frozen series
-      // is far more dangerous here than on the scalper path: a stale vote could
-      // open or close a whole slot at a price that no longer exists. Skipping
-      // leaves any held position untouched — planCoreActions only acts on
-      // symbols present in `signals`.
-      const coreFreshness = checkCandleFreshness(
-        candles, config.timeframe, config.maxCandleStalenessPeriods,
-      );
-      if (coreFreshness.stale) {
-        const message = `[TSM-CORE] ${symbol}: candle series stale (newest bar ${formatAge(coreFreshness.ageMs)} old) — skipping, position left as-is`;
-        logger.warn(message);
-        dashboardState.pushError(message);
-        continue;
-      }
-      // Closed bars only — the forming candle is sliced off (no lookahead).
-      const closed = candles.slice(0, -1);
-      const vote = computeTsmVote(closed, coreCfg.lookbackBars ?? [60, 90, 120]);
-      const realizedVol = computeRealizedVolAnnual(closed, { windowBars: coreCfg.volWindowBars ?? 60 });
-      const fraction = computeTargetFraction({
-        volTarget: coreCfg.volTarget ?? null,
-        realizedVol,
-        minFraction: coreCfg.minFraction ?? 0.2,
-        macroFactor,
-      });
-      signals.set(symbol, vote);
-      prices.set(symbol, Number(candles.at(-1).close));
-      fractions.set(symbol, fraction);
-      vols.set(symbol, realizedVol);
-      logger.info(
-        `[TSM-CORE] ${symbol}: votes ${vote.positive}/${vote.total} (enter ≥${coreCfg.enterVotes ?? vote.needed}, stay ≥${coreCfg.stayVotes ?? vote.needed})` +
-        ` · vol ${realizedVol ? (realizedVol * 100).toFixed(0) + '%' : 'n/a'} → ×${fraction.toFixed(2)} · macro ${macroState}` +
-        `${vote.insufficientHistory ? ' [insufficient history → forced CASH votes]' : ''}`,
-      );
-    }
-
-    // Equal split of deploymentPct × total equity across core symbols; each
-    // slot then scales by its vol/macro fraction. Opens are additionally
-    // capped at available cash inside openCorePosition.
-    const perSlot = (currentEquity * Number(active.deploymentPct ?? 0.5)) / Math.max((active.symbols ?? []).length, 1);
-
-    const emit = (result) => {
-      dashboardState.pushTrade(result);
-      notifyTrade(result);
-      pushEvent('trade', result);
-    };
-
-    const actions = planCoreActions({
-      symbols: [...signals.keys()],
-      signals,
-      positions: status.positions,
-      enterVotes: coreCfg.enterVotes ?? null,
-      stayVotes: coreCfg.stayVotes ?? null,
-    });
-    let traded = 0;
-    for (const action of actions) {
-      const price = prices.get(action.symbol);
-      if (!Number.isFinite(price) || price <= 0) continue;
-      const result = action.type === 'open'
-        ? await trader.openCorePosition(action.key, price, perSlot * (fractions.get(action.symbol) ?? 1))
-        : await trader.closeCorePosition(action.key, price);
-      if (!result) {
-        if (action.type === 'close') {
-          // A stuck exit is unbounded exposure with no stop — alert the
-          // operator now and let the fast risk loop retry within minutes.
-          tsmCoreFailedCloses.add(action.key);
-          logger.error(`[TSM-CORE] ${action.key}: vote-flip CLOSE FAILED — retrying via fast risk loop`);
-          void notifyAlert(`TSM core: closing <b>${action.key}</b> failed — position stays open until the retry succeeds (checked every 2 min).`);
-        }
-        continue;
-      }
-      emit(result); traded++;
-    }
-
-    // ── Resize pass: drift held positions toward their vol/macro target ─────
-    // Uses the pre-action snapshot, so freshly opened/closed slots are skipped.
-    const acted = new Set(actions.map((a) => a.key));
-    const held = new Map((status.positions ?? []).filter((p) => p.isCore).map((p) => [p.symbol, p]));
-    for (const symbol of signals.keys()) {
-      const key = coreKey(symbol);
-      const pos = held.get(key);
-      if (!pos || acted.has(key)) continue;
-      const price = prices.get(symbol);
-      if (!Number.isFinite(price) || price <= 0) continue;
-      const deltaUsd = planCoreResize({
-        desiredUsd: perSlot * (fractions.get(symbol) ?? 1),
-        currentUsd: pos.qty * price,
-        perSlotUsd: perSlot,
-        thresholdPct: coreCfg.resizeThresholdPct ?? 0.15,
-      });
-      if (deltaUsd === null) continue;
-      const result = await trader.resizeCorePosition(key, price, deltaUsd);
-      if (!result) continue;
-      emit(result); traded++;
-    }
-
-    // Surface sleeve state to the dashboard (append-only `tsmCore` key)
-    const finalStatus = traded > 0 ? await trader.getStatus() : status;
-    dashboardState.setTsmCore({
-      enabled: true,
-      updatedAt: new Date().toISOString(),
-      deploymentPct: Number(active.deploymentPct ?? 0.5),
-      enterVotes: coreCfg.enterVotes ?? null,
-      stayVotes: coreCfg.stayVotes ?? null,
-      volTarget: coreCfg.volTarget ?? null,
-      macro: { state: macroState, factor: macroFactor },
-      symbols: [...signals.entries()].map(([symbol, vote]) => {
-        const pos = (finalStatus.positions ?? []).find((p) => p.symbol === coreKey(symbol));
-        const price = prices.get(symbol);
-        return {
-          symbol,
-          positive: vote.positive,
-          total: vote.total,
-          insufficientHistory: vote.insufficientHistory,
-          held: Boolean(pos),
-          realizedVol: vols.get(symbol) ?? null,
-          fraction: Number((fractions.get(symbol) ?? 1).toFixed(2)),
-          targetUsd: Math.round(perSlot * (fractions.get(symbol) ?? 1)),
-          currentUsd: pos && Number.isFinite(price) ? Math.round(pos.qty * price) : 0,
-        };
-      }),
-    });
-    if (traded > 0) {
-      dashboardState.updateStatus(finalStatus, riskManager.getDailyStats());
-    }
-  } catch (err) {
-    logger.error(`[TSM-CORE] cycle failed: ${err?.message ?? err}`);
-  }
-}
 
 function logStartup() {
   logger.info('Starting playAIStocks Phase 4 bot');
@@ -1113,7 +471,7 @@ async function runInitialSignals() {
 
       const aggregator      = symbolAggregators[symbol];
       const symSignalConfig = getSignalConfigForSymbol(symbol, signalConfig);
-      const result          = aggregator.aggregate(candles, symbol, symSignalConfig);
+      const result          = aggregator.aggregate(withFormingBar(candles, config.timeframe), symbol, symSignalConfig);
       const currentPrice    = Number(candles.at(-1).close);
 
       dashboardState.updatePrice(symbol, currentPrice);
@@ -1247,10 +605,10 @@ if (paperMode) {
   }
   for (const t of Object.values(openTrades)) trader.restorePosition(t);
 }
-correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation); // ← built once from full history, then refreshed each cycle
+engine.state.correlationMatrix = buildCorrelationMatrix(config.symbols, (sym) => dashboardState.getCandles(sym), config.correlation); // ← built once from full history, then refreshed each cycle
 await runInitialSignals();   // ← signals appear instantly from cache
 if (process.env.SMOKE_TEST !== 'false') await runSmokeTest();
-await runAllSymbols();  // immediate run on startup (SL/TP check + fresh signals)
+await engine.runAllSymbols();  // immediate run on startup (SL/TP check + fresh signals)
 
 // ── Align all subsequent cycles to candle-close boundaries ───────────────────
 // Binance closes 12h candles at exactly 00:00 and 12:00 UTC. Running on a raw
@@ -1296,17 +654,22 @@ pricePollId = setInterval(() => void refreshOpenPositionPrices(), PRICE_POLL_MS)
 // ── Fast risk-check loop ────────────────────────────────────────────────────
 // Evaluates stop-loss / trailing / break-even every 2 minutes using ticker prices.
 // The main signal cycle only runs every 12h — this catches stop events in between.
+// Runs in every mode: paper skipped it, so a paper run met its stops once per cycle
+// and could not shadow live (both traders answer checkRisk(symbol, price)).
 const RISK_CHECK_MS = 2 * 60_000;
 let riskCheckId = null;
-if (!paperMode) {
+{
   async function runRiskChecks() {
     try {
       const status = await trader.getStatus();
       const openPositions = status?.positions ?? [];
-      if (!openPositions.length) return;
+      // Resting satellite limit orders need the price too, even with nothing open.
+      const pendingSatellites = trader.pendingSatelliteKeys?.() ?? [];
+      if (!openPositions.length && !pendingSatellites.length) return;
 
-      logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s)`);
+      logger.debug(`[RISK-LOOP] checking ${openPositions.length} open position(s), ${pendingSatellites.length} resting satellite order(s)`);
       for (const pos of openPositions) {
+        if (pos.isSatellite) continue; // below, with the resting orders
         // Core sleeve positions have no stops, so there is no SL/TP to manage —
         // but checkRisk is still the ONLY writer of position.currentPrice, and
         // skipping it froze the raw getStatus() valuation at the open/restore
@@ -1323,10 +686,11 @@ if (!paperMode) {
               dashboardState.updatePrice(pos.symbol, price);
               await trader.checkRisk(pos.symbol, price);
 
-              if (tsmCoreFailedCloses.has(pos.symbol)) {
+              if (engine.state.tsmCoreFailedCloses.has(pos.symbol)) {
                 const retried = await trader.closeCorePosition(pos.symbol, price);
                 if (retried) {
-                  tsmCoreFailedCloses.delete(pos.symbol);
+                  engine.state.tsmCoreFailedCloses.delete(pos.symbol);
+                  engine.noteCoreExit(pos.symbol);
                   logger.info(`[RISK-LOOP] ${pos.symbol}: core close retry succeeded`);
                   dashboardState.pushTrade(retried);
                   notifyTrade(retried);
@@ -1344,26 +708,42 @@ if (!paperMode) {
           const price = Number(ticker?.last ?? ticker?.close ?? 0);
           if (price <= 0) continue;
 
-          dashboardState.updatePrice(pos.symbol, price);
-          const result = await trader.checkRisk(pos.symbol, price);
-          if (result) {
-            // Position was closed — update dashboard
-            logger.info(`[RISK-LOOP] ${pos.symbol}: position closed by risk check`);
-            dashboardState.pushTrade(result);
-            notifyTrade(result);
-            const freshStatus = await trader.getStatus();
-            dashboardState.updateStatus(freshStatus, riskManager.getDailyStats());
-            pushEvent('trade', result);
-            pushEvent('status', freshStatus);
-          }
+          await engine.onPriceTick(pos.symbol, price);
         } catch (err) {
           logger.debug(`[RISK-LOOP] ${pos.symbol}: check failed — ${err.message}`);
+        }
+      }
+
+      // Satellites (config.satellites): a resting limit fills or expires, a position runs
+      // its exit plan (src/engine/satellites.js). At the first tick after an hour closes,
+      // the tier rule reads that hour's RSI.
+      const satelliteKeys = new Set([...pendingSatellites, ...openPositions.filter((p) => p.isSatellite).map((p) => p.symbol)]);
+      for (const key of satelliteKeys) {
+        try {
+          const market = baseSymbol(key);
+          const ticker = await fetchTicker(market);
+          const price = Number(ticker?.last ?? 0);
+          if (price <= 0) continue;
+          const held = openPositions.some((p) => p.symbol === key);
+          await engine.onSatelliteTick(key, price, held ? await satelliteHourContext(key, market) : {});
+        } catch (err) {
+          logger.debug(`[RISK-LOOP] ${key}: satellite check failed — ${err.message}`);
         }
       }
     } catch (err) {
       logger.debug(`[RISK-LOOP] error: ${err.message}`);
     }
   }
+  // The hour each satellite position last had its tier rule read, so it reads once per hour.
+  const satelliteLastHour = new Map();
+  async function satelliteHourContext(key, market) {
+    const hourClose = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    if (satelliteLastHour.get(key) === hourClose) return {};
+    satelliteLastHour.set(key, hourClose);
+    const bars = await fetchOHLCV(market, '1h', 300);
+    return { rsi: rsiOfLastClosedBar(withFormingBar(bars, '1h', Date.now()).slice(0, -1)), hourClosed: true };
+  }
+
   riskCheckId = setInterval(() => void runRiskChecks(), RISK_CHECK_MS);
   logger.info(`Risk-check loop active: every ${RISK_CHECK_MS / 1000}s for open positions`);
 }
@@ -1371,40 +751,17 @@ if (!paperMode) {
 // ── MTF candle cache refresh ────────────────────────────────────────────────
 // Pre-fetch 15m and 4h candles for all symbols on timers matching their period.
 // This eliminates per-BUY API calls and keeps filter data fresh.
-const MTF_15M_REFRESH_MS = 15 * 60_000;
-const MTF_4H_REFRESH_MS  = 4 * 3_600_000;
-let mtf15mRefreshId = null;
-let mtf4hRefreshId  = null;
 
-async function refreshMtfCache(timeframe, cache, bars) {
-  const label = timeframe;
-  let refreshed = 0;
-  for (const symbol of config.symbols) {
-    try {
-      const candles = await fetchOHLCV(symbol, timeframe, bars);
-      if (candles.length) {
-        cache.set(symbol, candles);
-        refreshed++;
-      }
-    } catch (err) {
-      logger.debug(`[MTF-CACHE] ${symbol} ${label}: fetch failed — ${err.message}`);
-    }
-  }
-  logger.info(`[MTF-CACHE] ${label} refresh complete: ${refreshed}/${config.symbols.length} symbols`);
-}
 
 // Initial warm-up + periodic refresh
 if (config.mtfFilter?.enabled) {
-  void refreshMtfCache('15m', mtf15mCache, 24).then(() => {
-    mtf15mRefreshId = setInterval(() => void refreshMtfCache('15m', mtf15mCache, 24), MTF_15M_REFRESH_MS);
-  });
-  logger.info(`MTF 15m cache: refresh every ${MTF_15M_REFRESH_MS / 60_000} min`);
+  // Warm-up only; every cycle refreshes it right after the close (follow-ups item 9).
+  void engine.refreshMtfCache('15m', engine.mtf15mCache, 24);
+  logger.info('MTF 15m cache: refreshed at each cycle');
 }
 if (config.mtf4hFilter?.enabled) {
-  void refreshMtfCache('4h', mtf4hCache, 30).then(() => {
-    mtf4hRefreshId = setInterval(() => void refreshMtfCache('4h', mtf4hCache, 30), MTF_4H_REFRESH_MS);
-  });
-  logger.info(`MTF 4h cache: refresh every ${MTF_4H_REFRESH_MS / 3_600_000}h`);
+  void engine.refreshMtfCache('4h', engine.mtf4hCache, 30);
+  logger.info('MTF 4h cache: refreshed at each cycle');
 }
 
 // ── Market context cache (Phase 3) — BTC.D + ETHBTC ────────────────────────
@@ -1413,7 +770,7 @@ if (config.mtf4hFilter?.enabled) {
 // gate + sizing modulators have fresh values without bothering on every cycle.
 let marketContextRefreshId = null;
 void loadFearGreedHistory().then((data) => {
-  fearGreedData = data;
+  engine.state.fearGreedData = data;
   if (data) logger.info(`Fear & Greed history loaded: ${data.length} daily samples`);
 }).catch((err) => logger.error(`Fear & Greed history load failed: ${err?.message ?? err}`));
 if (config.btcDominance?.enabled) {
@@ -1429,6 +786,21 @@ if (config.btcDominance?.enabled) {
   logger.info(`Market context cache: refresh every ${(ms / 3_600_000).toFixed(1)}h`);
 }
 
+// Research recorder (plan doc § H): feeds no decision, so it runs on its own timer
+// and a failure only logs.
+let gaugeRecorderId = null;
+if (config.gaugeRecorder?.enabled) {
+  const recordGauges = async () => {
+    for (const r of await recordSnapshots({ minGapMs: config.gaugeRecorder.minGapMs })) {
+      if (r.status === 'recorded') logger.info(`[GAUGES] ${r.asset} exchange-flow snapshot recorded (${r.rows.length} rows)`);
+      else if (r.status === 'failed') logger.warn(`[GAUGES] ${r.asset} snapshot not recorded: ${r.error}`);
+    }
+  };
+  void recordGauges();
+  gaugeRecorderId = setInterval(() => void recordGauges(), config.gaugeRecorder.checkEveryMs);
+  gaugeRecorderId.unref?.();
+}
+
 // Refresh the balance from the exchange every 5 minutes so that deposits or
 // withdrawals are reflected on the dashboard without waiting for the next trade.
 // Paper mode skips this — its balance is already tracked in memory.
@@ -1436,6 +808,9 @@ const BALANCE_POLL_MS = 5 * 60_000;
 let balancePollId = null;
 async function refreshBalance() {
   if (paperMode) return;
+  // A wallet read taken while an order or the cycle runs can re-adopt a position that is
+  // being closed; the next poll (5 min) reads a settled wallet.
+  if (engine.state.cycleInProgress || (trader.ordersInFlight ?? 0) > 0) return;
   try {
     await trader.restorePositionsFromExchange(
       config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades, recordSyntheticTrade
@@ -1458,7 +833,7 @@ if (!paperMode) {
 // the previous setInterval handoff drifted 6h09m off close for 48 cycles.
 const cycleScheduler = createAlignedScheduler({
   timeframe: config.timeframe,
-  run: runAllSymbols,
+  run: () => engine.runAllSymbols(),
   isStopped: () => shuttingDown,
   onSchedule: (at) => {
     dashboardState.setNextRunAt(at);
@@ -1473,6 +848,27 @@ const cycleScheduler = createAlignedScheduler({
 
 cycleScheduler.start();
 
+// ── Satellite breakout cycle (config.satellites) — every 4h close ─────────────────
+// One minute after the close; at 00:00 and 12:00 it waits for the 12h cycle, so the
+// scalper and the sleeve have first call on the cash, as in the replay.
+let satelliteScheduler = null;
+if (config.satellites?.enabled && config.satellites.breakout?.enabled) {
+  satelliteScheduler = createAlignedScheduler({
+    timeframe: config.satellites.breakout.timeframe ?? '4h',
+    bufferMs: 60_000,
+    run: async () => {
+      for (let waited = 0; engine.state.cycleInProgress && waited < 15 * 60_000; waited += 5_000) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+      await engine.runSatelliteCycle('breakout');
+    },
+    isStopped: () => shuttingDown,
+    onSchedule: (at) => logger.info(`[SATELLITE] next breakout cycle in ${Math.round((at - Date.now()) / 60_000)} min (${new Date(at).toUTCString()})`),
+    onError: (err) => logger.error(`[SATELLITE] breakout cycle failed — ${err.message}`),
+  });
+  satelliteScheduler.start();
+}
+
 // ── Cycle watchdog (deadman alert) ──────────────────────────────────────────
 // Alerts on the ABSENCE of completed cycles: the July 2026 host suspend stalled
 // the loop 18h and skewed it for 24 days with zero alerts, because a dead
@@ -1481,14 +877,14 @@ cycleScheduler.start();
 const CYCLE_WATCHDOG_MS = 30 * 60_000;
 const cycleWatchdogId = setInterval(() => {
   const { stale, gapMs, thresholdMs } = checkCycleGap({
-    lastCycleAt, now: Date.now(), periodMs: config.pollIntervalMs,
+    lastCycleAt: engine.state.lastCycleAt, now: Date.now(), periodMs: config.pollIntervalMs,
   });
   const { fire, recovered } = updateWatchdogLatch(watchdogLatch, stale);
   if (fire) {
     const hours = (gapMs / 3_600_000).toFixed(1);
     const message = `⏰ WATCHDOG: no completed trading cycle in ${hours}h `
       + `(threshold ${(thresholdMs / 3_600_000).toFixed(1)}h). Host suspended or loop hung — `
-      + `the bot is NOT making decisions. Last cycle: ${new Date(lastCycleAt).toUTCString()}.`;
+      + `the bot is NOT making decisions. Last cycle: ${new Date(engine.state.lastCycleAt).toUTCString()}.`;
     logger.error(message);
     void notifyAlert(message);
   } else if (recovered) {
@@ -1505,12 +901,12 @@ process.on('SIGINT', () => {
 
   shuttingDown = true;
   cycleScheduler.stop();
+  satelliteScheduler?.stop();
   clearInterval(pricePollId);
   clearInterval(balancePollId);
   clearInterval(riskCheckId);
-  clearInterval(mtf15mRefreshId);
-  clearInterval(mtf4hRefreshId);
   clearInterval(marketContextRefreshId);
+  clearInterval(gaugeRecorderId);
   logger.info('SIGINT received, shutting down gracefully');
   void logShutdown().finally(() => process.exit(0));
 });

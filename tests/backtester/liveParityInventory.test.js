@@ -56,6 +56,14 @@ const PARITY_INVENTORY = [
     shared: 'src/exchange/exchangeLimits.js',
   },
   {
+    // A rule about the exchange floor must exist on every order path at once —
+    // the floor itself was live-only for months (follow-ups history).
+    rule: 'Min-notional bump (buy the floor when an order is close to it)',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'bumpToMinNotional' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'bumpToMinNotional' },
+    shared: 'src/exchange/exchangeLimits.js',
+  },
+  {
     rule: 'minConfidence threshold scaling',
     live: { file: 'src/utils/strategyBuilder.js', symbol: 'scaleMinConfidence' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'confidenceThresholdScale' },
@@ -70,34 +78,34 @@ const PARITY_INVENTORY = [
   },
   {
     rule: 'Momentum-leader filter',
-    live: { file: 'src/core/filters.js', symbol: 'momentum' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'momentum' },
-    shared: 'src/utils/momentum.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     rule: 'Bear-regime policy (cash exit + entry block)',
-    live: { file: 'src/main.js', symbol: 'computeBearPolicy' },
+    live: { file: 'src/core/engine.js', symbol: 'computeBearPolicy' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'computeBearPolicy' },
     shared: 'src/engine/regimeRouter.js',
   },
   {
     rule: '15m MTF alignment',
-    live: { file: 'src/core/filters.js', symbol: 'mtfAlignScore' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtf' },
-    shared: 'src/utils/mtfAlignment.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     rule: '4h momentum filter',
-    live: { file: 'src/core/filters.js', symbol: 'mtf4hMomentumScore' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtf4h' },
-    shared: 'src/utils/mtfAlignment.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     // Pinned to the matrix builder, not the word "correlation": the backtester
     // passed this row for months while using one static matrix built from the
     // first half of each symbol's history instead of live's trailing window.
     rule: 'Portfolio correlation cap',
-    live: { file: 'src/main.js', symbol: 'buildCorrelationMatrix' },
+    live: { file: 'src/core/engine.js', symbol: 'buildCorrelationMatrix' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'buildCorrelationMatrix' },
     shared: 'src/utils/correlation.js',
   },
@@ -106,13 +114,13 @@ const PARITY_INVENTORY = [
     // never fire (simulator trades lacked the SELL/timestamp shape it reads).
     // The behavioural guard is tests/backtester/timeAlignment.test.js.
     rule: 'Weekly drawdown breaker',
-    live: { file: 'src/core/filters.js', symbol: 'calcWeeklyDDBreaker' },
-    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'weeklyDDBreaker' },
-    shared: 'src/risk/portfolioRisk.js',
+    live: { file: 'src/core/filters.js', symbol: 'evaluateEntryGates' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'evaluateEntryGates' },
+    shared: 'src/core/decisionCore.js',
   },
   {
     rule: 'Position aging exit',
-    live: { file: 'src/main.js', symbol: 'calcPositionAgingExit' },
+    live: { file: 'src/core/engine.js', symbol: 'calcPositionAgingExit' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'positionAging' },
     shared: 'src/risk/portfolioRisk.js',
   },
@@ -120,6 +128,16 @@ const PARITY_INVENTORY = [
     rule: 'Macro (BTC EMA200) size reduction',
     live: { file: 'src/core/positionSizing.js', symbol: 'applyMacroFilter' },
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'macroSizeReduceFactor' },
+  },
+  {
+    // Live applied it to every entry while FULL_LIVE_FILTERS left it off, so every
+    // baseline was sized without it — found by the 2026-10 live reconciliation
+    // (BTC 2026-09-19: live 0.27 of free balance, backtest 0.14). Pinned to the
+    // flag the framework sets, not the backtester's option name alone.
+    rule: 'ATR inverse-volatility sizing',
+    live: { file: 'src/core/positionSizing.js', symbol: 'applyATRSizing' },
+    backtest: { file: 'src/backtester/baselineFramework.js', symbol: 'atrPositionSizing:   config.atr?.enabled' },
+    shared: 'src/utils/indicators.js',
   },
   {
     rule: 'ADX regime sizing',
@@ -132,9 +150,130 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'confSizing' },
   },
   {
+    // The strategies drop the last bar as the forming one. The backtester's row for
+    // bar i always includes bar i; live adds a placeholder when a thin pair has not
+    // printed the new bar yet. Found by the 2026-10 live reconciliation (36 signals).
+    // The behavioural guard is tests/utils/formingBar.test.js.
+    rule: 'Decision series ends with the forming bar',
+    live: { file: 'src/core/engine.js', symbol: 'withFormingBar' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'candles.slice(start, i + 1)' },
+  },
+  {
+    // Both sides used to read a different bar: live the previous cycle's series (the
+    // gates ran before the fetch), the backtest bar T's close, 12 h ahead (follow-ups
+    // items 1 and 12). Both now read bars closed by the cycle time.
+    rule: 'Regime, macro and correlation read bars closed by the cycle time',
+    live: { file: 'src/core/engine.js', symbol: 'closedCandles(' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'closedIdx(' },
+  },
+  {
+    // Live's 15m/4h caches refreshed on a boot-time timer and fed part-formed bars;
+    // the backtest read the bars inside the period starting at T (items 1 and 9).
+    rule: '15m / 4h filters read bars closed by the cycle time',
+    live: { file: 'src/core/engine.js', symbol: 'closedNow(' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'mtfIndex[sym][i12 - 1]' },
+  },
+  {
+    // The decision fills seconds after the cycle; the backtest waited for bar T + 1.
+    rule: 'Entry and exit fill at the cycle-time price',
+    live: { file: 'src/core/engine.js', symbol: 'trader.execute(symbol' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'fillPrice: d.price' },
+  },
+  {
+    // Live ran every symbol's cycle at once: two BUYs could both pass the position
+    // limit against a status read before either order, and a contested slot went to
+    // whichever fetch returned first. Both sides now fill slots one at a time, by
+    // confidence, from fresh status (plan step 4, slice 2).
+    rule: 'Entry slots filled one at a time, highest confidence first',
+    live: { file: 'src/core/engine.js', symbol: 'byEntryPriority' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'byEntryPriority' },
+    shared: 'src/core/decisionCore.js',
+  },
+  {
+    // Pinned to the shared helper: the row used to pass on the substring
+    // "breakEven" while the simulator ran its own copy (follow-ups item 4).
     rule: 'Break-even stop',
-    live: { file: 'src/executor/liveTrader.js', symbol: 'breakEven' },
-    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'breakEven' },
+    live: { file: 'src/executor/liveTrader.js', symbol: 'calcBreakEven' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'calcBreakEven' },
+    shared: 'src/executor/traderUtils.js',
+  },
+  {
+    rule: 'Trailing stop',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'calcTrailingStop' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'calcTrailingStop' },
+    shared: 'src/executor/traderUtils.js',
+  },
+  {
+    // Live meets every price through its 2-minute risk loop; the backtester replays
+    // each period's 15m bars through the same exit rule (behaviour: liveTiming.test.js).
+    rule: 'Stop / target exit decision, inside the bar',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'calcExitSignal' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'calcExitSignal' },
+    shared: 'src/executor/traderUtils.js',
+  },
+  {
+    // The satellite strategies' entry gate and sizing (limit price, the 10% stop cap,
+    // 12.5% of equity, the exchange floor) run in the engine on both sides.
+    rule: 'Satellite entry plan (limit price, stop cap, size, floor)',
+    live: { file: 'src/core/engine.js', symbol: 'planSatelliteEntry' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'runSatelliteCycle' },
+    shared: 'src/engine/satellites.js',
+  },
+  {
+    rule: 'Satellite account-level daily-loss brake',
+    live: { file: 'src/core/engine.js', symbol: 'canOpenRisk' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'RiskManager' },
+    shared: 'src/risk/riskManager.js',
+  },
+  {
+    // The satellite order and its exits: a resting limit buy that locks its cash, and one
+    // copy of the exit rules (stepSatellitePosition) — on 15m bars in the simulator, on
+    // risk-loop ticks live (behaviour: liveSatellite.test.js, satelliteOrders.test.js).
+    rule: 'Satellite order path (resting limit buy, exit rules)',
+    live: { file: 'src/executor/liveTrader.js', symbol: 'stepSatellitePosition' },
+    backtest: { file: 'src/backtester/backtestSimulator.js', symbol: 'stepSatellitePosition' },
+    shared: 'src/engine/satellites.js',
+  },
+  {
+    // Live-only until the 2026-10 reconciliation (follow-ups item 8).
+    rule: 'Asymmetric exit (0.7× threshold on a SELL majority while held)',
+    live: { file: 'src/core/engine.js', symbol: 'resolveDecision' },
+    backtest: { file: 'src/backtester/portfolioBacktester.js', symbol: 'resolveDecision' },
+    shared: 'src/core/decisionCore.js',
+  },
+  {
+    // Section E1 (2026-10-27). The replay throws when the config enables it and no
+    // DVOL rows are passed, so a script cannot silently size on realized vol.
+    rule: 'Sleeve vol targeting on implied vol (DVOL)',
+    live: { file: 'src/main.js', symbol: 'loadDvolHistory' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'impliedVolRows' },
+    shared: 'src/engine/tsmCore.js',
+  },
+  {
+    // Section E item 2 (2026-10-27). Both sides read data/exchangeEvents.json; the
+    // replay keeps events announced by its clock and throws when the config enables
+    // the veto and none are passed. PortfolioBacktester has no veto: the engine
+    // replay is the backtest of the live cycle, and runEngineReplay turns it off.
+    rule: 'Binance venue veto (monitoring tag, USDC-pair removal, delisting)',
+    live: { file: 'src/main.js', symbol: 'loadExchangeEvents' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'exchangeEvents' },
+    shared: 'src/risk/exchangeEvents.js',
+  },
+  {
+    // Section L (2026-10-28). The pause filters the sleeve's planned entries inside the
+    // engine's sleeve cycle, which the replay runs as is; live's retried closes in the
+    // risk loop stamp the same exit map.
+    rule: 'Sleeve re-entry pause after a sell (tsmCore.reentryPauseHours)',
+    live: { file: 'src/core/engine.js', symbol: 'filterPausedEntries' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'createTradingEngine' },
+    shared: 'src/engine/tsmCore.js',
+  },
+  {
+    // Section M (2026-10-28): the buy-back gate runs in the engine's sleeve cycle, as above.
+    rule: 'Sleeve buy-back confirmation after a sell (tsmCore.rebuyConfirmBars)',
+    live: { file: 'src/core/engine.js', symbol: 'applyRebuyGate' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'createTradingEngine' },
+    shared: 'src/engine/tsmCore.js',
   },
 ];
 
@@ -169,6 +308,12 @@ const INTENTIONALLY_LIVE_ONLY = [
           + 'min-notional floor exists on BOTH sides via the shared exchangeLimits constant.',
   },
   {
+    rule: 'Sleeve buy-back gate and last-sell times persisted across restarts (sleeveStateStore)',
+    reason: 'A replay is one continuous run with no restart, so the file has nothing to mirror: the '
+          + 'replay keeps the same state in memory (identical trades with and without it). '
+          + 'Restart behaviour is covered by tests/core/sleeveRebuyRestart.test.js.',
+  },
+  {
     rule: 'Core-sleeve wallet claim on position restore (calcCoreClaims)',
     reason: 'Restoring positions by reading wallet balances only exists live — a backtest '
           + 'never reconciles against a fungible wallet, so there is no counterpart to mirror. '
@@ -176,6 +321,14 @@ const INTENTIONALLY_LIVE_ONLY = [
           + 'the scalper restore attributes the remainder; without it the scalper claimed the '
           + "sleeve's own ETH as a phantom position, inflating equity ~25% and sizing the sleeve "
           + 'off capital that did not exist (observed live 2026-08-03).',
+  },
+  {
+    rule: 'Capped IOC limit orders (risk.limitCapPct): a buy the book cannot fill within the cap',
+    reason: 'Every live scalper and sleeve order is an IOC limit capped 0.5% past the price; a buy '
+          + 'that cannot fill within the cap buys nothing (a sell sends the rest to market). The '
+          + 'simulator fills every order at fee + tier slippage (0.10/0.20/0.35%), all under the '
+          + 'cap, so the refusal fires only when the real book is worse than the model assumes — '
+          + 'history has no order book to replay that from. liveLimitOrders.test.js pins the path.',
   },
 ];
 

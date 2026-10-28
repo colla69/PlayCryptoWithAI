@@ -1,5 +1,5 @@
 ---
-name: clean-code
+name: bot-clean-code
 description: >-
   Skill for maintaining code quality, module cohesion, and readability in the playAIStocks bot.
   Use when refactoring, extracting helpers, or reviewing code structure.

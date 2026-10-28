@@ -6,7 +6,12 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
-**Performance (honest baseline — full live filter stack, realistic next-open fills + tiered slippage):**  
+> **Historical figures:** the baseline below predates the 2026-10-27 replay and reporting
+> corrections. Regenerate it before comparing configurations: current reports use synchronized
+> portfolio valuations and calendar-day Sharpe (365 days), including the first day and cash flows.
+
+**Performance (historical baseline — full live filter stack, next-open fills + tiered slippage):**
+
 `last 90d (most OOS): +0.25% · Sharpe 0.14 · Max DD −3.3% · WR 25%`  
 `full history (2509d): +140.7% · Sharpe 1.08 · Max DD −8.8% · WR 60%`
 
@@ -20,8 +25,10 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
 📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
-📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — open measurement gaps (fill timing, equity marking, gapped positions)  
-📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship
+📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — measurement gaps found by the parity work and the live reconciliation (all fixed 2026-10-24)  
+📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship  
+📖 **[One-engine rebuild](docs/plans/2026-10-single-engine-rebuild.md)** — handoff: reconcile the backtester against live, then share one decision core  
+📖 **[External bots review](docs/EXTERNAL_BOTS_REVIEW.md)** — NostalgiaForInfinity, Freqtrade, NautilusTrader and others: what is worth taking
 
 ---
 
@@ -96,6 +103,7 @@ Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/
 | `npm run paper` | Force paper mode |
 | `npm run backtest:portfolio` | Full 37-coin portfolio backtest |
 | `npm run download-history` | Download candle history from Binance |
+| `npm run record-gauges` | Daily snapshot of Coin Metrics exchange flows for the forward check (plan doc § H) |
 | `npm run optimize` | Per-symbol strategy optimizer |
 | `npm run compare` | Strategy comparison across symbols |
 | `npm test` | Unit tests (Node test runner) |
@@ -117,7 +125,7 @@ See `--help` or [TECHNICAL.md](docs/TECHNICAL.md) for all flags.
 ## Portfolio
 
 37 Binance spot USDC pairs:  
-BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, TON, RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
+BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
 
 Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 
@@ -134,8 +142,8 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | Entry | Daily loss > −5% | All trades blocked |
 | Entry | BTC < EMA(200) | Size halved |
 | Entry | ADX < 15 (chop) | Size halved |
-| In-trade | Stop-loss (5%) | Market sell |
-| In-trade | Take-profit (12%) | Market sell |
+| In-trade | Stop-loss (5%) | IOC limit sell, rest at market |
+| In-trade | Take-profit (12%) | IOC limit sell, rest at market |
 | In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
 | In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
 | Ops | Cycle watchdog (30 min) | Telegram alert when the loop stops deciding |

@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { deflatedSharpeRatio } from '../backtester/deflatedSharpe.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CANDLE_DIR = path.resolve(__dirname, '../../data/candles');
+let CANDLE_DIR = path.resolve(__dirname, '../../data/candles');
 
 const BARS_PER_YEAR = 730; // 12h bars
 const FEE = 0.001;         // Binance spot, per leg
@@ -44,7 +44,14 @@ let quote = 'USDC';    // candle file quote currency (USDT unlocks 2017+ history
 let universeArg = null;    // custom TSM universe, e.g. --universe BTC,ETH,BNB,XRP,ADA,LTC,LINK,DOGE
 let volTargetAnnual = null; // vol-targeted sizing variant of the vote rule (annualised target, e.g. 0.6)
 let hysteresis = false;    // slow-in (enter 3/3, stay ≥2) and slow-out (enter ≥2, exit at 0) vote variants
-let overlays = [];         // context overlays on the combo rule (see OVERLAY_DEFS): --overlays F1,M1,...
+let overlays = [];         // context overlays on the combo rule (see OVERLAY_DEFS): --overlays F1,M1,M1+CB1,...
+let donchian = false;      // multi-lookback Donchian trend (Zarattini, Pagani & Barbon 2025), plan section F1
+let maxmin = false;        // 10-day high / low rule (Padyšák & Vojtko 2022), plan section G1
+let sleeveStops = [];      // stops on the sleeve (--sleeve-stop), plan section J
+let sleeveExits = [];      // faster exits after a peak (--sleeve-exit K1,K2,K1b,K3), plan section K
+let sleevePauses = [];     // days without re-entry after a full sell (--sleeve-pause 1,3,7,14), plan section L
+let sleeveRebuys = [];     // buy-back confirmation after a fast-out sell (--sleeve-rebuy exit,high,ma), plan section M
+let holdout = null;        // coins never used in selection, a third universe for J–M cells (--holdout XRP,ADA,LTC,DOGE), plan section N
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
@@ -56,6 +63,17 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--vol-target' && argv[i + 1]) volTargetAnnual = Number(argv[++i]);
   if (argv[i] === '--hysteresis') hysteresis = true;
   if (argv[i] === '--overlays' && argv[i + 1]) overlays = argv[++i].split(',').map((s) => s.trim().toUpperCase());
+  if (argv[i] === '--candle-dir' && argv[i + 1]) CANDLE_DIR = path.resolve(argv[++i]); // e.g. a USDT research set
+  if (argv[i] === '--donchian') donchian = true;
+  if (argv[i] === '--maxmin') maxmin = true;
+  // J: sleeve stops as pct:reentry, e.g. 0.09:flip,0.09:next
+  if (argv[i] === '--sleeve-exit' && argv[i + 1]) sleeveExits = argv[++i].split(',').map((s) => s.trim());
+  if (argv[i] === '--sleeve-pause' && argv[i + 1]) sleevePauses = argv[++i].split(',').map(Number);
+  if (argv[i] === '--sleeve-rebuy' && argv[i + 1]) sleeveRebuys = argv[++i].split(',').map((s) => s.trim());
+  if (argv[i] === '--holdout' && argv[i + 1]) holdout = argv[++i].split(',').map((s) => s.trim().toUpperCase());
+  if (argv[i] === '--sleeve-stop' && argv[i + 1]) {
+    sleeveStops = argv[++i].split(',').map((s) => { const [pct, reentry = 'flip'] = s.split(':'); return { pct: Number(pct), reentry }; });
+  }
 }
 
 // Every DSR is deflated by the CUMULATIVE search burden across study sessions:
@@ -67,10 +85,16 @@ const N_TRIALS = 21
   + (volTargetAnnual ? 3 : 0)
   + (hysteresis ? 6 : 0)
   + (volTargetAnnual && hysteresis ? 3 : 0)
-  + overlays.length * 2;
+  + overlays.length * 2
+  + (donchian ? 3 : 0)
+  + (maxmin ? 8 : 0)
+  + sleeveStops.length
+  + sleeveExits.length
+  + sleevePauses.length * 2
+  + sleeveRebuys.length * 2;
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
-const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON']);
+const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON', 'GRAM']);
 const MID = new Set(['AVAX', 'NEAR', 'ICP', 'APT', 'ARB', 'INJ', 'SUI', 'TIA', 'LDO', 'ENS', 'CRV', 'THETA', 'PAXG', 'RENDER', 'WLD', 'PEPE', 'ENA', 'JUP', 'JTO']);
 const slipFor = (coin) => (LARGE.has(coin) ? 0.001 : MID.has(coin) ? 0.002 : 0.0035);
 
@@ -96,7 +120,7 @@ const ROT_UNIVERSE = universeArg ?? (quote === 'USDC' ? UNIVERSE : []);
 
 // per coin: bars[gi] = actual candle or null; closes[gi] = carry-forward close; firstIdx
 const coins = new Map();
-for (const coin of new Set([...ROT_UNIVERSE, ...(universeArg ?? []), 'BTC', 'ETH', 'BNB', 'SOL'])) {
+for (const coin of new Set([...ROT_UNIVERSE, ...(universeArg ?? []), ...(holdout ?? []), 'BTC', 'ETH', 'BNB', 'SOL'])) {
   const candles = loadCandles(coin);
   if (!candles?.length) { console.warn(`  (no 12h data for ${coin} — excluded)`); continue; }
   const bars = new Array(grid.length).fill(null);
@@ -187,7 +211,97 @@ if (voteDays) {
       make: (coin) => { const a = hysteresisSeries(coin, barsList, need, 1); return (gi) => a[gi]; },
     };
   }
+  if (hysteresis && (sleeveExits.includes('K2') || sleevePauses.length || sleeveRebuys.length)) { // K2: enter on 3/3, exit as soon as one vote turns negative
+    RULES[`vote${tag}d fast-out`] = {
+      warmup: Math.max(...barsList),
+      make: (coin) => { const a = hysteresisSeries(coin, barsList, barsList.length, barsList.length); return (gi) => a[gi]; },
+    };
+  }
 }
+
+// ── F1: multi-lookback Donchian trend (Zarattini, Pagani & Barbon 2025) ─────
+// Daily closes = the 12h bars ending 00:00 UTC. Per lookback n: enter on a close
+// above the previous n closes' high; trailing stop = max(previous stop, midpoint
+// of the last n closes' high and low); exit on a close below it. Target =
+// (open lookbacks / 9) × min(1, 0.25 / σ90d); the paper's 2× cap is 1× here.
+const DONCHIAN_DAYS = [5, 10, 20, 30, 60, 90, 150, 250, 360];
+function donchianTarget(coin) {
+  const { closes, firstIdx } = coins.get(coin);
+  const target = new Array(grid.length).fill(null);
+  if (firstIdx === null) return (gi) => target[gi];
+  const daily = [];
+  for (let gi = firstIdx; gi < grid.length; gi++) {
+    if ((grid[gi] + 12 * 3_600_000) % 86_400_000 === 0) daily.push({ gi, c: closes[gi] });
+  }
+  const open = DONCHIAN_DAYS.map(() => false);
+  const stop = DONCHIAN_DAYS.map(() => null);
+  for (let d = 0; d < daily.length; d++) {
+    const c = daily[d].c;
+    let count = 0;
+    DONCHIAN_DAYS.forEach((n, k) => {
+      if (d < n) return;
+      let hiPrev = -Infinity;
+      for (let j = d - n; j < d; j++) hiPrev = Math.max(hiPrev, daily[j].c);
+      let hi = -Infinity, lo = Infinity;
+      for (let j = d - n + 1; j <= d; j++) { hi = Math.max(hi, daily[j].c); lo = Math.min(lo, daily[j].c); }
+      const mid = (hi + lo) / 2;
+      if (!open[k] && c > hiPrev) { open[k] = true; stop[k] = mid; }
+      else if (open[k]) {
+        stop[k] = Math.max(stop[k], mid);
+        if (c < stop[k]) open[k] = false;
+      }
+      if (open[k]) count++;
+    });
+    let tf = 0;
+    if (d >= 90 && count > 0) {
+      const rets = [];
+      for (let j = d - 89; j <= d; j++) rets.push(daily[j].c / daily[j - 1].c - 1);
+      const m = rets.reduce((a, r) => a + r, 0) / rets.length;
+      const sigma = Math.sqrt(rets.reduce((a, r) => a + (r - m) ** 2, 0) / (rets.length - 1)) * Math.sqrt(365);
+      tf = (count / DONCHIAN_DAYS.length) * Math.min(1, sigma > 0 ? 0.25 / sigma : 1);
+    }
+    target[daily[d].gi] = tf;
+  }
+  return (gi) => target[gi];
+}
+
+// ── G1: 10-day high / low (Padyšák & Vojtko 2022) ──────────────────────────
+// Daily closes as F1. HIGH: today's close is the highest of the last n (today's
+// included); LOW: the lowest. Decided at the daily close, held one day.
+function dailyExtremes(coin, n) {
+  const { closes, firstIdx } = coins.get(coin);
+  const state = new Array(grid.length).fill(null); // per daily bar: { high, low }; null elsewhere
+  if (firstIdx === null) return state;
+  const daily = [];
+  for (let gi = firstIdx; gi < grid.length; gi++) {
+    if ((grid[gi] + 12 * 3_600_000) % 86_400_000 === 0) daily.push({ gi, c: closes[gi] });
+  }
+  for (let d = n - 1; d < daily.length; d++) {
+    let hi = -Infinity, lo = Infinity;
+    for (let j = d - n + 1; j <= d; j++) { hi = Math.max(hi, daily[j].c); lo = Math.min(lo, daily[j].c); }
+    state[daily[d].gi] = { high: daily[d].c >= hi, low: daily[d].c <= lo };
+  }
+  return state;
+}
+// G1a and its legs: full size for the next day on the chosen states, else cash.
+const maxMinTarget = (n, useHigh, useLow) => (coin) => {
+  const st = dailyExtremes(coin, n);
+  return (gi) => (st[gi] === null ? null : (useHigh && st[gi].high) || (useLow && st[gi].low) ? 1 : 0);
+};
+// G1b: combo (slow-in vote 30/45/60, vol target 0.6) plus, on days combo holds
+// nothing, the 10-day-LOW leg at combo's own vol-target size.
+const comboPlusLowTarget = (coin) => {
+  const on = hysteresisSeries(coin, [60, 90, 120], 3, 2);
+  const vol = realizedVolAnnual(coin);
+  const st = dailyExtremes(coin, 10);
+  let lowDay = false;
+  return (gi) => {
+    if (st[gi] !== null) lowDay = st[gi].low;
+    if (!on[gi] && !lowDay) return 0;
+    const rv = vol[gi];
+    return rv && rv > 0 ? Math.min(1, Math.max(0.2, 0.6 / rv)) : 1;
+  };
+};
 
 // ── Context overlays (funding / macro / on-chain / sentiment) ────────────────
 // Each overlay maps (coin, gi) → an exposure factor in [0, 1] applied to the
@@ -270,6 +384,77 @@ if (overlays.length) {
     factor: (coin, gi) => { const m = mvrvByCoin.get(coin)?.[gi]; return m == null ? 1 : m > 3 ? 0.5 : 1; },
   };
 
+  // Coinbase premium gauge: mean hourly premium over the hours closed by the
+  // decision bar's close (grid[gi] + 12h); too few hours → null (neutral).
+  const cbRows = loadCtx('coinbase_premium_1h.json') ?? [];
+  const HOUR = 3_600_000;
+  const cbGauge = (hours, minPresent) => {
+    const out = new Array(grid.length).fill(null);
+    const pre = [0];
+    for (const r of cbRows) pre.push(pre.at(-1) + r.p);
+    const closedBy = (ts) => { let lo = 0, hi = cbRows.length; while (lo < hi) { const m = (lo + hi) >> 1; if (cbRows[m].t + HOUR <= ts) lo = m + 1; else hi = m; } return lo; };
+    for (let gi = 0; gi < grid.length; gi++) {
+      const close = grid[gi] + 12 * HOUR;
+      const j1 = closedBy(close);
+      const j0 = closedBy(close - hours * HOUR);
+      if (j1 - j0 >= minPresent) out[gi] = (pre[j1] - pre[j0]) / (j1 - j0);
+    }
+    return out;
+  };
+  const cb7 = cbGauge(168, 120);
+  const cb30 = cbGauge(720, 500);
+  OVERLAY_DEFS.CB1 = {
+    desc: 'half size while the 7-day mean Coinbase premium < 0 (US spot selling)',
+    factor: (_c, gi) => (cb7[gi] == null ? 1 : cb7[gi] < 0 ? 0.5 : 1),
+  };
+  OVERLAY_DEFS.CB30 = {
+    desc: 'half size while the 30-day mean Coinbase premium < 0 (reported only)',
+    factor: (_c, gi) => (cb30[gi] == null ? 1 : cb30[gi] < 0 ? 0.5 : 1),
+  };
+  {
+    const inWin = (gi) => (!fromDate || grid[gi] >= fromDate) && (!toDate || grid[gi] <= toDate);
+    let n = 0, neg = 0, n30 = 0, neg30 = 0;
+    for (let gi = 0; gi < grid.length; gi++) {
+      if (!inWin(gi)) continue;
+      if (cb7[gi] != null) { n++; if (cb7[gi] < 0) neg++; }
+      if (cb30[gi] != null) { n30++; if (cb30[gi] < 0) neg30++; }
+    }
+    if (n) console.log(`Coinbase premium gauge below 0: 7-day ${(100 * neg / n).toFixed(0)}% of ${n} bars, 30-day ${(100 * neg30 / n30).toFixed(0)}% of ${n30}`);
+  }
+
+  // G2: BTC held on exchange addresses (CoinMetrics). A day's row is used 2 days
+  // after it starts (published ~27h after). Recomputed history: not point-in-time.
+  const exRows = loadCtx('cm_btc_exchange.json') ?? [];
+  { const byT = new Map(exRows.map((r) => [r.t, r]));
+    for (let i = 0; i < exRows.length; i++) {
+      const r = exRows[i];
+      const ref = byT.get(r.t - 30 * DAY);
+      r.d30 = ref ? r.sply / ref.sply - 1 : null;
+      let net = 0, k = 0;
+      for (let j = i; j >= 0 && exRows[j].t > r.t - 7 * DAY; j--) { net += exRows[j].fin - exRows[j].fout; k++; }
+      r.net7 = k === 7 ? net : null;
+    } }
+  const exD30 = alignToGrid(exRows, (r) => r.d30, 2 * DAY);
+  const exNet7 = alignToGrid(exRows, (r) => r.net7, 2 * DAY);
+  OVERLAY_DEFS.EX1 = {
+    desc: 'half size while BTC exchange supply is above its level 30 days earlier',
+    factor: (_c, gi) => (exD30[gi] == null ? 1 : exD30[gi] > 0 ? 0.5 : 1),
+  };
+  OVERLAY_DEFS.EX7 = {
+    desc: 'half size while the 7-day BTC net exchange inflow > 0 (reported only)',
+    factor: (_c, gi) => (exNet7[gi] == null ? 1 : exNet7[gi] > 0 ? 0.5 : 1),
+  };
+  {
+    const inWin = (gi) => (!fromDate || grid[gi] >= fromDate) && (!toDate || grid[gi] <= toDate);
+    let n = 0, on = 0, n7 = 0, on7 = 0;
+    for (let gi = 0; gi < grid.length; gi++) {
+      if (!inWin(gi)) continue;
+      if (exD30[gi] != null) { n++; if (exD30[gi] > 0) on++; }
+      if (exNet7[gi] != null) { n7++; if (exNet7[gi] > 0) on7++; }
+    }
+    if (n) console.log(`Exchange supply gauge on (half size): 30-day rise ${(100 * on / n).toFixed(0)}% of ${n} bars, 7-day net inflow ${(100 * on7 / n7).toFixed(0)}% of ${n7}`);
+  }
+
   const fngAligned = alignToGrid(loadCtx('fng.json') ?? [], (r) => r.v, DAY / 2);
   OVERLAY_DEFS.G1 = {
     desc: 'half size while Fear & Greed ≥ 80 (extreme greed)',
@@ -299,12 +484,57 @@ function realizedVolAnnual(coin) {
   return v;
 }
 
-function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null } = {}) {
+// M: simple moving average of the last n closes, the current bar included.
+function smaCloses(coin, n) {
+  const { closes, firstIdx } = coins.get(coin);
+  const out = new Array(grid.length).fill(null);
+  if (firstIdx === null) return out;
+  let sum = 0;
+  for (let gi = firstIdx; gi < grid.length; gi++) {
+    sum += closes[gi];
+    if (gi - n >= firstIdx) sum -= closes[gi - n];
+    if (gi - firstIdx + 1 >= n) out[gi] = sum / n;
+  }
+  return out;
+}
+
+// K: closes[gi] against the closes of the previous n bars (the current bar excluded).
+function priorExtremes(coin, n) {
+  const { closes, firstIdx } = coins.get(coin);
+  const lo = new Array(grid.length).fill(null);
+  const hi = new Array(grid.length).fill(null);
+  if (firstIdx === null) return { lo, hi };
+  for (let gi = firstIdx + n; gi < grid.length; gi++) {
+    let a = Infinity, b = -Infinity;
+    for (let k = gi - n; k < gi; k++) { a = Math.min(a, closes[k]); b = Math.max(b, closes[k]); }
+    lo[gi] = a; hi[gi] = b;
+  }
+  return { lo, hi };
+}
+
+function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = null, band = 0.15, stop = null, trail = null, pauseBars = 0, rebuy = null } = {}) {
   const { bars, closes } = coins.get(coin);
-  const on = RULES[ruleKey].make(coin);
+  // K: `trail = { n, mode: 'exit' | 'half' }` — act when a close is below the previous n bars'
+  // closes; undo on a close above them while the vote holds, or when the vote turns off.
+  const ext = trail ? priorExtremes(coin, trail.n) : null;
+  let trailOut = false, peak = 0;
+  let lastExitGi = -Infinity; // L: the bar whose open filled the last full sell
+  // M: after a full sell, while a majority of votes is still positive, buy back only on proof.
+  let gate = false, exitPx = 0;
+  const voteBars = voteDays ? voteDays.map((d) => d * 2) : [];
+  const majority = Math.floor(voteBars.length / 2) + 1;
+  // 'high' = 20 days; 'high<N>' = N days (robustness check of the 20-day choice)
+  const highDays = rebuy?.startsWith('high') ? Number(rebuy.slice(4) || 20) : 0;
+  const hi20 = highDays ? priorExtremes(coin, highDays * 2).hi : null;
+  const ma20 = rebuy === 'ma' ? smaCloses(coin, 40) : null;
+  const gives = []; // peak-to-exit give-back of every full exit
+  // `target(gi)` gives a fraction directly (null = no decision on this bar); otherwise a boolean rule.
+  const on = target ? null : RULES[ruleKey].make(coin);
   const vol = volTarget ? realizedVolAnnual(coin) : null;
   let cash = 1, qty = 0, roundTrips = 0, investedBars = 0;
   let pendingTf = null; // target fraction decided at close, executed next open
+  // J: `stop = { pct, reentry: 'flip' | 'next' }` — exit at pct below the average fill price.
+  let avgFill = 0, stopped = false, stopOuts = 0;
   const eq = new Array(grid.length).fill(1);
   const slip = slipFor(coin);
   for (let gi = 0; gi < grid.length; gi++) {
@@ -315,35 +545,76 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null } = {}) {
       const deltaUsd = pendingTf * e - qty * open;
       if (deltaUsd > 0) {
         const spend = Math.min(deltaUsd, cash);
-        if (spend > 0) { qty += (spend * (1 - FEE)) / (open * (1 + slip)); cash -= spend; }
+        if (spend > 0) {
+          const add = (spend * (1 - FEE)) / (open * (1 + slip));
+          avgFill = (avgFill * qty + add * open * (1 + slip)) / (qty + add);
+          qty += add; cash -= spend;
+        }
       } else if (deltaUsd < 0) {
         const sellQty = Math.min(-deltaUsd / open, qty);
         cash += sellQty * open * (1 - slip) * (1 - FEE);
         qty -= sellQty;
-        if (pendingTf === 0) { qty = 0; roundTrips++; }
+        if (pendingTf === 0) { qty = 0; roundTrips++; lastExitGi = gi; gate = Boolean(rebuy); exitPx = open; if (peak > 0) gives.push(open / peak - 1); }
       }
       pendingTf = null;
     }
+    // The live risk loop meets every price after the fill, so the bar's low decides; a bar
+    // that opens below the level fills at its open.
+    if (stop && qty > 0 && bar && bar.low <= avgFill * (1 - stop.pct)) {
+      const level = avgFill * (1 - stop.pct);
+      const px = bar.open < level ? bar.open : level;
+      cash += qty * px * (1 - slip) * (1 - FEE);
+      qty = 0; roundTrips++; stopOuts++; lastExitGi = gi;
+      if (peak > 0) gives.push(px / peak - 1);
+      stopped = true;
+    }
+    if (qty === 0) avgFill = 0;
+    peak = qty > 0 ? Math.max(peak, closes[gi] ?? 0) : 0;
     eq[gi] = cash + qty * (closes[gi] ?? 0);
     if (qty > 0) investedBars++;
-    const sig = on(gi);
-    let tf = sig ? 1 : 0;
+    if (target && target(gi) === null) continue;
+    let sig = target ? target(gi) > 0 : on(gi);
+    if (stopped) {
+      // 'flip': stay out until the vote has turned off once; 'next': re-enter at once.
+      if (stop.reentry === 'next' || !sig) stopped = false;
+      else sig = false;
+    }
+    if (trail) {
+      if (!sig) trailOut = false;
+      else if (trailOut) { if (ext.hi[gi] != null && closes[gi] > ext.hi[gi]) trailOut = false; }
+      else if (qty > 0 && ext.lo[gi] != null && closes[gi] < ext.lo[gi]) trailOut = true;
+      if (trailOut && trail.mode === 'exit') sig = false;
+    }
+    // L: a decision at close gi fills at gi+1's open, so blocking gi - lastExitGi < pauseBars - 1
+    // keeps every re-entry fill at least pauseBars after the sell.
+    if (pauseBars && qty === 0 && gi - lastExitGi < pauseBars - 1) sig = false;
+    if (gate && qty === 0) {
+      const c = closes[gi];
+      const proof = rebuy === 'exit' ? c > exitPx
+        : highDays ? hi20[gi] != null && c > hi20[gi]
+          : ma20[gi] != null && c > ma20[gi];
+      if (votesPositive(coin, gi, voteBars).pos < majority || proof) gate = false;
+      else sig = false;
+    }
+    let tf = target ? target(gi) : sig ? 1 : 0;
     if (sig && vol) {
       const rv = vol[gi];
       if (rv && rv > 0) tf = Math.min(1, Math.max(0.2, volTarget / rv));
     }
     if (sig && tfScale) tf *= tfScale(coin, gi);
+    if (sig && trailOut && trail.mode === 'half') tf *= 0.5;
     // Full entries/exits always trade; vol-rebalances only when drift > 15%
     // of sleeve equity (keeps churn and fee drag bounded).
     const cur = eq[gi] > 0 ? (qty * (closes[gi] ?? 0)) / eq[gi] : 0;
     const full = (tf === 0 && qty > 0) || (tf > 0 && qty === 0);
-    pendingTf = full || Math.abs(tf - cur) > 0.15 ? tf : null;
+    pendingTf = full || Math.abs(tf - cur) > band ? tf : null;
   }
-  return { eq, roundTrips, investedBars };
+  return { eq, roundTrips, investedBars, stopOuts, gives };
 }
 
 function simTsm(universe, ruleKey, opts = {}) {
-  const sleeves = universe.filter((c) => coins.has(c)).map((c) => simSleeve(c, ruleKey, opts));
+  const sleeves = universe.filter((c) => coins.has(c))
+    .map((c) => simSleeve(c, ruleKey, opts.targetFor ? { ...opts, target: opts.targetFor(c) } : opts));
   const share = START_CAPITAL / universe.length;
   const eq = grid.map((_, gi) => sleeves.reduce((s, sl) => s + sl.eq[gi] * share, 0)
     + (universe.length - sleeves.length) * share);
@@ -351,6 +622,8 @@ function simTsm(universe, ruleKey, opts = {}) {
     eq,
     roundTrips: sleeves.reduce((s, sl) => s + sl.roundTrips, 0),
     exposure: sleeves.reduce((s, sl) => s + sl.investedBars, 0) / (grid.length * universe.length),
+    stopOuts: sleeves.reduce((s, sl) => s + sl.stopOuts, 0),
+    gives: sleeves.flatMap((sl) => sl.gives),
   };
 }
 
@@ -463,12 +736,23 @@ function metrics(fullEq, { withDsr = false } = {}) {
     for (let gi = bi0; gi <= bi1; gi++) { if (eq[gi] > bPeak) bPeak = eq[gi]; bDD = Math.min(bDD, eq[gi] / bPeak - 1); }
     bear = { returnPct: Number(((eq[bi1] / eq[bi0] - 1) * 100).toFixed(1)), maxDDPct: Number((bDD * 100).toFixed(1)) };
   }
+  // Per-calendar-year Sharpe on the same 12h returns (plan section F's yearly count).
+  const yearlySharpe = {};
+  { const byYear = {};
+    for (let gi = 1; gi < eq.length; gi++) {
+      if (eq[gi - 1] > 0) (byYear[new Date(win[gi]).getUTCFullYear()] ??= []).push(eq[gi] / eq[gi - 1] - 1);
+    }
+    for (const [y, rs] of Object.entries(byYear)) {
+      const m = rs.reduce((a, r) => a + r, 0) / rs.length;
+      const sd = Math.sqrt(rs.reduce((a, r) => a + (r - m) ** 2, 0) / (rs.length - 1));
+      yearlySharpe[y] = sd > 0 ? Number(((m / sd) * Math.sqrt(BARS_PER_YEAR)).toFixed(3)) : 0;
+    } }
   const out = {
     totalReturnPct: Number((total * 100).toFixed(1)),
     cagrPct: Number(((Math.pow(1 + total, 1 / years) - 1) * 100).toFixed(1)),
     sharpe: Number(sharpe.toFixed(2)),
     maxDDPct: Number((maxDD * 100).toFixed(1)),
-    yearly, bear2122: bear,
+    yearly, yearlySharpe, bear2122: bear,
   };
   if (withDsr) {
     const d = deflatedSharpeRatio({ observedSharpe: sharpe, returns, nTrials: N_TRIALS, periodsPerYear: BARS_PER_YEAR });
@@ -504,8 +788,11 @@ const universes = { 'BTC+ETH': ['BTC', 'ETH'], 'BTC+ETH+BNB+SOL': ['BTC', 'ETH',
 if (universeArg) universes[`EW${universeArg.length}-majors`] = universeArg;
 const eqCache = {};
 const addTsmCell = (key, universe, ruleKey, opts = {}) => {
-  const { eq, roundTrips, exposure } = simTsm(universe, ruleKey, opts);
-  tsmCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)) };
+  const { eq, roundTrips, exposure, stopOuts, gives } = simTsm(universe, ruleKey, opts);
+  const median = (a) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[b.length >> 1] : null; };
+  tsmCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)),
+    ...(opts.stop ? { stopOuts } : {}),
+    ...(opts.giveback ? { giveMedPct: Number((100 * median(gives)).toFixed(1)) } : {}) };
   eqCache[key] = eq;
 };
 for (const [uName, universe] of Object.entries(universes)) {
@@ -528,12 +815,79 @@ if (volTargetAnnual && voteDays) {
   if (overlays.length && hysteresis) {
     const comboRule = `${voteKey} slow-in`;
     for (const ov of overlays) {
-      const def = OVERLAY_DEFS[ov];
-      if (!def) { console.warn(`unknown overlay: ${ov}`); continue; }
+      const parts = ov.split('+').map((k) => OVERLAY_DEFS[k]);
+      if (parts.some((d) => !d)) { console.warn(`unknown overlay: ${ov}`); continue; }
+      const def = { factor: (coin, gi) => parts.reduce((f, d) => f * d.factor(coin, gi), 1) };
       for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
         addTsmCell(`combo +${ov} ${uName}`, universe, comboRule, { volTarget: volTargetAnnual, tfScale: def.factor });
       }
     }
+  }
+  // The universes of the J–M sleeve cells; N adds coins never used in selection.
+  const SLEEVE_UNIVERSES = [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']],
+    ...(holdout ? [[holdout.join('+'), holdout]] : [])];
+  // K: faster exits after a peak, on combo + M1; `ref` is combo + M1 with the give-back measured.
+  if (sleeveExits.length && hysteresis) {
+    const K = {
+      K1: { rule: `${voteKey} slow-in`, trail: { n: 40, mode: 'exit' } },
+      K1b: { rule: `${voteKey} slow-in`, trail: { n: 20, mode: 'exit' } },
+      K2: { rule: `${voteKey} fast-out` },
+      K3: { rule: `${voteKey} slow-in`, trail: { n: 40, mode: 'half' } },
+    };
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
+      addTsmCell(`combo +M1 ref ${uName}`, universe, `${voteKey} slow-in`,
+        { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, giveback: true });
+      for (const k of sleeveExits) {
+        if (!K[k]) { console.warn(`unknown sleeve exit: ${k}`); continue; }
+        addTsmCell(`combo +M1 ${k} ${uName}`, universe, K[k].rule,
+          { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, trail: K[k].trail ?? null, giveback: true });
+      }
+    }
+  }
+  // M: buy-back confirmation on K2 (decides) and on K2 + the 3-day pause (reported).
+  if (sleeveRebuys.length && hysteresis) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
+      for (const rebuy of sleeveRebuys) {
+        for (const [tag, pauseBars] of [['', 0], ['pause3d ', 6]]) {
+          addTsmCell(`combo +M1 K2 ${tag}rebuy-${rebuy} ${uName}`, universe, `${voteKey} fast-out`,
+            { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, pauseBars, rebuy, giveback: true });
+        }
+      }
+    }
+  }
+  // L: a pause after each full sell, on K2 (decides) and on the shipped sleeve (reported).
+  if (sleevePauses.length && hysteresis) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
+      for (const days of sleevePauses) {
+        for (const [tag, rule] of [['K2 ', `${voteKey} fast-out`], ['', `${voteKey} slow-in`]]) {
+          addTsmCell(`combo +M1 ${tag}pause${days}d ${uName}`, universe, rule,
+            { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, pauseBars: days * 2, giveback: true });
+        }
+      }
+    }
+  }
+  // J: a stop on the sleeve, on combo + M1 (the sleeve as shipped).
+  if (sleeveStops.length && hysteresis) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
+      for (const stop of sleeveStops) {
+        addTsmCell(`combo +M1 stop${Math.round(stop.pct * 100)}/${stop.reentry} ${uName}`, universe, `${voteKey} slow-in`,
+          { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, stop });
+      }
+    }
+  }
+}
+if (donchian) {
+  for (const [uName, universe] of Object.entries(universes)) {
+    addTsmCell(`donchian9 ${uName}`, universe, null, { targetFor: donchianTarget, band: 0.05 });
+  }
+}
+if (maxmin) {
+  for (const [uName, universe] of Object.entries(universes)) {
+    addTsmCell(`maxmin10 ${uName}`, universe, null, { targetFor: maxMinTarget(10, true, true) });
+    addTsmCell(`max10 ${uName}`, universe, null, { targetFor: maxMinTarget(10, true, false) });
+    addTsmCell(`min10 ${uName}`, universe, null, { targetFor: maxMinTarget(10, false, true) });
+    for (const n of [20, 30, 40, 50]) addTsmCell(`maxmin${n} ${uName}`, universe, null, { targetFor: maxMinTarget(n, true, true) });
+    addTsmCell(`combo+min10 ${uName}`, universe, null, { targetFor: comboPlusLowTarget });
   }
 }
 results.tsmCore = tsmCells;
@@ -566,6 +920,8 @@ const fmt = (m) => `ret ${String(m.totalReturnPct).padStart(7)}%  cagr ${String(
   (m.dsr != null ? `  DSR ${m.dsr.toFixed(2)}  PSR ${m.psr.toFixed(2)}` : '') +
   (m.exposurePct != null ? `  exp ${String(m.exposurePct).padStart(3)}%` : '') +
   (m.roundTrips != null ? `  rt ${m.roundTrips}` : '') +
+  (m.stopOuts != null ? `  stops ${m.stopOuts}` : '') +
+  (m.giveMedPct != null ? `  give ${m.giveMedPct}%` : '') +
   (m.bear2122 ? `  bear21-22 ${m.bear2122.returnPct}% (DD ${m.bear2122.maxDDPct}%)` : '');
 
 console.log(`\nTrend-core study  ${results.meta.from} → ${results.meta.to}  (${results.meta.bars} bars, DSR deflated for ${N_TRIALS} trials)\n`);
@@ -580,6 +936,10 @@ for (const [k, m] of Object.entries(results.blend)) console.log(`  ${k.padEnd(24
 console.log('\nYearly returns:');
 for (const [key, m] of [...Object.entries(tsmCells), ...Object.entries(rotCells)]) {
   console.log(`  ${key.padEnd(24)} ${Object.entries(m.yearly).map(([y, r]) => `${y}: ${(r * 100).toFixed(0)}%`).join('  ')}`);
+}
+console.log('\nYearly Sharpe:');
+for (const [key, m] of Object.entries(tsmCells)) {
+  console.log(`  ${key.padEnd(24)} ${Object.entries(m.yearlySharpe).map(([y, v]) => `${y}: ${v.toFixed(2)}`).join('  ')}`);
 }
 
 // Optional curve export. Summary metrics cannot answer "do two sleeves draw down

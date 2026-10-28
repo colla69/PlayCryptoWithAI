@@ -26,11 +26,21 @@ export async function loadFearGreedHistory() {
   }
 }
 
+// Day → value per history array, built once: the scan compared date strings for every
+// entry on every call — fine once a cycle live, 37 symbols × thousands of cycles in a
+// replay. Same answer: the first entry of that UTC day, else neutral 50.
+const dayIndex = new WeakMap();
+
 export function getFearGreedValue(fgData, timestampMs) {
   if (!fgData) return 50;
-  const targetDay = new Date(timestampMs).toISOString().slice(0, 10);
-  for (const entry of fgData) {
-    if (new Date(entry.ts).toISOString().slice(0, 10) === targetDay) return entry.value;
+  let byDay = dayIndex.get(fgData);
+  if (!byDay) {
+    byDay = new Map();
+    for (const entry of fgData) {
+      const day = new Date(entry.ts).toISOString().slice(0, 10);
+      if (!byDay.has(day)) byDay.set(day, entry.value);
+    }
+    dayIndex.set(fgData, byDay);
   }
-  return 50;
+  return byDay.get(new Date(timestampMs).toISOString().slice(0, 10)) ?? 50;
 }

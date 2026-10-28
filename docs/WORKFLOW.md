@@ -22,7 +22,7 @@ subagent, `nodejs.md` and `dashboard.md` only when a matching file is read — s
 | `@developer` | Implements an approved change end-to-end | When the design is clear and concrete |
 | `@strategy-designer` | Creates or tunes signal strategies in `src/strategies/` | Any new indicator or combo change |
 | `@pre-commit-reviewer` | Lightweight staged-diff check before committing | Always, automatically offered by developer |
-| `@reviewer` | General code review: correctness, conventions, logic | After a PR is open |
+| `@bot-reviewer` | General code review: correctness, conventions, logic | After a PR is open |
 | `@risk-reviewer` | Reviews risk-management logic only | Any change to SL/TP/sizing/filters |
 | `@security-reviewer` | Reviews API keys, order paths, secrets handling | Any change near `binanceClient.js` or `.env` |
 | `@project-reviewer` | Full holistic audit of the whole codebase | Periodically, or before switching to live trading |
@@ -41,7 +41,7 @@ frontmatter, so the content is in context from the first turn.
 | `trading-strategy` | `@strategy-designer` | Strategy class contract, registration, aggregator voting, per-symbol tuning |
 | `risk-management` | `@risk-reviewer` | Where each risk control lives, the blocking invariants (HWM ladder, $11 floor, mark-to-market, restore attribution) |
 | `security` | `@security-reviewer` | Credentials, the signal bus as an order path, order validation |
-| `clean-code` | — | Ownership rules; one shared module whenever two paths must agree |
+| `bot-clean-code` | — | Ownership rules; one shared module whenever two paths must agree |
 | `testing` | `@tester` | `node:test` suite layout, helpers, the invariant fixtures, manual validation steps |
 
 ---
@@ -199,7 +199,7 @@ Agents are cost-routed by `model:` and `effort:` in their frontmatter. The rule 
 |---|---|---|---|
 | `opus` | `high` | Anything guarding capital, credentials or statistical validity — where a miss is expensive and silent | `pre-commit-reviewer`, `risk-reviewer`, `security-reviewer`, `backtest-reviewer`, `project-reviewer`, `strategy-designer` |
 | `sonnet` | inherit | Implementation, where mistakes surface fast in tests | `developer`, `tester` |
-| `sonnet` | `medium` | Scoping and quick correctness passes | `analyst`, `reviewer` |
+| `sonnet` | `medium` | Scoping and quick correctness passes | `analyst`, `bot-reviewer` |
 | `sonnet` | `low` | Verifiable doc and fact edits | `docs-updater` |
 
 Why effort, not just model: on the Claude 5 generation, effort sets how much a model thinks per

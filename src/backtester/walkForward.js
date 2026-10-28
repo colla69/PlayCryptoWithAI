@@ -32,49 +32,19 @@
 import config from '../../config/default.js';
 import { PortfolioBacktester } from './index.js';
 import { deflatedSharpeRatio } from './deflatedSharpe.js';
+import { annualizedSharpe, dailyReturnsFromEquity } from './metrics.js';
 import {
   buildPerSymbolOverrides,
   FULL_LIVE_FILTERS,
   SLIPPAGE_TIERS,
-  sliceWindow,
+  sliceWithHistory,
 } from './baselineFramework.js';
-import {
-  RSIStrategy, BollingerBandsStrategy, CCIStrategy, StochasticStrategy,
-  EMAStrategy, MACDStrategy, ADXStrategy, SupertrendStrategy,
-  MFIStrategy, OBVStrategy, PSARStrategy, WilliamsRStrategy,
-  StochRSIStrategy, HeikinAshiStrategy, SupportResistanceStrategy,
-} from '../strategies/index.js';
+// Live's own builder (follow-ups item 7): a private copy here knew 15 of the 20
+// strategies and defaulted a symbol without a list to ['RSI'] where live uses all.
+import { buildStrategiesForSymbol as buildStrategies } from '../utils/strategyBuilder.js';
 
-const STRATEGY_BUILDERS = {
-  RSI:        (s) => new RSIStrategy(symCfg(s, 'rsi', config.rsi)),
-  EMA:        (s) => new EMAStrategy(symCfg(s, 'ema', config.ema)),
-  MACD:       (s) => new MACDStrategy(symCfg(s, 'macd', config.macd)),
-  BB:         (s) => new BollingerBandsStrategy(symCfg(s, 'bollinger', config.bollinger)),
-  Stoch:      (s) => new StochasticStrategy(symCfg(s, 'stochastic', config.stochastic)),
-  ADX:        (s) => new ADXStrategy(symCfg(s, 'adx', config.adx)),
-  CCI:        (s) => new CCIStrategy(symCfg(s, 'cci', config.cci)),
-  Supertrend: (s) => new SupertrendStrategy(symCfg(s, 'supertrend', config.supertrend)),
-  MFI:        (s) => new MFIStrategy(symCfg(s, 'mfi', config.mfi)),
-  OBV:        (s) => new OBVStrategy(symCfg(s, 'obv', config.obv)),
-  PSAR:       (s) => new PSARStrategy(symCfg(s, 'psar', config.psar)),
-  WilliamsR:  (s) => new WilliamsRStrategy(symCfg(s, 'williamsR', config.williamsR)),
-  StochRSI:   (s) => new StochRSIStrategy(symCfg(s, 'stochRsi', config.stochRsi ?? {})),
-  HeikinAshi: (s) => new HeikinAshiStrategy(symCfg(s, 'heikinAshi', config.heikinAshi ?? {})),
-  SR:         (s) => new SupportResistanceStrategy(symCfg(s, 'supportResistance', config.supportResistance ?? {})),
-};
 
-function symCfg(symbol, key, defaults) {
-  return { ...defaults, ...(config.perSymbol?.[symbol]?.[key] ?? {}) };
-}
 
-function buildStrategies(symbol) {
-  const names = config.perSymbol?.[symbol]?.strategies ?? config.strategies ?? ['RSI'];
-  return names.map((n) => {
-    const b = STRATEGY_BUILDERS[n];
-    if (!b) throw new Error(`Unknown strategy '${n}' for ${symbol}`);
-    return b(symbol);
-  });
-}
 
 function median(arr) {
   const sorted = [...arr].filter(Number.isFinite).sort((a, b) => a - b);
@@ -159,9 +129,16 @@ export function runFold({
   rideWinnersTrail = 0,
   ridePartial = null,
   trailArmPct = 0,
+  // Research sweeps (runStopSweep.mjs): scale every stop / target, and reuse the
+  // fold's signal rows across cells. Both off by default.
+  riskScale = null,
+  riskOverrides = {},
+  rows = null,
+  rowsOnly = false,
 }) {
   // Slice candles to train+forward span. Symbols without enough overlap drop out.
-  const sliced = sliceWindow(symbolCandles, fold.trainStart, fold.forwardEnd);
+  // History before the fold warms the indicators; trading starts at trainStart.
+  const sliced = sliceWithHistory(symbolCandles, fold.trainStart, fold.forwardEnd);
   const symbols = Object.keys(sliced);
   if (symbols.length === 0) {
     return { fold, skipped: true, reason: 'no symbols in window' };
@@ -173,6 +150,21 @@ export function runFold({
   );
   const slMedian = median(symbols.map((s) => config.perSymbol?.[s]?.stopLossPct ?? config.risk?.stopLossPct ?? 0.05));
   let tpMedian = median(symbols.map((s) => config.perSymbol?.[s]?.takeProfitPct ?? config.risk?.takeProfitPct ?? 0.12));
+  let slMedianScaled = slMedian;
+  if (riskScale) {
+    const sl = Number(riskScale.stopLoss ?? 1);
+    const tp = Number(riskScale.takeProfit ?? 1);
+    slMedianScaled = slMedian * sl;
+    tpMedian *= tp;
+    for (const s of Object.keys(symbolRisk)) {
+      const r = symbolRisk[s];
+      symbolRisk[s] = {
+        ...r,
+        ...(r.stopLossPct != null && { stopLossPct: r.stopLossPct * sl }),
+        ...(r.takeProfitPct != null && { takeProfitPct: r.takeProfitPct * tp }),
+      };
+    }
+  }
 
   // WS4 ride-winners (mirror of runWindow): disable fixed TP + lift aging, trail instead.
   const riding = rideWinnersTrail > 0;
@@ -187,15 +179,17 @@ export function runFold({
     risk: {
       ...(config.risk ?? {}),
       initialBalance:      budget,
-      stopLossPct:         slMedian,
+      stopLossPct:         slMedianScaled,
       takeProfitPct:       tpMedian,
-      trailingStopPct:     riding ? rideWinnersTrail : 0,
+      trailingStopPct:     riding ? rideWinnersTrail : (config.risk?.trailingStopPct ?? 0), // live reads config.risk
       feePct:              0.001,
       slippagePct:         0.001,
       breakEvenTriggerPct: FULL_LIVE_FILTERS.breakEvenTriggerPct,
       ...(riding && { positionAgingExit: { enabled: false } }),
       ...(riding && ridePartial && { ridePartial }),
       ...(riding && trailArmPct > 0 && { trailArmPct }),
+      // A sweep's exit cell, e.g. { trailingStopPct: 0.07, trailArmPct: 0.05 }.
+      ...riskOverrides,
     },
     signals: { ...(config.signals ?? {}), minConfidence: minConfMedian },
     maxOpenPositions,
@@ -209,11 +203,15 @@ export function runFold({
       ? config.risk.confidenceThresholdScale
       : 1,
     ...FULL_LIVE_FILTERS,
+    tradeFromTs: fold.trainStart,
     // WS3 sweep hook: per-run filter knob overrides (e.g. {mtfMinScore:0.3}).
     ...filterOverrides,
   });
 
-  const result = backtester.run(sliced);
+  // The fold's signal rows, from this same construction, for a sweep to reuse.
+  if (rowsOnly) return { fold, skipped: false, rows: backtester.computeSignalRows(sliced) };
+
+  const result = backtester.run(sliced, { rows });
 
   // Filter to only the forward window: trades EXIT after forwardStart count.
   // (A trade opened during train but exited during forward still counts as
@@ -301,26 +299,8 @@ export function aggregateFolds(foldResults, { budget, nTrialsForDSR = 16280 }) {
   const totalReturn = (finalBalance - budget) / budget;
 
   // Daily returns from stitched equity
-  const byDay = new Map();
-  for (const p of stitched) {
-    const day = new Date(p.timestamp).toISOString().slice(0, 10);
-    byDay.set(day, p.balance);
-  }
-  const dailyBalances = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
-  const dailyReturns = [];
-  let prev = budget;
-  for (const bal of dailyBalances) {
-    if (prev > 0) dailyReturns.push((bal - prev) / prev);
-    prev = bal;
-  }
-  const meanRet = dailyReturns.length
-    ? dailyReturns.reduce((s, v) => s + v, 0) / dailyReturns.length
-    : 0;
-  const variance = dailyReturns.length > 1
-    ? dailyReturns.reduce((s, v) => s + (v - meanRet) ** 2, 0) / (dailyReturns.length - 1)
-    : 0;
-  const std = Math.sqrt(variance);
-  const sharpe = std > 0 ? (meanRet / std) * Math.sqrt(252) : 0;
+  const dailyReturns = [...dailyReturnsFromEquity(stitched, budget).values()];
+  const sharpe = annualizedSharpe(dailyReturns);
 
   // Max drawdown from stitched curve
   let peak = budget;
@@ -402,12 +382,8 @@ export function monteCarloShuffle({
       if (peak > 0) maxDD = Math.max(maxDD, (peak - balance) / peak);
       if (prev > 0) rets.push((balance - prev) / prev);
     }
-    const meanR = rets.length ? rets.reduce((s, v) => s + v, 0) / rets.length : 0;
-    const variance = rets.length > 1
-      ? rets.reduce((s, v) => s + (v - meanR) ** 2, 0) / (rets.length - 1)
-      : 0;
-    const std = Math.sqrt(variance);
-    const sharpe = std > 0 ? (meanR / std) * Math.sqrt(252) : 0;
+    // These are per-trade observations, not daily returns.
+    const sharpe = annualizedSharpe(rets, 1);
     return {
       totalReturn: (balance - initialBalance) / initialBalance,
       maxDD,

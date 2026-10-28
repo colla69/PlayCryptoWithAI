@@ -1,6 +1,8 @@
 import '../types.js'; // JSDoc type definitions
 import logger, { appendTrade } from '../utils/logger.js';
 import { calcTrailingStop, calcBreakEven, calcExitSignal, calcATRStopPrices, calcPartialExit } from './traderUtils.js';
+import { FALLBACK_MIN_NOTIONAL, bumpToMinNotional } from '../exchange/exchangeLimits.js';
+import { stepSatellitePosition, satellitePositionPlan } from '../engine/satellites.js';
 
 const roundMoney = (value) => Number(value.toFixed(2));
 const roundPrice = (value) => Number(value.toFixed(8));
@@ -17,6 +19,9 @@ export class PaperTrader {
     this.balance = roundMoney(config.initialBalance);
     this.positions = new Map();
     this.totalPnL = 0;
+    // Satellite limit orders resting on the (simulated) book and the cash they lock.
+    this.pendingSatellite = new Map();
+    this.reserved = 0;
   }
 
   /**
@@ -61,18 +66,17 @@ export class PaperTrader {
           highWaterMark: roundPrice(position.highWaterMark),
           openedAt: position.openedAt,
           isCore: position.isCore === true,
+          ...(position.isSatellite && { isSatellite: true }),
         };
       }),
+      ...(this.reserved > 0 && { reserved: roundMoney(this.reserved) }),
       totalPnL: roundMoney(this.totalPnL),
     };
   }
 
   /**
    * Mark an open position to market. Mirrors LiveTrader.markPrice so paper and
-   * live value an open book the same way — see the note there. Paper needs it
-   * more, not less: the fast risk loop is live-only, and #checkRisk is private
-   * and only reached through execute(), so a paper core leg was never marked
-   * after it opened.
+   * live value an open book the same way — see the note there.
    *
    * @returns {boolean} whether a position was marked
    */
@@ -87,6 +91,19 @@ export class PaperTrader {
     return true;
   }
 
+  /**
+   * One price tick through the stop logic — the same call LiveTrader.checkRisk
+   * answers, so the 2-minute risk loop runs in paper mode too. It used to be
+   * live-only: a paper position met its stops once per 12h cycle, so a paper run
+   * was not a shadow of live (follow-ups item 4; plan step 4, one order interface).
+   * @returns {TradeResult|null} the closing trade, if a stop or target fired
+   */
+  checkRisk(symbol, currentPrice) {
+    const value = Number(currentPrice);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return this.#checkRisk(symbol, roundPrice(value));
+  }
+
   #checkRisk(symbol, currentPrice) {
     const position = this.positions.get(symbol);
 
@@ -95,8 +112,9 @@ export class PaperTrader {
     }
 
     // TSM core positions exit ONLY on signal flip (closeCorePosition) — no
-    // SL/TP, trailing, break-even, or two-stage exits. Track price and bail.
-    if (position.isCore) {
+    // SL/TP, trailing, break-even, or two-stage exits; satellites only by their
+    // own plan (satelliteTick). Track price and bail.
+    if (position.isCore || position.isSatellite) {
       position.currentPrice = roundPrice(currentPrice);
       return null;
     }
@@ -104,7 +122,7 @@ export class PaperTrader {
     logger.debug(`[PAPER] ${symbol}: checkRisk price=${currentPrice.toFixed(8)} SL=${position.stopLoss.toFixed(8)} TP=${position.takeProfit.toFixed(8)} HWM=${position.highWaterMark.toFixed(8)} entry=${position.entryPrice.toFixed(8)}`);
 
     // Trailing stop update
-    const trailing = calcTrailingStop(position, currentPrice);
+    const trailing = calcTrailingStop(position, currentPrice, this.config.trailArmPct);
     if (trailing.newHighWaterMark) position.highWaterMark = trailing.newHighWaterMark;
     if (trailing.shouldUpdate) {
       const prevSL = position.stopLoss;
@@ -197,17 +215,25 @@ export class PaperTrader {
       return null;
     }
 
-    const qty = roundQty(allocation / price);
-    const cost = roundMoney(qty * price);
+    let qty = roundQty(allocation / price);
+    let cost = roundMoney(qty * price);
+    // Under the floor but close to it: buy the floor (shared rule, off by default).
+    const bumped = bumpToMinNotional(cost, { freeBalance: this.balance, minNotional: FALLBACK_MIN_NOTIONAL, bump: risk.minNotionalBump });
+    if (bumped > cost) {
+      qty = roundQty(bumped / price);
+      logger.info(`[PAPER] ${symbol}: order ${cost.toFixed(2)} under the $${FALLBACK_MIN_NOTIONAL} floor — bumped to ${roundMoney(qty * price).toFixed(2)}`);
+      cost = roundMoney(qty * price);
+    }
 
     if (qty <= 0 || cost > this.balance) {
       logger.warn(`[PAPER] ${symbol}: BUY skipped, position sizing invalid`);
       return null;
     }
 
-    // Mirror the live exchange minimum notional so paper results stay comparable
-    if (cost < 10) {
-      logger.warn(`[PAPER] ${symbol}: BUY skipped, order value ${cost.toFixed(2)} below $10 minimum notional`);
+    // The live exchange floor, from the same constant liveTrader and the simulator
+    // use — paper hardcoded $10 against their $11, so it took orders live rejects.
+    if (cost < FALLBACK_MIN_NOTIONAL) {
+      logger.warn(`[PAPER] ${symbol}: BUY skipped, order value ${cost.toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} minimum notional`);
       return null;
     }
 
@@ -301,7 +327,7 @@ export class PaperTrader {
     const qty = roundQty(allocation / price);
     const cost = roundMoney(qty * price);
 
-    if (qty <= 0 || cost > this.balance || cost < 10) {
+    if (qty <= 0 || cost > this.balance || cost < FALLBACK_MIN_NOTIONAL) {
       logger.warn(`[PAPER] ${symbol}: core BUY skipped, allocation ${allocation.toFixed(2)} invalid (balance=${this.balance.toFixed(2)})`);
       return null;
     }
@@ -377,14 +403,14 @@ export class PaperTrader {
 
     if (delta > 0) {
       const spend = roundMoney(Math.min(delta, this.balance));
-      if (spend < 10) {
-        logger.info(`[PAPER] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below $10 min)`);
+      if (spend < FALLBACK_MIN_NOTIONAL) {
+        logger.info(`[PAPER] ${symbol}: core resize BUY skipped (${spend.toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} min)`);
         return null;
       }
       const addQty = roundQty(spend / price);
       const newQty = roundQty(position.qty + addQty);
       // Blended entry keeps realised PnL correct on later trims/closes
-      position.entryPrice = roundPrice((position.entryPrice * position.qty + spend) / newQty);
+      position.entryPrice = roundPrice((roundMoney(position.entryPrice * position.qty) + spend) / newQty);
       position.qty = newQty;
       position.currentPrice = price;
       this.balance = roundMoney(this.balance - spend);
@@ -401,8 +427,8 @@ export class PaperTrader {
     if (delta < 0) {
       const sellQty = roundQty(Math.min(-delta / price, position.qty));
       const proceeds = roundMoney(sellQty * price);
-      if (proceeds < 10) {
-        logger.info(`[PAPER] ${symbol}: core resize SELL skipped (${proceeds.toFixed(2)} below $10 min)`);
+      if (proceeds < FALLBACK_MIN_NOTIONAL) {
+        logger.info(`[PAPER] ${symbol}: core resize SELL skipped (${proceeds.toFixed(2)} below $${FALLBACK_MIN_NOTIONAL} min)`);
         return null;
       }
       if (sellQty >= position.qty) {
@@ -425,6 +451,80 @@ export class PaperTrader {
     }
 
     return null;
+  }
+
+  // ── Satellite strategies ('<symbol>#bo' / '#rs', src/engine/satellites.js) ──────
+  // As the simulator and LiveTrader: a resting limit buy that locks its cash, fills at
+  // its price when a tick trades at or under it, and expires at validUntil; a filled
+  // position exits by the shared rules (stepSatellitePosition) on each price tick.
+  // Paper trades without fees, as its other order paths do.
+
+  /** @returns {object|null} the resting order, or null (held, pending, or under the floor) */
+  placeSatelliteOrder(key, { limitPrice, validUntil, sizeUsd, stopPrice, plan } = {}) {
+    if (this.positions.has(key) || this.pendingSatellite.has(key)) return null;
+    const reserve = roundMoney(Math.min(Number(sizeUsd) || 0, this.balance));
+    if (reserve < FALLBACK_MIN_NOTIONAL) return null;
+    const order = { key, limitPrice: roundPrice(Number(limitPrice)), validUntil: Number(validUntil), reserve, stopPrice: roundPrice(Number(stopPrice)), plan };
+    this.balance = roundMoney(this.balance - reserve);
+    this.reserved = roundMoney(this.reserved + reserve);
+    this.pendingSatellite.set(key, order);
+    logger.info(`[PAPER] SATELLITE LIMIT BUY ${key} $${reserve.toFixed(2)} at ${order.limitPrice} stop=${order.stopPrice} (until ${new Date(order.validUntil).toISOString()})`);
+    return { ...order };
+  }
+
+  pendingSatelliteKeys() { return [...this.pendingSatellite.keys()]; }
+
+  cancelSatelliteOrder(key) {
+    const order = this.pendingSatellite.get(key);
+    if (!order) return false;
+    this.pendingSatellite.delete(key);
+    this.reserved = roundMoney(this.reserved - order.reserve);
+    this.balance = roundMoney(this.balance + order.reserve);
+    return true;
+  }
+
+  /**
+   * One price tick for a satellite order or position (live's 2-minute risk loop).
+   * @param {string} key
+   * @param {number} price
+   * @param {{now?: number, rsi?: number|null, hourClosed?: boolean}} [ctx] — rsi of the hour that
+   *   just closed, on the first tick after it
+   * @returns {TradeResult|null} a fill (BUY) or an exit (SELL)
+   */
+  satelliteTick(key, price, { now = Date.now(), rsi = null, hourClosed = false } = {}) {
+    const p = Number(price);
+    if (!Number.isFinite(p) || p <= 0) return null;
+    const order = this.pendingSatellite.get(key);
+    if (order) {
+      if (now >= order.validUntil) {
+        this.cancelSatelliteOrder(key);
+        logger.info(`[PAPER] SATELLITE ${key}: limit expired unfilled`);
+        return null;
+      }
+      if (p > order.limitPrice) return null;
+      this.cancelSatelliteOrder(key);
+      const fill = order.limitPrice;
+      const qty = roundQty(order.reserve / fill);
+      const cost = roundMoney(qty * fill);
+      const openedAt = new Date(now).toISOString();
+      const position = {
+        isSatellite: true, qty, entryPrice: fill, currentPrice: p, openedAt, partialExitDone: false,
+        ...satellitePositionPlan({ fillPrice: fill, stopPrice: order.stopPrice, plan: order.plan, filledAt: now }),
+      };
+      this.balance = roundMoney(this.balance - cost);
+      this.positions.set(key, position);
+      logger.info(`[PAPER] SATELLITE BUY ${key} qty=${qty.toFixed(8)} price=${fill} stop=${position.stopLoss} balance=${this.balance.toFixed(2)}`);
+      const record = { timestamp: openedAt, symbol: key, side: 'BUY', price: fill, qty, pnl: 0, balance: this.balance, note: '🛰 satellite', isSatellite: true };
+      appendTrade(record);
+      // A tick at or under the stop on the fill itself exits now, as the simulator's fill bar does.
+      if (p <= position.stopLoss) return this.#closePosition(key, roundPrice(p), 'sat_stop', '🛰 satellite');
+      return { ...position, ...record, entryPrice: fill, openedAt };
+    }
+    const position = this.positions.get(key);
+    if (!position?.isSatellite) return null;
+    position.currentPrice = roundPrice(p);
+    const exit = stepSatellitePosition(position, { t: now, open: p, low: p, high: p, close: p, rsi, hourClosed });
+    return exit ? this.#closePosition(key, roundPrice(exit.price), exit.reason, '🛰 satellite') : null;
   }
 
   #closePosition(symbol, price, reason, note) {
@@ -509,6 +609,16 @@ export class PaperTrader {
       // Core positions must survive restarts with their flag intact, or SL/TP
       // management would adopt them (stopLoss 0 → instant nonsense exits).
       isCore:          trade.isCore === true || String(symbol).endsWith('#core'),
+      // A satellite keeps its exit plan: the fill record carries it (satelliteTick).
+      ...((trade.isSatellite === true || /#(bo|rs)$/.test(String(symbol))) && {
+        isSatellite: true,
+        // JSON saves Infinity as null: a missing or non-positive target is "no target", never 0
+        takeProfit: Number(trade.takeProfit) > 0 ? Number(trade.takeProfit) : Infinity,
+        breakEvenAt: trade.breakEvenAt ?? null,
+        timeLimitAt: Number(trade.timeLimitAt ?? Infinity),
+        tiers: trade.tiers ?? null,
+        pendingTierExit: false,
+      }),
     });
 
     logger.info(

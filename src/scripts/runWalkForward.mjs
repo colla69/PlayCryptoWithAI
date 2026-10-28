@@ -252,7 +252,7 @@ if (mc) {
   const fp = (v) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
   lines.push(`| total_return  | ${fp(mc.observed.total_return).padStart(8)} | ${fp(mc.shuffled.total_return.p5).padStart(7)} | ${fp(mc.shuffled.total_return.p50).padStart(7)} | ${fp(mc.shuffled.total_return.p95).padStart(7)} |`);
   lines.push(`| max_drawdown  | ${('-'+(mc.observed.max_drawdown*100).toFixed(2)+'%').padStart(8)} | ${('-'+(mc.shuffled.max_drawdown.p5*100).toFixed(2)+'%').padStart(7)} | ${('-'+(mc.shuffled.max_drawdown.p50*100).toFixed(2)+'%').padStart(7)} | ${('-'+(mc.shuffled.max_drawdown.p95*100).toFixed(2)+'%').padStart(7)} |`);
-  lines.push(`| sharpe        | ${mc.observed.sharpe.toFixed(2).padStart(8)} | ${mc.shuffled.sharpe.p5.toFixed(2).padStart(7)} | ${mc.shuffled.sharpe.p50.toFixed(2).padStart(7)} | ${mc.shuffled.sharpe.p95.toFixed(2).padStart(7)} |`);
+  lines.push(`| per-trade SR  | ${mc.observed.sharpe.toFixed(2).padStart(8)} | ${mc.shuffled.sharpe.p5.toFixed(2).padStart(7)} | ${mc.shuffled.sharpe.p50.toFixed(2).padStart(7)} | ${mc.shuffled.sharpe.p95.toFixed(2).padStart(7)} |`);
 }
 writeFileSync(txtPath, lines.join('\n'));
 

@@ -16,9 +16,8 @@ Design, implement, and tune signals for the multi-strategy voting engine. The pr
 strategies in `src/strategies/` before writing a new one.
 
 An aggregator change (confidence formula, HOLD handling, thresholds) lands in
-`src/engine/aggregatorVoting.js`, which live, backtester and optimizer share. The optimizer's own
-`aggregate()` wrapper in `src/scripts/perSymbolOptimizer.mjs` must be synced to match, then the
-optimizer re-run.
+`src/engine/aggregatorVoting.js`, which live, backtester and optimizer share (the optimizer scores
+through the `PortfolioBacktester`, `src/backtester/symbolTrial.js`). Re-run the optimizer after it.
 
 Validate every change with `node --check`, the boot test, and a two-window backtest (Y2 and
 Y1+Y2) with the full filter stack.

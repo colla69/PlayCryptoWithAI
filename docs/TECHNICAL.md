@@ -60,7 +60,7 @@ Architecture, data flow, module responsibilities, and deployment.
 | Risk Manager | `risk/riskManager.js` (re-exported by `risk/index.js`) | `canTrade()`: scaled entry threshold, daily loss limit; daily P&L re-seeded from persisted history on restart |
 | Portfolio Risk | `risk/portfolioRisk.js` | Correlation cap, weekly DD breaker, position-aging exit (pure fns, shared live/backtest) |
 | Paper Trader | `executor/paperTrader.js` | Simulated order execution |
-| Live Trader | `executor/liveTrader.js` | Real Binance market orders, position tracking, position state persistence |
+| Live Trader | `executor/liveTrader.js` | Real Binance orders (IOC limits capped `risk.limitCapPct` past the price; market only for what a sell leaves), position tracking, position state persistence |
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
 | OCO Orders | `exchange/ocoOrders.js` | Server-side SL/TP for Lambda deployment |
 | Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache; merge-preserving saves keep deep research history intact |
@@ -87,6 +87,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | `backtestSimulator.js` | Per-trade execution (next-open fills, tiered slippage, ATR/two-stage infra) |
 | `metrics.js` | Sharpe, Sortino, drawdown, profit factor, win rate |
 | `deflatedSharpe.js` | Deflated/Probabilistic Sharpe (Bailey & López de Prado) — multiple-testing correction |
+| `symbolTrial.js` | One coin through the `PortfolioBacktester` with every other coin as silent context (regime, macro, median ATR); cached strategy results and shared candle-only series make a combo ~70 ms — the optimizer's scorer |
+| `overfitting.js` | Probability of backtest overfitting (CSCV, Bailey et al. 2017) and combinatorial purged cross-validation (López de Prado 2018; same splits as skfolio's `CombinatorialPurgedCV`) — does picking the best trial work? |
 | `baselineFramework.js` | Reusable multi-window baseline runner (full live filter stack) |
 | `walkForward.js` | Forward-only walk-forward harness + Monte Carlo trade shuffle |
 | `stressReport.js` | Pure stoplight verdict (🟢/🟡/🔴) over stress windows — used by `runBaseline --stoplight` |
@@ -98,9 +100,10 @@ Architecture, data flow, module responsibilities, and deployment.
 |--------|---------|
 | `portfolioBacktest.mjs` | CLI backtest runner with all flags |
 | `downloadHistory.js` | Fetch OHLCV from Binance, save to disk |
-| `perSymbolOptimizer.mjs` | Exhaustive strategy combo search; MIN_TRADES≥8, deflated-Sharpe gate, shared aggregator |
+| `perSymbolOptimizer.mjs` | Exhaustive strategy combo search, each combo through the live filter stack (`symbolTrial.js`), coins in parallel; MIN_TRADES≥8, deflated-Sharpe gate |
 | `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
 | `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
+| `runOverfitting.mjs` | PBO, CPCV paths and the deflated Sharpe for a set of trials (`--runs` runSuperbot outputs or `--matrix`) |
 | `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
 | `repairPhantomState.mjs` | One-shot ops repair (2026-08-03 incident): strip the phantom scalper position that absorbed the core sleeve's ETH from state/trade/equity files. Bot stopped; dry-run by default, `--apply` to write; idempotent, refuses to write if files don't match the incident state |
 | `repairFrozenCoreEquity.mjs` | One-shot ops repair (2026-08-10 incident): rewrite the 08-04→08-09 `equity_history.json` snapshots frozen by the unmarked core legs, from verified Binance 1m closes. Bot stopped; dry-run by default, `--apply` to write; idempotent, writes `.bak` |
@@ -174,12 +177,12 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
       → notifyTrade() → Telegram alert (if configured)
 
 7. Risk check (existing positions):
-    price ≤ stopLoss?     → market sell (stop_loss)
-    price ≥ takeProfit?   → market sell (take_profit)
+    price ≤ stopLoss?     → IOC limit sell, rest at market (stop_loss)
+    price ≥ takeProfit?   → IOC limit sell, rest at market (take_profit)
     price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
     All closes → notifyTrade() → Telegram alert (if configured)
 
-8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real market orders):
+8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real orders (capped IOC limits)):
    runTsmCoreCycle() reads closed 12h candles from dashboardState (no lookahead)
    For each core symbol: computeTsmVote(trailing momentum) → majority vote
    If vote flips: openCorePosition / closeCorePosition → position tracked with isCore flag
@@ -194,7 +197,7 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 1. For each open position:
    fetchTicker(symbol) → current price
 2. Evaluate: trailing stop, break-even, stop-loss, take-profit
-3. If triggered → market sell, update dashboard, persist state
+3. If triggered → IOC limit sell (rest at market), update dashboard, persist state
 4. Reduces market exposure window from 12h to ~2 min
 5. TSM core positions get NO stop evaluation, but they are still marked-to-market
    every pass. Marking matters because position.currentPrice is what
@@ -335,7 +338,7 @@ docker logs -f <container> 2>&1 | grep TSM-CORE   # watch sleeve cycles
 ```
 
 The sleeve runs inside the main bot process — no separate container. In
-`PAPER_MODE` it simulates; on the LIVE bot it places **real market orders**
+`PAPER_MODE` it simulates; on the LIVE bot it places **real orders** (capped IOC limits)
 sized to `tsmCore.deploymentPct` of the account (default 50%), so enabling
 `TSM_CORE` on live is a deliberate capital-deployment decision. Expect
 `[TSM-CORE]` log lines each 12h cycle (votes, vol fraction, macro risk-on/off)
@@ -408,8 +411,10 @@ config
 │   ├── volTarget          Annualised vol target — slot × min(1, target/realized) (default 0.6)
 │   ├── volWindowBars      Realized-vol window (default 60 = 30 days)
 │   ├── minFraction        Vol-fraction floor (default 0.2)
+│   ├── impliedVol{}       DVOL (BTC/ETH) in place of realized vol; maxAgeHours → realized fallback (on)
 │   ├── resizeThresholdPct Drift rebalance trigger, share of slot (default 0.15)
 │   └── macroOverlay{}     Equity risk-off: ×riskOffFactor while NASDAQ < EMA(emaDays)
+├── exchangeEvents{}       Binance venue veto: monitoring tag / USDC-pair removal / delisting (on)
 ├── btcDominance{}         BTC.D entry gate (CoinGecko)
 └── fearGreed{}            Fear & Greed entry-threshold modulator
 ```
@@ -428,7 +433,7 @@ config
 | Next-open fills | No execution lookahead — realistic fill simulation |
 | Tiered slippage | Large caps 0.10%, mid 0.20%, micro 0.35% |
 | Fixed SL/TP over trailing | Trailing gives back profits on retracements |
-| Market orders | Guaranteed fill; slippage acceptable on 12h timeframe |
+| Capped IOC limit orders | Fill at once like a market order, never worse than 0.5% past the price (`risk.limitCapPct`); a buy buys nothing past the cap, a sell sends only the unfilled rest to market. A resting limit under the price was tested and lost: the misses are the winners |
 | No database | JSON files sufficient for <100 trades/month; simple backup (git) |
 | Position state persistence | SL/HWM/entry saved to disk on every change; survives restarts without losing break-even protection |
 | DailyRotateFile logging | 50 MB max per file, 30-day retention; dashboard reads today's dated file with 512 KB tail for speed |

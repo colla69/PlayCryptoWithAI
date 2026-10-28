@@ -12,34 +12,46 @@ function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function standardDeviation(values) {
-  if (values.length < 2) {
-    return 0;
-  }
+export const DAYS_PER_YEAR = 365;
+const DAY_MS = 86_400_000;
 
-  const mean = average(values);
-  const variance = average(values.map((value) => (value - mean) ** 2));
-  return Math.sqrt(variance);
+/** Crypto trades every calendar day; use sample deviation consistently across reports. */
+export function annualizedSharpe(returns, periodsPerYear = DAYS_PER_YEAR) {
+  if (returns.length < 2) return 0;
+  const mean = average(returns);
+  const variance = returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / (returns.length - 1);
+  return variance > 0 ? mean / Math.sqrt(variance) * Math.sqrt(periodsPerYear) : 0;
 }
 
-function getDailyBalances(equityCurve) {
-  const dailyBalances = new Map();
-
-  for (const point of equityCurve) {
-    const balance = Number(point?.balance);
-
-    if (!Number.isFinite(balance)) {
-      continue;
-    }
-
-    const timestamp = Number(point?.timestamp ?? Date.now());
-    const dayKey = new Date(timestamp).toISOString().slice(0, 10);
-    dailyBalances.set(dayKey, balance);
+/**
+ * Daily time-weighted returns, net of cash flows at each observation. Missing days
+ * carry the last valuation forward, not the clock: this does not repair missing prices.
+ * The integer keys are UTC days, as used by the replay comparison reports.
+ */
+export function dailyReturnsFromEquity(equity, initialBalance, deposits = [], fromTs = null) {
+  const points = equity.filter((p) => Number.isFinite(Number(p.timestamp)) && Number.isFinite(Number(p.balance)))
+    .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+  if (!points.length) return new Map();
+  const start = fromTs ?? Number(points[0].timestamp);
+  const flows = deposits.filter((d) => Number.isFinite(Number(d.ts)) && Number.isFinite(Number(d.amount)) && d.ts >= start)
+    .sort((a, b) => a.ts - b.ts);
+  const out = new Map();
+  let previous = Number(initialBalance);
+  let k = 0;
+  for (const p of points) {
+    if (Number(p.timestamp) < start) continue;
+    let flow = 0;
+    while (k < flows.length && flows[k].ts <= Number(p.timestamp)) flow += Number(flows[k++].amount);
+    const r = previous > 0 ? (Number(p.balance) - flow) / previous - 1 : 0;
+    const day = Math.floor(Number(p.timestamp) / DAY_MS);
+    out.set(day, (1 + (out.get(day) ?? 0)) * (1 + r) - 1);
+    previous = Number(p.balance);
   }
-
-  return Array.from(dailyBalances.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, balance]) => balance);
+  if (!out.size) return out;
+  const calendar = new Map();
+  const lastDay = Math.floor(Number(points.at(-1).timestamp) / DAY_MS);
+  for (let day = Math.floor(start / DAY_MS); day <= lastDay; day++) calendar.set(day, out.get(day) ?? 0);
+  return calendar;
 }
 
 export function calculateMetrics(trades, equityCurve, initialBalance) {
@@ -69,16 +81,7 @@ export function calculateMetrics(trades, equityCurve, initialBalance) {
     }
   }
 
-  const dailyBalances = getDailyBalances(safeEquityCurve);
-  const dailyReturns = [];
-  for (let index = 1; index < dailyBalances.length; index += 1) {
-    const previousBalance = dailyBalances[index - 1];
-    const currentBalance = dailyBalances[index];
-
-    if (previousBalance > 0) {
-      dailyReturns.push((currentBalance - previousBalance) / previousBalance);
-    }
-  }
+  const dailyReturns = [...dailyReturnsFromEquity(safeEquityCurve, startingBalance).values()];
 
   const avgTradeDurationMs = safeTrades.length === 0
     ? 0
@@ -117,15 +120,13 @@ export function calculateMetrics(trades, equityCurve, initialBalance) {
     profitFactor: grossLoss === 0 ? (grossProfit > 0 ? Number.POSITIVE_INFINITY : 0) : Number((grossProfit / grossLoss).toFixed(4)),
     maxDrawdown,
     maxDrawdownPct: formatPercentage(maxDrawdown === 0 ? 0 : -maxDrawdown),
-    sharpeRatio: dailyReturns.length < 2 || standardDeviation(dailyReturns) === 0
-      ? 0
-      : Number(((average(dailyReturns) / standardDeviation(dailyReturns)) * Math.sqrt(252)).toFixed(4)),
+    sharpeRatio: Number(annualizedSharpe(dailyReturns).toFixed(4)),
     sortinoRatio: (() => {
       if (dailyReturns.length < 2) return 0;
       const negReturns = dailyReturns.filter(r => r < 0);
       if (negReturns.length === 0) return dailyReturns.length > 0 ? Infinity : 0;
       const downDev = Math.sqrt(negReturns.reduce((s, r) => s + r * r, 0) / dailyReturns.length);
-      return downDev === 0 ? 0 : Number(((average(dailyReturns) / downDev) * Math.sqrt(252)).toFixed(4));
+      return downDev === 0 ? 0 : Number(((average(dailyReturns) / downDev) * Math.sqrt(DAYS_PER_YEAR)).toFixed(4));
     })(),
     avgTradeDurationMs: Number(avgTradeDurationMs.toFixed(0)),
     byReason,

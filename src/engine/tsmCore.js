@@ -83,6 +83,28 @@ export function computeRealizedVolAnnual(closedCandles, { windowBars = 60, barsP
 }
 
 /**
+ * Annualised implied vol (DVOL-style index, in percent) as of `asOfMs`: the close
+ * of the last bar CLOSED by then (`timestamp` is its open), as a fraction. Returns null
+ * when no bar closed within `maxAgeMs` — the caller falls back to realized vol.
+ *
+ * @param {Array<{timestamp: number, close: number}>} rows  bars sorted by open time
+ * @returns {number|null}
+ */
+export function impliedVolAsOf(rows, asOfMs, { periodMs = 43_200_000, maxAgeMs = 86_400_000 } = {}) {
+  if (!rows?.length) return null;
+  let lo = 0; let hi = rows.length - 1; let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].timestamp + periodMs <= asOfMs) { k = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  if (k < 0) return null;
+  const closedAt = rows[k].timestamp + periodMs;
+  const c = Number(rows[k].close);
+  if (asOfMs - closedAt > maxAgeMs || !(c > 0)) return null;
+  return c / 100;
+}
+
+/**
  * Target deployment fraction for one core slot, in [0, 1] (spot — no leverage):
  * vol targeting (volTarget/realizedVol, floored) × macro risk-off factor.
  * Missing inputs are neutral: no realized vol → 1, no macro factor → 1.
@@ -153,6 +175,42 @@ export function planCoreActions({ symbols, signals, positions, enterVotes = null
     else if (held.has(key) && positive < stayNeed) actions.push({ type: 'close', symbol, key });
   }
   return actions;
+}
+
+/**
+ * Section L: drop sleeve entries for a key sold less than `pauseMs` ago, so a sell is not
+ * bought straight back while the trend is still breaking. `lastExitAt` maps core key → ms.
+ */
+export function filterPausedEntries(actions, lastExitAt, nowMs, pauseMs) {
+  if (!(pauseMs > 0)) return actions;
+  return actions.filter((a) => a.type !== 'open' || !(nowMs - (lastExitAt?.get(a.key) ?? -Infinity) < pauseMs));
+}
+
+/** Section M: the last closed bar's close is above every close of the `lookbackBars` before it. */
+export function closeAboveRecentHigh(closedCandles, lookbackBars) {
+  if (!(lookbackBars > 0) || (closedCandles?.length ?? 0) < lookbackBars + 1) return false;
+  const last = Number(closedCandles.at(-1).close);
+  let high = -Infinity;
+  for (const c of closedCandles.slice(-lookbackBars - 1, -1)) high = Math.max(high, Number(c.close));
+  return last > high;
+}
+
+/**
+ * Section M: after a sleeve sell (a key in `gates`), while a majority of its votes is still
+ * positive, buy it back only on proof (a close above its recent high). A broken trend (votes
+ * below a majority) or the proof clears the gate; `gates` is mutated. Keys without a vote this
+ * cycle (stale series) keep their gate.
+ * @param {Map<string, true>} gates core key → gated
+ * @param {{ votes: Map<string, {positive:number,total:number}>, proofs: Map<string, boolean> }} inputs by symbol
+ */
+export function applyRebuyGate(actions, gates, { votes, proofs }) {
+  for (const key of [...gates.keys()]) {
+    const symbol = baseSymbol(key);
+    const vote = votes.get(symbol);
+    if (!vote) continue;
+    if (vote.positive < Math.floor(vote.total / 2) + 1 || proofs.get(symbol)) gates.delete(key);
+  }
+  return actions.filter((a) => a.type !== 'open' || !gates.has(a.key));
 }
 
 /**

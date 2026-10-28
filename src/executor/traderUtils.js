@@ -9,10 +9,17 @@ const roundPrice = (value) => Number(Number(value ?? 0).toFixed(8));
  * Determine if trailing stop should be updated.
  * @param {{entryPrice: number, highWaterMark: number, stopLoss: number, trailingStopPct?: number}} position
  * @param {number} currentPrice
+ * @param {number} [armPct=0] - trail only once the price is this far above entry
+ *   (e.g. 0.05), so early noise does not shake a position out; 0 trails from entry
  * @returns {{shouldUpdate: boolean, newHighWaterMark?: number, newStopLoss?: number}}
  */
-export function calcTrailingStop(position, currentPrice) {
+export function calcTrailingStop(position, currentPrice, armPct = 0) {
   if (!position || !position.trailingStopPct) {
+    return { shouldUpdate: false };
+  }
+
+  const arm = Number(armPct ?? 0);
+  if (arm > 0 && currentPrice < position.entryPrice * (1 + arm)) {
     return { shouldUpdate: false };
   }
 
@@ -158,11 +165,13 @@ export function calcPartialExit(position, currentPrice, firstStagePctOfTp, first
   return { shouldExit: false };
 }
 
-const isCoreRecord = (key, record) => record?.isCore === true && String(key).endsWith('#core');
+const isCoreRecord = (key, record) => (record?.isCore === true && String(key).endsWith('#core'))
+  || (record?.isSatellite === true && /#(bo|rs)$/.test(String(key)));
 const baseOfCoreKey = (key) => String(key).split('#')[0].split('/')[0];
 
 /**
- * Reserve the wallet coins the TSM core sleeve already owns, per base asset.
+ * Reserve the wallet coins the TSM core sleeve and the satellite strategies already own,
+ * per base asset (satellite legs and the coins a resting satellite buy may have filled).
  *
  * The wallet asset is fungible: free ETH may back BOTH a core and a scalper
  * position on the same market. Every core leg must reserve its coins before the
@@ -179,6 +188,8 @@ const baseOfCoreKey = (key) => String(key).split('#')[0].split('/')[0];
  * @param {Map|Array|object} [args.livePositions] positions currently in memory
  * @param {object} [args.freeBalances]   free wallet balance per base asset
  * @param {number} [args.now]            clock override for openedAt validation
+ * @param {Map|object} [args.pendingOrders] resting satellite buys (key → {qty}); a part fill
+ *   lands in the wallet before the order is done, so its order qty is reserved too
  * @returns {{
  *   claimsByBase: Map<string, number>,
  *   restorable: Array<{key: string, market: string, base: string, savedQty: number, entryPrice: number, saved: object}>,
@@ -190,6 +201,7 @@ export function calcCoreClaims({
   livePositions = new Map(),
   freeBalances = {},
   now = Date.now(),
+  pendingOrders = new Map(),
 } = {}) {
   const claimsByBase = new Map();
   const restorable = [];
@@ -214,6 +226,13 @@ export function calcCoreClaims({
   for (const [key, position] of liveEntries) {
     if (!isCoreRecord(key, position)) continue;
     claim(baseOfCoreKey(key), Number(position?.qty ?? 0));
+  }
+  const pendingEntries = pendingOrders instanceof Map ? [...pendingOrders.entries()] : Object.entries(pendingOrders ?? {});
+  const liveByKey = new Map(liveEntries);
+  for (const [key, order] of pendingEntries) {
+    const position = liveByKey.get(key) ?? savedState[key];
+    const accounted = Math.max(Number(order?.filledQty ?? 0), Number(position?.orderFilledQty ?? 0));
+    claim(baseOfCoreKey(key), Math.max(0, Number(order?.qty ?? 0) - accounted));
   }
 
   for (const [key, saved] of Object.entries(savedState ?? {})) {

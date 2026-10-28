@@ -11,7 +11,13 @@ function getDayKey(date = new Date()) {
 }
 
 export class RiskManager {
-  constructor(config = {}) {
+  /**
+   * @param {object} [config]
+   * @param {{now?: Function}} [opts] — the clock for the day rollover; a replay
+   *   passes its own so the daily-loss limit resets on replayed days.
+   */
+  constructor(config = {}, { now = () => Date.now() } = {}) {
+    this.now = now;
     this.config = {
       initialBalance: Number(config.initialBalance ?? 0),
       maxDailyLossPct: Number(config.maxDailyLossPct ?? 0),
@@ -27,7 +33,7 @@ export class RiskManager {
     // limit scales off this so deposits/withdrawals/growth move the limit;
     // config.initialBalance is only the fallback before the first reading.
     this.lastEquity = null;
-    this.currentDayKey = getDayKey();
+    this.currentDayKey = getDayKey(new Date(this.now()));
     this.midnightCheckId = setInterval(() => this.#checkDayRollover(), MIDNIGHT_CHECK_INTERVAL_MS);
     this.midnightCheckId.unref?.();
   }
@@ -40,7 +46,7 @@ export class RiskManager {
    * @param {Array<{side: string, pnl: number, timestamp: string}>} trades
    */
   seedFromHistory(trades = []) {
-    const todayKey = getDayKey();
+    const todayKey = getDayKey(new Date(this.now()));
     const todayPnL = trades
       .filter((t) => {
         if (t.side !== 'SELL') return false;
@@ -67,16 +73,12 @@ export class RiskManager {
       return { allowed: true, reason: 'No trade requested' };
     }
 
-    // Track live equity for the daily-loss brake. Only positive readings are
-    // kept — a failed balance fetch (balance 0, no positions) must not
-    // collapse the limit to zero.
-    const equity = calcEquityFromStatus(currentStatus);
-    if (equity > 0) this.lastEquity = equity;
+    const accountRisk = this.canOpenRisk(currentStatus);
 
-    // TSM core sleeve positions have their own capital budget and must not
-    // consume the scalper's concurrent-position slots.
+    // TSM core sleeve and satellite positions have their own capital budget and must
+    // not consume the scalper's concurrent-position slots.
     const positions = (Array.isArray(currentStatus.positions) ? currentStatus.positions : [])
-      .filter((position) => !position.isCore);
+      .filter((position) => !position.isCore && !position.isSatellite);
     const hasOpenPosition = positions.some((position) => position.symbol === symbol);
 
     if (hasOpenPosition) {
@@ -107,19 +109,25 @@ export class RiskManager {
       return result;
     }
 
-    // Recomputed (not latched) so a deposit that grows equity above the
-    // breach point lifts the block, symmetric with recordTrade().
-    this.blocked = this.#dailyLossLimitExceeded();
-    if (this.blocked) {
+    if (!accountRisk.allowed) {
       logger.debug(`[RISK] ${symbol}: canTrade=false dailyLossLimit dailyPnL=${this.dailyPnL.toFixed(2)} maxLoss=${(this.#referenceEquity() * this.config.maxDailyLossPct).toFixed(2)}`);
-      return {
-        allowed: false,
-        reason: `Daily loss limit reached (${this.dailyPnL.toFixed(2)})`,
-      };
+      return accountRisk;
     }
 
     logger.debug(`[RISK] ${symbol}: canTrade=true decision=${decision} conf=${normalizedConfidence.toFixed(2)} positions=${positions.length}/${this.config.maxOpenPositions} dailyPnL=${this.dailyPnL.toFixed(2)}`);
     return { allowed: true, reason: 'Trade allowed' };
+  }
+
+  /** Account-level entry gate, independent of a strategy's confidence and slot budget. */
+  canOpenRisk(currentStatus = {}) {
+    this.#checkDayRollover();
+    const equity = calcEquityFromStatus(currentStatus);
+    if (equity > 0) this.lastEquity = equity;
+    // Recompute so a deposit can lift the block; a failed fetch retains the last base.
+    this.blocked = this.#dailyLossLimitExceeded();
+    return this.blocked
+      ? { allowed: false, reason: `Daily loss limit reached (${this.dailyPnL.toFixed(2)})` }
+      : { allowed: true, reason: 'Account risk allows entry' };
   }
 
   recordTrade(pnl) {
@@ -143,7 +151,7 @@ export class RiskManager {
     this.dailyPnL = 0;
     this.tradesCount = 0;
     this.blocked = false;
-    this.currentDayKey = getDayKey();
+    this.currentDayKey = getDayKey(new Date(this.now()));
     logger.info(`[RISK] Day rollover — resetting daily stats (prev: pnl=${prevPnL.toFixed(2)} trades=${prevTrades})`);
     return this.getDailyStats();
   }
@@ -158,7 +166,7 @@ export class RiskManager {
   }
 
   #checkDayRollover() {
-    const today = getDayKey();
+    const today = getDayKey(new Date(this.now()));
 
     if (today !== this.currentDayKey) {
       this.resetDailyStats();

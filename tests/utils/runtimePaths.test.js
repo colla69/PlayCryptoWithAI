@@ -132,6 +132,10 @@ const ALLOWED_DIRECT_PATHS = {
   'src/exchange/candleCache.js': 'candle cache — research input, shared with backtests',
   'src/data/marketContext.js': 'market-data cache — re-fetchable, not bot state',
   'src/backtester/report.js': 'backtest report output — research artefact',
+  'src/data/fearGreed.js': 'Fear & Greed cache — re-fetchable, not bot state (tracked in git)',
+  'src/data/nasdaqTrend.js': 'NASDAQ trend cache — re-fetchable, not bot state',
+  'src/meta/metaOverlay.js': 'research model input (default path), feature off',
+  'src/backtester/baselineFramework.js': 'research candle input, shared with backtests',
 };
 
 function listJs(dir) {
@@ -144,12 +148,15 @@ function listJs(dir) {
 
 describe('runtime state path inventory', () => {
   test('no runtime module builds a data/ or logs/ path outside runtimePaths.js', () => {
-    const DIRECT = /(process\.cwd\(\)|import\.meta\.url|__dirname)[^\n]*['"](\.\.\/)*(data|logs)\b/;
+    // Built paths (cwd, import.meta.url, __dirname) and bare 'data/…' strings, which resolve
+    // against the cwd: the 2026-10-28 review found two feed caches written that way.
+    const DIRECT = /(process\.cwd\(\)|import\.meta\.url|__dirname)[^\n]*['"](\.\.\/)*(data|logs)\b|['"`](data|logs)\//;
     const offenders = listJs(path.join(REPO, 'src'))
       .map((f) => path.relative(REPO, f).split(path.sep).join('/'))
       .filter((rel) => !rel.startsWith('src/scripts/') && !rel.startsWith('src/tests/'))
       .filter((rel) => rel !== 'src/utils/runtimePaths.js' && !ALLOWED_DIRECT_PATHS[rel])
-      .filter((rel) => DIRECT.test(fs.readFileSync(path.join(REPO, rel), 'utf8')));
+      .filter((rel) => DIRECT.test(fs.readFileSync(path.join(REPO, rel), 'utf8')
+        .split('\n').filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n'))); // code, not comments
 
     assert.deepEqual(offenders, [],
       'resolve bot state through runtimeDir() (src/utils/runtimePaths.js), '

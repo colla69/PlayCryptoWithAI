@@ -9,7 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   computeTsmVote, planCoreActions, planCoreResize,
-  computeRealizedVolAnnual, computeTargetFraction,
+  computeRealizedVolAnnual, computeTargetFraction, impliedVolAsOf,
   coreKey, isCoreSymbol, baseSymbol,
 } from '../../src/engine/tsmCore.js';
 import { makeTrend, makeCandles } from '../helpers.js';
@@ -192,7 +192,7 @@ describe('tsmCore: planCoreResize', () => {
 // cannot decrease); these tests pin the selector, the feasibility advisory, and
 // the specific rungs shipped in config.
 
-import { selectSleeveRung, sleeveFeasibility } from '../../src/engine/tsmCore.js';
+import { selectSleeveRung, sleeveFeasibility, filterPausedEntries, applyRebuyGate, closeAboveRecentHigh } from '../../src/engine/tsmCore.js';
 import config from '../../config/default.js';
 
 const LADDER = [
@@ -278,5 +278,84 @@ describe('tsmCore: sleeveFeasibility', () => {
     assert.deepEqual(ladder.map((r) => r.minHwmEquity), [0, 320, 970]);
     assert.deepEqual(ladder.map((r) => r.deploymentPct), [0.50, 0.30, 0.20]);
     assert.deepEqual(ladder.map((r) => r.symbols.length), [2, 2, 4]);
+  });
+});
+
+describe('impliedVolAsOf — DVOL as of the cycle, closed bars only', () => {
+  const H12 = 43_200_000;
+  const rows = [{ timestamp: 0, close: 80 }, { timestamp: H12, close: 60 }, { timestamp: 2 * H12, close: 50 }];
+
+  test('reads the bar that closed at the cycle time, never the one opening then', () => {
+    assert.equal(impliedVolAsOf(rows, 2 * H12), 0.6);       // bar 1 closes exactly now; bar 2 is forming
+    assert.equal(impliedVolAsOf(rows, 2 * H12 - 1), 0.8);   // bar 1 not closed yet
+  });
+
+  test('nothing closed yet, or the newest close too old → null (realized-vol fallback)', () => {
+    assert.equal(impliedVolAsOf(rows, H12 - 1), null);
+    assert.equal(impliedVolAsOf(rows, 3 * H12 + 86_400_000), 0.5);
+    assert.equal(impliedVolAsOf(rows, 3 * H12 + 86_400_001), null);
+    assert.equal(impliedVolAsOf([], 5 * H12), null);
+    assert.equal(impliedVolAsOf(undefined, 5 * H12), null);
+  });
+});
+
+describe('filterPausedEntries (section L re-entry pause)', () => {
+  const H = 3_600_000;
+  const actions = [
+    { type: 'open', symbol: 'BTC/USDC', key: 'BTC/USDC#core' },
+    { type: 'close', symbol: 'ETH/USDC', key: 'ETH/USDC#core' },
+    { type: 'open', symbol: 'SOL/USDC', key: 'SOL/USDC#core' },
+  ];
+  test('off (0 h) returns the actions unchanged', () => {
+    const last = new Map([['BTC/USDC#core', 0]]);
+    assert.equal(filterPausedEntries(actions, last, 1, 0), actions);
+  });
+  test('drops an entry sold inside the pause, keeps closes and other coins', () => {
+    const last = new Map([['BTC/USDC#core', 100 * H], ['ETH/USDC#core', 100 * H]]);
+    const kept = filterPausedEntries(actions, last, 100 * H + 71 * H, 72 * H);
+    assert.deepEqual(kept.map((a) => a.key), ['ETH/USDC#core', 'SOL/USDC#core']);
+  });
+  test('allows the entry once the pause has run', () => {
+    const last = new Map([['BTC/USDC#core', 100 * H]]);
+    const kept = filterPausedEntries(actions, last, 100 * H + 72 * H, 72 * H);
+    assert.equal(kept.length, 3);
+  });
+});
+
+describe('buy-back confirmation (section M)', () => {
+  const bars = (closes) => closes.map((close) => ({ close }));
+  test('closeAboveRecentHigh: strictly above every close of the window before it', () => {
+    assert.equal(closeAboveRecentHigh(bars([5, 10, 8, 11]), 3), true);
+    assert.equal(closeAboveRecentHigh(bars([5, 10, 8, 10]), 3), false); // equal is not above
+    assert.equal(closeAboveRecentHigh(bars([12, 9, 10, 8, 11]), 3), true); // 12 is outside the window
+    assert.equal(closeAboveRecentHigh(bars([10, 11]), 3), false); // too little history
+  });
+  const open = { type: 'open', symbol: 'BTC/USDC', key: 'BTC/USDC#core' };
+  const close = { type: 'close', symbol: 'ETH/USDC', key: 'ETH/USDC#core' };
+  test('blocks a gated buy-back while the majority holds and there is no proof', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    const kept = applyRebuyGate([open, close], gates, {
+      votes: new Map([['BTC/USDC', { positive: 3, total: 3 }]]), proofs: new Map([['BTC/USDC', false]]),
+    });
+    assert.deepEqual(kept, [close]);
+    assert.ok(gates.has('BTC/USDC#core'));
+  });
+  test('proof clears the gate and lets the buy through', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    const kept = applyRebuyGate([open], gates, {
+      votes: new Map([['BTC/USDC', { positive: 3, total: 3 }]]), proofs: new Map([['BTC/USDC', true]]),
+    });
+    assert.deepEqual(kept, [open]);
+    assert.equal(gates.size, 0);
+  });
+  test('a broken trend (votes below a majority) clears the gate', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    applyRebuyGate([], gates, { votes: new Map([['BTC/USDC', { positive: 1, total: 3 }]]), proofs: new Map() });
+    assert.equal(gates.size, 0);
+  });
+  test('a key with no vote this cycle keeps its gate', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    applyRebuyGate([], gates, { votes: new Map(), proofs: new Map() });
+    assert.ok(gates.has('BTC/USDC#core'));
   });
 });

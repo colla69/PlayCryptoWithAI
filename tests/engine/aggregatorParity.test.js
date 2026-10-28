@@ -3,9 +3,9 @@
  *
  * The cardinal rule of this codebase: live trading and backtesting MUST
  * produce byte-identical decisions for the same inputs. We enforce this
- * by routing the live `SignalAggregator` and the optimizer's local
- * `aggregate()` function through the same pure module
- * `src/engine/aggregatorVoting.js`.
+ * by routing the live `SignalAggregator` through the pure module
+ * `src/engine/aggregatorVoting.js`; the PortfolioBacktester and the optimizer
+ * (via `src/backtester/symbolTrial.js`) run that same `SignalAggregator`.
  *
  * This fixture tests:
  *   1. `aggregateVotes()` against a comprehensive table of inputs spanning
@@ -13,8 +13,8 @@
  *      external-signal, and edge-case scenarios.
  *   2. `SignalAggregator.aggregate()` returns the same decision/confidence
  *      as the direct pure-function call on the same inputs.
- *   3. Both `SignalAggregator` and the optimizer import `aggregateVotes`
- *      from the canonical module (static grep — fails on regression).
+ *   3. `SignalAggregator` imports `aggregateVotes` from the canonical module, and
+ *      the backtester and optimizer vote through it (static grep — fails on regression).
  */
 
 import { test, describe } from 'node:test';
@@ -225,12 +225,22 @@ describe('Source-code parity contract', () => {
       'signalAggregator.js must call aggregateVotes() — local voting loops are forbidden');
   });
 
-  test('perSymbolOptimizer imports aggregateVotes', () => {
+  test('perSymbolOptimizer scores through the PortfolioBacktester (no local vote)', () => {
+    // Since 2026-10 (section E item 4) every combo runs through symbolTrial.js — the
+    // PortfolioBacktester and its live SignalAggregator — so the optimizer keeps no
+    // aggregate() of its own to drift from live.
     const src = readFileSync(join(PROJECT_ROOT, 'src/scripts/perSymbolOptimizer.mjs'), 'utf8');
-    assert.ok(/from ['"]\.\.\/engine\/aggregatorVoting\.js['"]/.test(src),
-      'perSymbolOptimizer.mjs must import from ../engine/aggregatorVoting.js — do not re-implement voting math inline');
-    assert.ok(/aggregateVotes\s*\(/.test(src),
-      'perSymbolOptimizer.mjs must call aggregateVotes() — local voting loops are forbidden');
+    assert.ok(/from ['"]\.\.\/backtester\/symbolTrial\.js['"]/.test(src),
+      'perSymbolOptimizer.mjs must score combos through ../backtester/symbolTrial.js');
+    assert.ok(/runSymbolTrial\s*\(/.test(src), 'perSymbolOptimizer.mjs must call runSymbolTrial()');
+    assert.ok(!/aggregateVotes|function aggregate\b/.test(src),
+      'perSymbolOptimizer.mjs must not vote on its own — local voting loops are forbidden');
+  });
+
+  test('symbolTrial runs the PortfolioBacktester', () => {
+    const src = readFileSync(join(PROJECT_ROOT, 'src/backtester/symbolTrial.js'), 'utf8');
+    assert.ok(/from ['"]\.\/portfolioBacktester\.js['"]/.test(src));
+    assert.ok(!/aggregateVotes/.test(src), 'symbolTrial.js must not vote on its own');
   });
 
   test('PortfolioBacktester reuses live SignalAggregator (no local aggregate)', () => {

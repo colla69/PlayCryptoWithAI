@@ -53,7 +53,7 @@ in `src/strategies/index.js`, and dashboard metadata in `src/strategies/registry
 - A symbol's strategy list is `config.perSymbol[symbol].strategies`, falling back to
   `config.strategies`.
 - The voting math lives only in `src/engine/aggregatorVoting.js`, shared by the live
-  `signalAggregator.js`, `PortfolioBacktester` and the optimizer's `aggregate()`. HOLD counts in
+  `signalAggregator.js` and the `PortfolioBacktester`, which the optimizer scores through. HOLD counts in
   the denominator: `confidence = winner_weight / total_voters`.
 - The entry threshold is the symbol's `minConfidence` (fallback `risk.minConfidence`) scaled by
   `risk.confidenceThresholdScale` — always read it through `scaleMinConfidence()`.

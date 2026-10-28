@@ -19,9 +19,11 @@
  * Non-Normality." Journal of Portfolio Management, 40(5).
  *
  * Inputs all use per-observation (un-annualised) Sharpe. Helper
- * `annualToPerObservation` converts daily-annualised Sharpe (sqrt(252)) to
+ * `annualToPerObservation` converts daily-annualised Sharpe (sqrt(365)) to
  * the per-observation form expected by the formula.
  */
+
+import { DAYS_PER_YEAR } from './metrics.js';
 
 const EULER_MASCHERONI = 0.5772156649015329;
 
@@ -131,10 +133,10 @@ export function kurtosis(values) {
 }
 
 /**
- * Convert annualised daily Sharpe (mean/std × sqrt(252)) back to the
+ * Convert annualised daily Sharpe (mean/std × sqrt(365)) back to the
  * per-observation Sharpe that DSR/PSR formulas expect.
  */
-export function annualToPerObservation(annualSharpe, periodsPerYear = 252) {
+export function annualToPerObservation(annualSharpe, periodsPerYear = DAYS_PER_YEAR) {
   return annualSharpe / Math.sqrt(periodsPerYear);
 }
 
@@ -192,7 +194,7 @@ export function expectedMaxSharpeUnderNull(nTrials, varianceAcrossTrials) {
  * @param {number} args.observedSharpe       — annualised Sharpe (mean/std × √periodsPerYear)
  * @param {number[]} args.returns            — per-period returns used to compute observedSharpe
  * @param {number} args.nTrials              — number of strategy variants tested
- * @param {number} [args.periodsPerYear=252] — annualisation factor used for observedSharpe
+ * @param {number} [args.periodsPerYear=365] — annualisation factor used for observedSharpe
  * @param {number} [args.varianceAcrossTrials] — variance of trial Sharpes in per-obs units;
  *                                               default = 1 / (n − 1) (null + iid normal returns)
  * @returns {{ dsr, sr0, psr, observedSharpePerObs, skewness, kurtosis, nObs }}
@@ -201,7 +203,7 @@ export function deflatedSharpeRatio({
   observedSharpe,
   returns,
   nTrials,
-  periodsPerYear = 252,
+  periodsPerYear = DAYS_PER_YEAR,
   varianceAcrossTrials,
 }) {
   if (!Array.isArray(returns) || returns.length < 4 || !Number.isFinite(observedSharpe)) {
