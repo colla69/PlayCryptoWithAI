@@ -2301,3 +2301,10 @@ worse than 10%. Reported as in section I plus the stop-out count; no pass/fail (
   position, and its stop costs the most in dollars. 8% gives up the y2 window and the
   walk-forward; under "revert, don't patch" it is not a candidate.
 - Costs: a stop at 10% loses about 10.3% with fees and slippage; at 9% about 9.3%.
+
+**Applied 2026-10-28** (user decision, "yes go ahead"): the 24 per-symbol stops above 9% set to
+0.09 in `config/default.js` (18 traded coins). The six-year replay from the edited file equals the
+9% preload run trade for trade ($6,762.89). `tests/config/stopLossRule.test.js` fails on any
+configured stop above 10% (it fails on the previous config). Chosen for the cost buffer under the
+user's rule, not for its score: 9% and 10.5% give the same trades in this history, so the
+backtest cannot tell them apart.
