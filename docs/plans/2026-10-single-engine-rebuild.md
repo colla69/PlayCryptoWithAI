@@ -2308,3 +2308,33 @@ worse than 10%. Reported as in section I plus the stop-out count; no pass/fail (
 configured stop above 10% (it fails on the previous config). Chosen for the cost buffer under the
 user's rule, not for its score: 9% and 10.5% give the same trades in this history, so the
 backtest cannot tell them apart.
+
+## Section J: a stop on the TSM sleeve (pre-registered 2026-10-28, before any run)
+
+User: "ok do the sleeve stop tests" — does the 10%-per-trade rule work on the sleeve? Today the
+sleeve has no stop: it exits only when its vote flips. In the six-year replay 10 of its 103 exits
+were more than 10% below entry (worst SOL 2024-07-22 → 08-05, −37% in price).
+
+**Stage 1, the sleeve simulator** (`runTrendCore.mjs`, as sections F and G): Binance USDT 12h,
+BTC+ETH and BTC+ETH+BNB+SOL, the sleeve as shipped = combo (vote 30/45/60 d, slow-in, vol target
+0.6) + M1 (NASDAQ overlay). Windows: full 2017-08-17 → 2026-08-10; halves 2017-08-17 → 2021-12-31
+and 2022-01-01 → 2026-08-10; unseen 2026-08-10 → 10-24 reported only.
+
+- **J1 (decides):** exit when a 12h bar's low reaches 9% below the position's average fill price
+  (the risk loop sees every price); fill at that level, or at the bar's open if it opened below;
+  slippage tier and fee as every exit. After a stop-out the coin stays in cash until its vote has
+  turned off once (the slow-in state ends) — so the stop is not undone by an immediate re-buy.
+- Reported only: J1b, the same stop with re-entry at the next 12h decision if the vote is still on;
+  J10, J1 at 10%.
+- **Reading, written now:** J1 costs nothing if combo + M1 + J1 has a Sharpe not below combo +
+  M1's on both universes in the full window **and** in the 2022+ half; then stage 2 is built.
+  Otherwise the cost (Sharpe, CAGR, worst drop, the unseen window) is reported and the user decides
+  between a stopped sleeve and a rule that covers the scalper only. Reported: stop-outs, exposure,
+  worst drop, yearly Sharpe.
+- Expected: trend following usually loses from tight fixed stops. At ~60% annual vol a 9% move is
+  noise within days, and J1 then waits out the rest of a trend that resumes. Likely costly.
+
+**Stage 2, only if built:** the stop in the engine for every trader (risk loop, paper, live, the
+15m replay), the stopped state persisted through `runtimeDir()`, a `liveParityInventory` row,
+tests; judged by the six-year replay (Sharpe not below 1.99 with the 9% scalper cap) and the
+unseen window.
