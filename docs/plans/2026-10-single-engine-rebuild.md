@@ -2595,3 +2595,57 @@ switch on.** Points accepted:
   shipped) charged for the J–M family; a trade-by-trade match of the simulator's M2 sleeve against
   the replay's; live shadow logging of the gate (what it would have blocked) until the 2027-02-10
   re-check.
+
+### Review fixes (`4c1095b`) and what was left, with the reason
+
+Fixed, each with a test; the six-year replay (off $6,762.89, on $6,808.89) and the unseen window
+($312.21) are identical trade for trade after them:
+- **Stop sells under $11 never reached the market** (risk review; new with the IOC orders): the
+  market fallback was gated on the bot's $11 buy floor. Now on the exchange's own floor
+  (`#sellFloor`, `getMarketLimits`); what is left under it is dust and closes the position.
+- **Dust became a phantom position** (risk + code review): a part fill under the exchange floor is
+  no longer tracked (buy) and no longer adopted by the wallet restore.
+- **One failed balance read made the sleeve sell** (risk review): `getStatus` reports `stale`; the
+  sleeve cycle skips.
+- **Two orders on one coin at once** (risk review): one open/close/resize per market at a time
+  (`#withMarketLock`); the wallet restore waits while an order or the cycle runs.
+- **A misread Binance notice could sell a held coin** (security review): delisting titles must be
+  bare ticker lists (margin, futures and other product titles yield nothing); removal pairs only
+  from "At <date> (UTC):" lines; a removal without a time ends a week after its announcement; every
+  venue sell sends an alert quoting the notice. On the 2023–26 history: the same 45 delisting
+  notices and 44 USDC pair removals as before.
+- **15m/4h caches served old bars after a failed refresh** (code review): dropped, refetched at use.
+- Event and DVOL caches through `runtimeDir()`, written atomically; the runtime-path guard test now
+  also catches bare `'data/…'` strings. Sleeve state: failed writes retried, seeded state kept,
+  gates of coins no longer in the list pruned; inventory note that restart persistence is live-only.
+
+Left, with the reason (none affects the release as planned):
+- Venue exit sells scalper positions only, not sleeve or satellite legs (majors only in the
+  sleeve; satellites off); venue veto absent from `PortfolioBacktester` (documented in § E item 2:
+  the engine replay is the backtest of the live cycle).
+- Satellite-only items (off by default): resting GTC buys not cancelled on shutdown; an order
+  whose status cannot be read is never dropped; the 1h RSI hour marked read before its fetch.
+- The sizing chain has no upper cap (0.15 × 2 × 1.3 × 1.5 ≈ 0.59 of free cash worst case):
+  pre-existing, shared by live and backtest; a clamp needs its own baseline run.
+- `refreshMtfCache` fetches 37 symbols in sequence (seconds of delay before fills); the cycle
+  refreshes the venue feed twice. Performance, not correctness.
+- Release-3 note: switching `stayVotes` to 3 sells any sleeve leg held at 2 of 3 votes on the
+  first cycle — switch it on at a cycle that is watched.
+
+### Section N results (2026-10-28): M2 holds on coins it never saw
+
+`runTrendCore.mjs --holdout XRP,ADA,LTC,DOGE` (section G and the M robustness run still reproduce
+byte for byte without the flag).
+
+**N2 — XRP+ADA+LTC+DOGE, never used in any selection: PASS.** Sharpe full · 2022+ · 2020-06+ ·
+unseen: shipped 0.91 · 0.45 · 1.08 · 0.43; K2 0.96 · 0.57 · 1.16 · −0.40; **M2 1.16 · 0.88 · 1.46 ·
+−0.78**. Full window: CAGR 25.4% → 30.0%, worst drop 44.7% → 30.5%, give-back −11.7% → −4.8%.
+
+**N1 — yearly Sharpe, M2 vs shipped:** better in 7 of 10 years on BTC+ETH and on the 4 majors
+(worse 2017, 2019, 2021: strong bull years), 6 of 9 on the holdout (worse 2018, 2019, 2026). Not
+one year's gain, unlike K2 (mostly 2018).
+
+The unseen window is worse on all three universes (2.5 months, a few trades, noise about ±2) —
+the one signal against. Still open before a switch-on, as written above: the paired bootstrap of
+the daily difference charged for the J–M family; the trade-by-trade simulator ↔ replay match;
+live shadow logging of the gate. Switching on stays the user's decision.

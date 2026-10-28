@@ -51,6 +51,7 @@ let sleeveStops = [];      // stops on the sleeve (--sleeve-stop), plan section 
 let sleeveExits = [];      // faster exits after a peak (--sleeve-exit K1,K2,K1b,K3), plan section K
 let sleevePauses = [];     // days without re-entry after a full sell (--sleeve-pause 1,3,7,14), plan section L
 let sleeveRebuys = [];     // buy-back confirmation after a fast-out sell (--sleeve-rebuy exit,high,ma), plan section M
+let holdout = null;        // coins never used in selection, a third universe for J–M cells (--holdout XRP,ADA,LTC,DOGE), plan section N
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
@@ -69,6 +70,7 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--sleeve-exit' && argv[i + 1]) sleeveExits = argv[++i].split(',').map((s) => s.trim());
   if (argv[i] === '--sleeve-pause' && argv[i + 1]) sleevePauses = argv[++i].split(',').map(Number);
   if (argv[i] === '--sleeve-rebuy' && argv[i + 1]) sleeveRebuys = argv[++i].split(',').map((s) => s.trim());
+  if (argv[i] === '--holdout' && argv[i + 1]) holdout = argv[++i].split(',').map((s) => s.trim().toUpperCase());
   if (argv[i] === '--sleeve-stop' && argv[i + 1]) {
     sleeveStops = argv[++i].split(',').map((s) => { const [pct, reentry = 'flip'] = s.split(':'); return { pct: Number(pct), reentry }; });
   }
@@ -118,7 +120,7 @@ const ROT_UNIVERSE = universeArg ?? (quote === 'USDC' ? UNIVERSE : []);
 
 // per coin: bars[gi] = actual candle or null; closes[gi] = carry-forward close; firstIdx
 const coins = new Map();
-for (const coin of new Set([...ROT_UNIVERSE, ...(universeArg ?? []), 'BTC', 'ETH', 'BNB', 'SOL'])) {
+for (const coin of new Set([...ROT_UNIVERSE, ...(universeArg ?? []), ...(holdout ?? []), 'BTC', 'ETH', 'BNB', 'SOL'])) {
   const candles = loadCandles(coin);
   if (!candles?.length) { console.warn(`  (no 12h data for ${coin} — excluded)`); continue; }
   const bars = new Array(grid.length).fill(null);
@@ -821,6 +823,9 @@ if (volTargetAnnual && voteDays) {
       }
     }
   }
+  // The universes of the J–M sleeve cells; N adds coins never used in selection.
+  const SLEEVE_UNIVERSES = [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']],
+    ...(holdout ? [[holdout.join('+'), holdout]] : [])];
   // K: faster exits after a peak, on combo + M1; `ref` is combo + M1 with the give-back measured.
   if (sleeveExits.length && hysteresis) {
     const K = {
@@ -829,7 +834,7 @@ if (volTargetAnnual && voteDays) {
       K2: { rule: `${voteKey} fast-out` },
       K3: { rule: `${voteKey} slow-in`, trail: { n: 40, mode: 'half' } },
     };
-    for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
       addTsmCell(`combo +M1 ref ${uName}`, universe, `${voteKey} slow-in`,
         { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, giveback: true });
       for (const k of sleeveExits) {
@@ -841,7 +846,7 @@ if (volTargetAnnual && voteDays) {
   }
   // M: buy-back confirmation on K2 (decides) and on K2 + the 3-day pause (reported).
   if (sleeveRebuys.length && hysteresis) {
-    for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
       for (const rebuy of sleeveRebuys) {
         for (const [tag, pauseBars] of [['', 0], ['pause3d ', 6]]) {
           addTsmCell(`combo +M1 K2 ${tag}rebuy-${rebuy} ${uName}`, universe, `${voteKey} fast-out`,
@@ -852,7 +857,7 @@ if (volTargetAnnual && voteDays) {
   }
   // L: a pause after each full sell, on K2 (decides) and on the shipped sleeve (reported).
   if (sleevePauses.length && hysteresis) {
-    for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
       for (const days of sleevePauses) {
         for (const [tag, rule] of [['K2 ', `${voteKey} fast-out`], ['', `${voteKey} slow-in`]]) {
           addTsmCell(`combo +M1 ${tag}pause${days}d ${uName}`, universe, rule,
@@ -863,7 +868,7 @@ if (volTargetAnnual && voteDays) {
   }
   // J: a stop on the sleeve, on combo + M1 (the sleeve as shipped).
   if (sleeveStops.length && hysteresis) {
-    for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
+    for (const [uName, universe] of SLEEVE_UNIVERSES) {
       for (const stop of sleeveStops) {
         addTsmCell(`combo +M1 stop${Math.round(stop.pct * 100)}/${stop.reentry} ${uName}`, universe, `${voteKey} slow-in`,
           { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, stop });
