@@ -144,3 +144,28 @@ test('replay refuses to run without events when the config enables the veto', as
     /exchangeEvents is enabled but no events were passed/,
   );
 });
+
+// Security review 2026-10-28: a misread notice sells a held coin, so only spot delistings and
+// the pairs on a removal's "At <date> (UTC):" lines count. On the 2023–26 history these rules
+// read the same 45 delisting notices and 44 USDC pair removals as before.
+describe('parseNotice refuses what is not a spot delisting', () => {
+  test('margin, futures and other product delistings yield nothing', () => {
+    for (const title of [
+      'Binance Will Delist BTC Isolated Margin Pairs on 2026-11-05',
+      'Binance Will Delist ETH Perpetual Contracts on 2026-11-05',
+      'Binance Will Delist BNB, SOL Cross Margin Pairs on 2026-11-05',
+    ]) assert.deepEqual(parseNotice({ code: 'm', releaseDate: 1, title }), [], title);
+  });
+  test('a bare ticker list, with or without names, still reads', () => {
+    const ev = parseNotice({ code: 'n', releaseDate: 1, title: 'Binance Will Delist ACX, LSK & SLX (SLIMEX) on 2026-06-12' });
+    assert.deepEqual(ev.map((e) => e.coin), ['ACX', 'LSK', 'SLX']);
+  });
+  test('a pair named outside an "At … (UTC)" line is not a removal', () => {
+    const ev = parseNotice({
+      code: 'o', releaseDate: 1, title: 'Notice of Removal of Spot Trading Pairs - 2026-11-01',
+      text: 'At 2026-11-03 03:00 (UTC): LSK/USDC, ACX/BTC\nUsers can still trade ETH/USDC and BTC/USDC.\n',
+    });
+    assert.deepEqual(ev.map((e) => e.pair), ['LSK/USDC']);
+    assert.equal(ev[0].effectiveAt, Date.parse('2026-11-03T03:00:00Z'));
+  });
+});

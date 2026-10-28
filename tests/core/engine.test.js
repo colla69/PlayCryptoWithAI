@@ -204,3 +204,15 @@ describe('engine: the entry filters see their data', () => {
     assert.match(rec.blockReason ?? '', /MTF misaligned/);
   });
 });
+
+describe('engine: 15m/4h cache refresh', () => {
+  test('a failed refresh drops the old bars instead of serving them a cycle late', async () => {
+    const { engine } = build({
+      confidences: { 'AAA/USDC': 0, 'BBB/USDC': 0, 'CCC/USDC': 0 }, maxOpenPositions: 1,
+      deps: { fetchOHLCV: async () => { throw new Error('timeout'); } },
+    });
+    engine.mtf15mCache.set('AAA/USDC', [{ timestamp: T - 86_400_000, open: 1, high: 1, low: 1, close: 1, volume: 1 }]);
+    await engine.refreshMtfCache('15m', engine.mtf15mCache, 20);
+    assert.equal(engine.mtf15mCache.has('AAA/USDC'), false);
+  });
+});

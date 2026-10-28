@@ -837,8 +837,9 @@ export default {
     // Section L: hours after a sleeve sell before that coin may be bought again. 0 = off.
     reentryPauseHours: 0,
     // Section M: after a sell, while a majority of votes is still positive, buy back only on a
-    // close above every close of this many previous bars (40 = 20 days). 0 = off. Validated
-    // with stayVotes: 3 (six-year replay Sharpe 1.99 → 2.08, worst drop 8.2% → 6.7%).
+    // close above every close of this many previous bars (40 = 20 days). 0 = off. Tested ONLY
+    // together with stayVotes: 3 — switch both or neither (six-year replay Sharpe 1.99 → 2.08,
+    // worst drop 8.2% → 6.7%; see plan doc § M and its review before switching on).
     // The gate and the last-sell times persist in data/tsm_sleeve_state.json (sleeveStateStore).
     rebuyConfirmBars: 0,
     // Static fallback deployment (rung A) — see equityLadder above, which is
@@ -877,7 +878,8 @@ export default {
   // breakout, each 12.5% of equity per trade on cash the scalper and the sleeve leave
   // free. Entries are resting limit buys (no fill → no trade), stops are stop-limit
   // sells, targets and time exits limit sells. Pure logic in src/engine/satellites.js.
-  // OFF by default: the replay runs them; live order support is not built yet.
+  // OFF by default (SATELLITES=true turns them on). Live places REAL resting GTC limit buys
+  // (LiveTrader.placeSatelliteOrder); see the PR #13 reviews in the plan doc before enabling.
   satellites: {
     enabled: process.env.SATELLITES === 'true',
     // The 8 large coins of the symbol list: on all 37 the breakout loses (small coins

@@ -178,26 +178,6 @@ export function planCoreActions({ symbols, signals, positions, enterVotes = null
 }
 
 /**
- * Equity-ladder rung selection — de-risk as the account grows, never re-risk.
- *
- * The selector input MUST be high-water-mark equity (all-time max of recorded
- * equity, deposits included), not current equity. Selecting on current equity
- * would step risk UP after losses — martingale sizing, the classic way small
- * accounts die. With HWM the fraction only ever ratchets down; after a drawdown
- * the (smaller) fraction of (smaller) equity can fall under the exchange
- * minimum, which parks the sleeve in cash until recovery — risk-off exactly
- * when it should be.
- *
- * Rungs must be individually validated static profiles (see config.tsmCore
- * .equityLadder); this function only chooses between them. Returns null when
- * the ladder is absent or malformed so the caller can fall back to the static
- * config — an invalid ladder must never invent a profile.
- *
- * @param {number} hwmEquity
- * @param {Array<{minHwmEquity:number, symbols:string[], deploymentPct:number}>} ladder
- * @returns {{minHwmEquity:number, symbols:string[], deploymentPct:number}|null}
- */
-/**
  * Section L: drop sleeve entries for a key sold less than `pauseMs` ago, so a sell is not
  * bought straight back while the trend is still breaking. `lastExitAt` maps core key → ms.
  */
@@ -233,6 +213,26 @@ export function applyRebuyGate(actions, gates, { votes, proofs }) {
   return actions.filter((a) => a.type !== 'open' || !gates.has(a.key));
 }
 
+/**
+ * Equity-ladder rung selection — de-risk as the account grows, never re-risk.
+ *
+ * The selector input MUST be high-water-mark equity (all-time max of recorded
+ * equity, deposits included), not current equity. Selecting on current equity
+ * would step risk UP after losses — martingale sizing, the classic way small
+ * accounts die. With HWM the fraction only ever ratchets down; after a drawdown
+ * the (smaller) fraction of (smaller) equity can fall under the exchange
+ * minimum, which parks the sleeve in cash until recovery — risk-off exactly
+ * when it should be.
+ *
+ * Rungs must be individually validated static profiles (see config.tsmCore
+ * .equityLadder); this function only chooses between them. Returns null when
+ * the ladder is absent or malformed so the caller can fall back to the static
+ * config — an invalid ladder must never invent a profile.
+ *
+ * @param {number} hwmEquity
+ * @param {Array<{minHwmEquity:number, symbols:string[], deploymentPct:number}>} ladder
+ * @returns {{minHwmEquity:number, symbols:string[], deploymentPct:number}|null}
+ */
 export function selectSleeveRung(hwmEquity, ladder) {
   if (!Array.isArray(ladder) || !ladder.length) return null;
   const valid = ladder.filter((r) => Number.isFinite(Number(r?.minHwmEquity))

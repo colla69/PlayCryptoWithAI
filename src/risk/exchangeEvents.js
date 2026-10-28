@@ -29,12 +29,13 @@ export function exchangeEventState(events, coin, nowMs) {
     if (e.kind === 'monitoring_tag' && !(tag && tag.announcedAt > e.announcedAt)) tag = e;
     else if (e.kind === 'monitoring_tag_removed') untagAt = Math.max(untagAt, e.announcedAt);
     else if (!removal && (e.kind === 'token_delist' || (e.kind === 'pair_removal' && e.pair === `${coin}/USDC`))
-      && !(nowMs >= Number(e.effectiveAt ?? Infinity) + REMOVAL_TAIL_MS)) removal = e;
+      // A removal without a time ends a week after its announcement, never "forever".
+      && !(nowMs >= (Number.isFinite(e.effectiveAt) ? e.effectiveAt : e.announcedAt) + REMOVAL_TAIL_MS)) removal = e;
   }
   if (tag && untagAt >= tag.announcedAt) tag = null;
   if (removal) {
     const what = removal.kind === 'token_delist' ? 'token delisting' : `${removal.pair} removal`;
-    return { blockEntry: true, exitHeld: true, reason: `Binance ${what} announced ${new Date(removal.announcedAt).toISOString().slice(0, 10)}` };
+    return { blockEntry: true, exitHeld: true, reason: `Binance ${what} announced ${new Date(removal.announcedAt).toISOString().slice(0, 10)}${removal.title ? ` ("${removal.title}")` : ''}` };
   }
   if (tag) return { blockEntry: true, exitHeld: false, reason: `Binance monitoring tag since ${new Date(tag.announcedAt).toISOString().slice(0, 10)}` };
   return { blockEntry: false, exitHeld: false, reason: null };

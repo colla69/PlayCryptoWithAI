@@ -35,7 +35,7 @@ function series(endPct) {
   });
 }
 
-function build({ endPct, file, rebuyBars = 40 }) {
+function build({ endPct, file, rebuyBars = 40, store = null }) {
   const candles = { [SYM]: series(endPct) };
   const cfg = {
     ...config,
@@ -69,7 +69,7 @@ function build({ endPct, file, rebuyBars = 40 }) {
     marketContext: { getBtcDominanceTrend: () => null, getEthBtcTrend: () => null },
     notifyTrade: () => {}, notifyAlert: async () => {}, pushEvent: () => {}, recordEquitySnapshot: () => {},
     loadEquityHistory: () => [], loadNasdaqHistory: async () => null,
-    sleeveStore: file ? { load: () => loadSleeveState(file), save: (s) => saveSleeveState(s, file, NOW) } : null,
+    sleeveStore: store ?? (file ? { load: () => loadSleeveState(file), save: (s) => saveSleeveState(s, file, NOW) } : null),
     modeLabel: 'paper',
     now: () => NOW,
   });
@@ -118,6 +118,37 @@ describe('sleeve buy-back gate survives a restart', () => {
     const saved = loadSleeveState(file);
     assert.deepEqual([...saved.rebuyGate.keys()], [KEY]);
     assert.equal(saved.lastExitAt.get(KEY), NOW);
+  });
+
+  test('a failed write is retried at the next cycle, not lost until the next change', async () => {
+    const writes = [];
+    const store = {
+      load: () => ({ rebuyGate: new Map(), lastExitAt: new Map() }),
+      save: (st) => { writes.push([...st.rebuyGate.keys()]); return writes.length > 1; }, // the first write fails
+    };
+    const { engine } = build({ endPct: 0.95, store });
+    engine.noteCoreExit(KEY); // write 1 fails
+    await engine.runAllSymbols(); // nothing changed, but the file is behind: write 2
+    assert.deepEqual(writes, [[KEY], [KEY]]);
+    await engine.runAllSymbols(); // now in step: no write
+    assert.equal(writes.length, 2);
+  });
+
+  test('a coin no longer in the sleeve list drops its gate', async () => {
+    const file = tmpFile();
+    saveSleeveState({ rebuyGate: new Map([['ZZZ/USDC#core', true]]), lastExitAt: new Map() }, file, NOW);
+    const { engine } = build({ endPct: 0.95, file });
+    await engine.runAllSymbols();
+    assert.equal(loadSleeveState(file).rebuyGate.size, 0);
+  });
+
+  test('an unknown balance skips the sleeve cycle: no buy, no resize', async () => {
+    const { engine, trader } = build({ endPct: 0.95, file: tmpFile() }); // votes 3/3: would buy
+    const real = trader.getStatus.bind(trader);
+    trader.getStatus = () => ({ ...real(), stale: true, balance: 0 });
+    await engine.runAllSymbols();
+    trader.getStatus = real;
+    assert.equal(coreHeld(trader), false);
   });
 
   test('switched off, a leftover gate is cleared and does not block', async () => {

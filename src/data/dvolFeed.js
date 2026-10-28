@@ -1,5 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import logger from '../utils/logger.js';
+import { runtimeDir } from '../utils/runtimePaths.js';
 import { mergeCandles } from '../utils/mergeCandles.js';
 
 /**
@@ -16,7 +18,8 @@ import { mergeCandles } from '../utils/mergeCandles.js';
  * bar closed within its age limit.
  */
 
-const CACHE = 'data/dvol.json';
+// Through runtimeDir(): the live bot's data/, a temp dir in tests (never the checkout's).
+const cacheFile = () => path.join(runtimeDir('data'), 'dvol.json');
 export const DVOL_COINS = ['BTC', 'ETH'];
 const URL_BASE = 'https://www.deribit.com/api/v2/public/get_volatility_index_data';
 const PERIOD_MS = 43_200_000;
@@ -25,7 +28,7 @@ const REFRESH_SPAN_MS = 7 * 86_400_000;
 const FETCH_TIMEOUT_MS = 15_000;
 
 /** Pure-ish: the cached series by coin, or null. Used by the replay scripts. */
-export function readDvolCache(cachePath = CACHE) {
+export function readDvolCache(cachePath = cacheFile()) {
   try {
     if (!fs.existsSync(cachePath)) return null;
     const d = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
@@ -63,7 +66,7 @@ async function fetchRange(currency, fromMs, toMs, fetchImpl) {
  *
  * @returns {Promise<{fetchedAt: number, BTC: object[], ETH: object[]}|null>}
  */
-export async function loadDvolHistory({ now = Date.now(), cachePath = CACHE, fetchImpl = fetch } = {}) {
+export async function loadDvolHistory({ now = Date.now(), cachePath = cacheFile(), fetchImpl = fetch } = {}) {
   const cached = readDvolCache(cachePath);
   const lastClosedOpen = Math.floor(now / PERIOD_MS) * PERIOD_MS - PERIOD_MS;
   const fresh = (d) => DVOL_COINS.every((c) => (d?.[c]?.at(-1)?.timestamp ?? -Infinity) >= lastClosedOpen);
@@ -79,7 +82,8 @@ export async function loadDvolHistory({ now = Date.now(), cachePath = CACHE, fet
       if (!payload.length) throw new Error(`empty ${coin} response`);
       next[coin] = mergeCandles(have, payload, { cap: 0 });
     }
-    fs.writeFileSync(cachePath, JSON.stringify(next));
+    fs.writeFileSync(`${cachePath}.tmp`, JSON.stringify(next)); // temp + rename: no torn cache
+    fs.renameSync(`${cachePath}.tmp`, cachePath);
     return next;
   } catch (err) {
     logger.warn(`DVOL fetch failed: ${err.message}${cached ? ' — using the cache' : ''}`);

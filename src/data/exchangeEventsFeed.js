@@ -1,5 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import logger from '../utils/logger.js';
+import { runtimeDir } from '../utils/runtimePaths.js';
 
 /**
  * Binance venue events from its announcement feed: monitoring tags, USDC spot-pair
@@ -21,7 +23,8 @@ import logger from '../utils/logger.js';
  *   pair: the removed `<COIN>/USDC` pair (pair_removal only — other quotes are not ours)
  */
 
-const CACHE = 'data/exchangeEvents.json';
+// Through runtimeDir(): the live bot's data/, a temp dir in tests (never the checkout's).
+const cacheFile = () => path.join(runtimeDir('data'), 'exchangeEvents.json');
 const LIST_URL = 'https://www.binance.com/bapi/composite/v1/public/cms/article/list/query';
 const DETAIL_URL = 'https://www.binance.com/bapi/composite/v1/public/cms/article/detail/query';
 export const CATALOGS = { delisting: 161, news: 49 };
@@ -29,7 +32,6 @@ const PERIOD_MS = 4 * 3_600_000;
 const FETCH_TIMEOUT_MS = 15_000;
 const HEADERS = { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' };
 
-const DATE_RE = /(\d{4}-\d{2}-\d{2})/;
 const dayStart = (iso) => Date.parse(`${iso}T00:00:00Z`);
 
 /** Coin tickers in a title segment: "ACX, LSK & STX" → ['ACX', 'LSK', 'STX']; "SLX (SLIMEX)" → 'SLX'. */
@@ -37,6 +39,17 @@ function coinsIn(segment) {
   return segment.split(/,|&|\band\b/)
     .map((s) => s.trim().split(/\s+/)[0])
     .filter((s) => /^[A-Z0-9]{1,15}$/.test(s));
+}
+
+/**
+ * Tickers of a spot token delisting. Every part of the list must be a bare ticker, optionally
+ * with its name in brackets; anything else ("BTC Isolated Margin Pairs", "… Perpetual Contracts")
+ * is not a spot delisting and yields [] — a misread title would sell a held coin.
+ */
+function delistTickers(segment) {
+  const parts = segment.split(/,|&|\band\b/).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length || !parts.every((s) => /^[A-Z0-9]{1,15}(?:\s*\([^)]*\))?$/.test(s))) return [];
+  return parts.map((s) => s.split(/[\s(]/)[0]);
 }
 
 /** The text of the title between `marker` and the next clause ("…, Remove …", " on <date>"). */
@@ -83,16 +96,17 @@ export function parseNotice({ code, title, releaseDate, text = '' }) {
   }
   const delist = /^Binance Will Delist (.+?) on (\d{4}-\d{2}-\d{2})/.exec(title);
   if (delist) {
-    for (const coin of coinsIn(delist[1])) events.push({ ...base, coin, kind: 'token_delist', effectiveAt: dayStart(delist[2]) });
+    for (const coin of delistTickers(delist[1])) events.push({ ...base, coin, kind: 'token_delist', effectiveAt: dayStart(delist[2]) });
     return events;
   }
   if (needsBody(title)) {
-    // "At 2026-06-12 03:00 (UTC): LSK/USDC, …" — one line per removal time.
-    const lines = text.split('\n');
-    const fallback = DATE_RE.exec(title)?.[1];
-    for (const line of lines) {
+    // "At 2026-06-12 03:00 (UTC): LSK/USDC, …" — one line per removal time. Only those lines
+    // list removed pairs; a pair named elsewhere ("users can still trade X/USDC") is not one.
+    // On the 140 removal notices of 2023–2026 this reads the same 44 USDC pairs as before.
+    for (const line of text.split('\n')) {
       const at = /At (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \(UTC\)/.exec(line);
-      const effectiveAt = at ? Date.parse(`${at[1]}T${at[2]}:00Z`) : (fallback ? dayStart(fallback) : null);
+      if (!at) continue;
+      const effectiveAt = Date.parse(`${at[1]}T${at[2]}:00Z`);
       for (const m of line.matchAll(/\b([A-Z0-9]{1,15})\/USDC\b/g)) {
         events.push({ ...base, coin: m[1], kind: 'pair_removal', pair: `${m[1]}/USDC`, effectiveAt });
       }
@@ -102,7 +116,7 @@ export function parseNotice({ code, title, releaseDate, text = '' }) {
 }
 
 /** The cached events, or null. Used by the replay scripts. */
-export function readExchangeEventsCache(cachePath = CACHE) {
+export function readExchangeEventsCache(cachePath = cacheFile()) {
   try {
     if (!fs.existsSync(cachePath)) return null;
     const d = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
@@ -167,14 +181,17 @@ export async function ingestNotices(cache, notices, { fetchImpl = fetch, pauseMs
  *
  * @returns {Promise<{fetchedAt:number, events:object[], seen:string[]}|null>}
  */
-export async function loadExchangeEvents({ now = Date.now(), cachePath = CACHE, fetchImpl = fetch } = {}) {
+export async function loadExchangeEvents({ now = Date.now(), cachePath = cacheFile(), fetchImpl = fetch } = {}) {
   const cached = readExchangeEventsCache(cachePath);
   if (cached && cached.fetchedAt >= Math.floor(now / PERIOD_MS) * PERIOD_MS) return cached;
   try {
     const notices = [];
     for (const id of Object.values(CATALOGS)) notices.push(...await fetchNoticePage(id, 1, { fetchImpl }));
     const next = { ...(await ingestNotices(cached ?? { events: [], seen: [] }, notices, { fetchImpl })), fetchedAt: now };
-    fs.writeFileSync(cachePath, JSON.stringify(next));
+    // Temp file + rename: a torn write would read back as no cache, and a rebuild sees only
+    // the newest page of each catalog.
+    fs.writeFileSync(`${cachePath}.tmp`, JSON.stringify(next));
+    fs.renameSync(`${cachePath}.tmp`, cachePath);
     return next;
   } catch (err) {
     logger.warn(`Exchange events: feed refresh failed (${err.message})${cached ? ' — using the cache' : ' — no events'}`);

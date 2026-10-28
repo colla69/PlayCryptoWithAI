@@ -62,3 +62,14 @@ test('a lifted tag stops blocking; the result does not depend on event order', (
 test('no events, no veto', () => {
   assert.deepEqual(exchangeEventState(null, 'BTC', Date.now()), none);
 });
+
+test('a removal without a time ends a week after its announcement, not never', () => {
+  const ev = [{ coin: 'XYZ', kind: 'pair_removal', pair: 'XYZ/USDC', announcedAt: T('2026-10-01T00:00:00Z'), effectiveAt: null, title: 'x' }];
+  assert.equal(exchangeEventState(ev, 'XYZ', T('2026-10-07T00:00:00Z')).exitHeld, true);
+  assert.equal(exchangeEventState(ev, 'XYZ', T('2026-10-08T00:00:00Z')).exitHeld, false);
+});
+
+test('the sell reason quotes the notice title, so a wrong sell is visible in the alert', () => {
+  const ev = [{ coin: 'XYZ', kind: 'token_delist', announcedAt: 1, effectiveAt: 2 * DAY, title: 'Binance Will Delist XYZ on 2026-11-05' }];
+  assert.match(exchangeEventState(ev, 'XYZ', 10).reason, /"Binance Will Delist XYZ on 2026-11-05"/);
+});

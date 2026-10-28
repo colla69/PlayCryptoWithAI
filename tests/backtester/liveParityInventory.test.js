@@ -308,6 +308,12 @@ const INTENTIONALLY_LIVE_ONLY = [
           + 'min-notional floor exists on BOTH sides via the shared exchangeLimits constant.',
   },
   {
+    rule: 'Sleeve buy-back gate and last-sell times persisted across restarts (sleeveStateStore)',
+    reason: 'A replay is one continuous run with no restart, so the file has nothing to mirror: the '
+          + 'replay keeps the same state in memory (identical trades with and without it). '
+          + 'Restart behaviour is covered by tests/core/sleeveRebuyRestart.test.js.',
+  },
+  {
     rule: 'Core-sleeve wallet claim on position restore (calcCoreClaims)',
     reason: 'Restoring positions by reading wallet balances only exists live — a backtest '
           + 'never reconciles against a fungible wallet, so there is no counterpart to mirror. '

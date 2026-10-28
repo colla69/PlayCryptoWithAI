@@ -16,15 +16,12 @@ import { startCopyTrading, startTelegramListener, startTwitterSentiment, startWe
 import { getRegistryMeta } from './strategies/index.js';
 import logger, { appendTrade } from './utils/logger.js';
 import { runtimeDir } from './utils/runtimePaths.js';
-import { isMarketTrending } from './utils/indicators.js';
 import { dashboardState, startDashboardServer, pushEvent } from './dashboard/index.js';
 import { recordEquitySnapshot, loadEquityHistory } from './dashboard/equityHistory.js';
 import { initNotifier, notifyTrade, notifyStartup, notifyAlert } from './notifications/index.js';
-import { mtfAlignScore, mtf4hMomentumScore } from './utils/mtfAlignment.js';
 import { loadFearGreedHistory } from './data/fearGreed.js';
 import { refreshMarketContext, getBtcDominanceTrend, getEthBtcTrend } from './data/marketContext.js';
 import { RegimeTracker, REGIME_LABELS } from './engine/regimeClassifier.js';
-import { resolveStrategyList, DEFAULT_REGIME_BUNDLES } from './engine/regimeRouter.js';
 import { baseSymbol, impliedVolAsOf } from './engine/tsmCore.js';
 import { rsiOfLastClosedBar } from './engine/satellites.js';
 import { loadNasdaqHistory } from './data/nasdaqTrend.js';
@@ -811,6 +808,9 @@ const BALANCE_POLL_MS = 5 * 60_000;
 let balancePollId = null;
 async function refreshBalance() {
   if (paperMode) return;
+  // A wallet read taken while an order or the cycle runs can re-adopt a position that is
+  // being closed; the next poll (5 min) reads a settled wallet.
+  if (engine.state.cycleInProgress || (trader.ordersInFlight ?? 0) > 0) return;
   try {
     await trader.restorePositionsFromExchange(
       config.symbols, fetchTicker, getRiskForSymbol, dashboardState.getSummary().trades, recordSyntheticTrade

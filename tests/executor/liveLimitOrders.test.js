@@ -153,3 +153,81 @@ describe('live limit orders: sells', () => {
     assert.equal(trim.price, 100);
   });
 });
+
+// PR #13 risk review (2026-10-28): the market fallback is gated on the exchange's own floor,
+// not the bot's $11 buy floor; what no order can sell is dust, never a tracked position; one
+// order per coin at a time; an unknown balance is reported as stale, not zero.
+describe('live orders near the floor, dust, concurrency', () => {
+  const SMALL = { ...RISK, maxPositionPct: 0.0115 }; // $11.50 of $1000
+  const floor = (ex, minNotional) => { ex.getMarketLimits = async () => ({ minQty: 0, minNotional }); };
+
+  test('a stop on a position bought near $11 still reaches the market when the limit misses', async () => {
+    const ex = new FakeBook(); floor(ex, 5); const t = trader(ex, SMALL);
+    await t.execute(SYM, 'BUY', 100, SMALL); // 0.115 BTC
+    ex.calls.length = 0;
+    ex.price = 94; ex.sellFillShare = 0; // the IOC limit fills nothing; the rest is $10.81 < $11
+    const exit = await t.checkRisk(SYM, 94);
+    assert.equal(exit.reason, 'stop_loss');
+    assert.deepEqual(ex.calls.map((c) => c.type), ['limit', 'market']);
+    assert.equal(t.positions.size, 0);
+  });
+
+  test('a part fill that leaves less than the exchange floor closes the position (dust)', async () => {
+    const ex = new FakeBook(); floor(ex, 10); const t = trader(ex, { ...RISK, maxPositionPct: 0.06 });
+    await t.execute(SYM, 'BUY', 100, { ...RISK, maxPositionPct: 0.06 }); // 0.6 BTC
+    ex.calls.length = 0;
+    ex.price = 104; ex.sellFillShare = 0.88; // rest 0.072 BTC ≈ $7.49 < $10
+    const exit = await t.execute(SYM, 'SELL', 104, RISK);
+    assert.deepEqual(ex.calls.map((c) => c.type), ['limit']);
+    assert.ok(exit);
+    assert.equal(t.positions.size, 0);
+  });
+
+  test('the wallet restore does not adopt a balance under the exchange floor', async () => {
+    const ex = new FakeBook(); floor(ex, 10); const t = trader(ex);
+    ex.free.BTC = 0.08; // $8
+    await t.restorePositionsFromExchange([SYM], (s) => ex.fetchTicker(s), () => RISK, []);
+    assert.equal(t.positions.size, 0);
+    ex.free.BTC = 0.2; // $20: a real position
+    await t.restorePositionsFromExchange([SYM], (s) => ex.fetchTicker(s), () => RISK, []);
+    assert.equal(t.positions.size, 1);
+  });
+
+  test('a buy that part-fills under the exchange floor is dust, not a position', async () => {
+    const ex = new FakeBook(); floor(ex, 10); const t = trader(ex);
+    ex.buyFillShare = 0.05; // 0.075 BTC ≈ $7.50 of the $150 order
+    assert.equal(await t.execute(SYM, 'BUY', 100, RISK), null);
+    assert.equal(t.positions.size, 0);
+  });
+
+  test('two exits on one coin at once: one order, the second is skipped', async () => {
+    const ex = new FakeBook(); const t = trader(ex);
+    await t.execute(SYM, 'BUY', 100, RISK);
+    ex.calls.length = 0;
+    ex.price = 104;
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const create = ex.createOrder.bind(ex);
+    ex.createOrder = async (...a) => { await gate; return create(...a); };
+    const first = t.execute(SYM, 'SELL', 104, RISK);
+    try {
+      // Wait until the cycle's sell holds the coin (bounded, so a bug cannot hang the suite).
+      for (let i = 0; i < 1000 && t.ordersInFlight === 0; i++) await new Promise((r) => setImmediate(r));
+      assert.equal(t.ordersInFlight, 1);
+      const second = await t.checkRisk(SYM, 80); // the risk loop, while the cycle's sell waits
+      assert.equal(second, null);
+    } finally {
+      release();
+    }
+    assert.ok(await first);
+    assert.equal(ex.calls.filter((c) => c.side === 'sell').length, 1);
+    assert.equal(t.ordersInFlight, 0);
+  });
+
+  test('a failed balance read is reported as stale, not as a zero balance', async () => {
+    const ex = new FakeBook(); const t = trader(ex);
+    ex.fetchBalance = async () => { throw new Error('timeout'); };
+    const status = await t.getStatus();
+    assert.equal(status.stale, true);
+  });
+});
