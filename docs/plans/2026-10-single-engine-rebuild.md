@@ -2564,3 +2564,34 @@ on ($6,808.89); `tests/core/sleeveRebuyRestart.test.js` runs the engine's sleeve
 restart (sell saved → restarted engine does not buy back below the 20-day high; a new 20-day
 high buys and clears the file; a vote-flip sell saves the gate; off clears a leftover gate);
 a paper boot with a saved gate logged it restored and cleared it when the trend had broken.
+
+## PR #13 reviews (2026-10-28) and section N, the checks M needs before any switch-on
+
+Five reviews ran on PR #13 (risk, security, backtest integrity, correctness, general code review).
+Fixes are recorded with their commit. The backtest review's verdict on section M: **not ready to
+switch on.** Points accepted:
+- The simulator's DSR counter (`N_TRIALS`) counts only the current run's cell families, not the
+  cross-session total its comment claims. Honest count across sections A–M: about 90 trials, about
+  32 of them sleeve-exit variants (J 3, K 4, L 8, M 6, neighbours 2, plus the shipped rule's own
+  selection) on the same 2017–2026 history. That DSR also tests Sharpe against zero, not against
+  the shipped sleeve, so it cannot separate M2 from the shipped rule.
+- Stage 2's replay (2020-06 → 2026-08) lies inside stage 1's data; the two universes overlap (BTC+ETH
+  ⊂ 4 majors); the unseen window (2.5 months, a few sleeve trades) has already been read for K, L
+  and M. The simulator's own unseen Sharpe for M2 was worse (2.07 → 1.94, 2.42 → 2.14) and the M
+  write-up did not say so.
+- M rescues K2, which failed stage 2. The 10-day neighbour ties the reference (1.99, less money);
+  "smooth plateau" overstated it.
+- Behaviour to document: a close above the 20-day high clears the gate even when the votes are 2
+  of 3; the coin is then bought on the next 3 of 3 without a new high. Simulator and engine agree.
+
+**Section N, written before any run** (both checks only inform; neither can switch M on alone):
+- **N1, yearly Sharpe** of M2 vs the shipped sleeve, both universes, from the section M robustness
+  run (already computed, not yet read).
+- **N2, coins never used in any selection** (Binance USDT 12h, XRP+ADA+LTC+DOGE as one universe,
+  same simulator, same windows: full, 2022+, 2020-06+; unseen reported). M2 generalises only if its
+  Sharpe is not below the shipped sleeve's in all three windows. A fail means the gain is specific
+  to the coins it was tuned on, and M stays off.
+- Still open before a switch-on: a paired block bootstrap of the daily return difference (M2 −
+  shipped) charged for the J–M family; a trade-by-trade match of the simulator's M2 sleeve against
+  the replay's; live shadow logging of the gate (what it would have blocked) until the 2027-02-10
+  re-check.
