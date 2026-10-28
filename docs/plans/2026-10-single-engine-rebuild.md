@@ -2506,3 +2506,49 @@ the same data (J, K, L, M: 22 sleeve variants so far); the DSR in every table is
 cumulative trial count, and a pass here is reported as one more variant, not as a fresh finding.
 Expected: M1 and M2 cut the buy-backs that keep falling; all three re-enter later than K2 when
 the trend resumes. No prior favourite.
+
+### Section M results (2026-10-28): M2 (buy back on a 20-day high) passes both stages
+
+**Stage 1** (`runTrendCore.mjs --sleeve-exit K2 --sleeve-pause 3 --sleeve-rebuy exit,high,ma`;
+section G still reproduces byte for byte; DSR deflated for 44 trials). Sharpe: full · 2022+ ·
+2020-06+ · unseen; then full-window CAGR, worst drop, round trips, median give-back:
+
+| | BTC+ETH | 4 majors |
+|---|---|---|
+| shipped | 1.21 · 0.75 · 1.22 · 2.07 — 42.5% · −49.5% · 91 · −9.3% | 1.27 · 0.74 · 1.30 · 2.42 — 40.0% · −35.7% · 168 · −10.0% |
+| K2 | 1.28 · 0.88 · **1.21** · 2.30 | 1.29 · 0.76 · **1.24** · 2.33 |
+| M1 above the sell price | 1.28 · 0.89 · **1.19** · 2.23 | 1.28 · 0.74 · **1.23** · 2.28 |
+| **M2 20-day high** | 1.47 · 1.19 · 1.50 · 1.94 — 47.8% · −29.6% · 134 · −3.0% | 1.50 · 1.03 · 1.52 · 2.14 — 42.2% · −26.3% · 263 · −4.1% |
+| M3 above the 20-day average | 1.28 · 0.94 · **1.20** · 2.49 | 1.33 · 0.80 · **1.29** · 2.65 |
+| (reported) M2 + 3-day pause | 1.50 · 1.21 · 1.51 · 1.08 | 1.52 · 1.04 · 1.53 · 1.64 |
+
+M2 passes; M1 and M3 fail the 2020-06+ window (bold).
+
+**Stage 2** (`tsmCore.rebuyConfirmBars`, default 0: `closeAboveRecentHigh` + `applyRebuyGate` in
+`tsmCore.js`, a per-key gate set on every sleeve sell in the engine and by live's retried closes,
+inventory row, tests). Off, the six-year replay equals the committed run trade for trade.
+Fast-out (`stayVotes` 3) + the gate, by a preload:
+
+| Six-year replay, bot + breakout | Final | Sharpe | Worst drop | Sleeve exits | Unseen 08-10 → 10-24 |
+|---|---|---|---|---|---|
+| today | $6,762.89 | 1.99 | 8.2% | 103 | $312.21 · Sh 2.15 |
+| **M2 (40 bars = 20 days)** | **$6,808.89** | **2.08** | **6.7%** | 166 | **$320 · Sh 2.65** |
+| M2 + 3-day pause (reported) | $6,795.50 | 2.08 | 6.8% | 157 | $315 · Sh 2.44 |
+
+**M2 passes stage 2**: Sharpe above 1.99, the unseen window better, and more money, not less.
+
+**Robustness, after the fact (not in the pre-registration):** 20 days was one value, so the
+neighbours were run. Simulator, Sharpe full / 2022+ / 2020-06+, BTC+ETH: 10 d 1.37 / 1.08 / 1.32,
+20 d 1.47 / 1.19 / 1.50, 30 d 1.50 / 1.21 / 1.52; 4 majors: 10 d 1.39 / 0.97 / 1.40, 20 d 1.50 /
+1.03 / 1.52, 30 d 1.52 / 1.07 / 1.53 — all above the shipped sleeve in every window. Six-year
+replay: 10 d $6,682 · 1.99 · 7.5%; 30 d $6,858 · 2.08 · 6.7%; unseen 10 d $320 · 2.65, 30 d $314 ·
+2.17. A smooth plateau; 20 days is not a lucky peak.
+
+- Caveats: this is the fourth round of exit changes on the same history (J, K, L, M); what
+  protects the result is the bot replay, the unseen window and the neighbours, not the simulator's
+  DSR alone. The unseen window is 2.5 months. Sleeve round trips rise (103 → 166 exits in the
+  replay), costs included; no order fell under the $11 floor.
+- **Not switched on yet.** It changes live behaviour (two config values: `stayVotes` 3,
+  `rebuyConfirmBars` 40). Before that, the gate and the pause must survive a restart (persisted
+  through `runtimeDir()`), and it ships as its own release, one change at a time, after the
+  PR #13 releases — user decision.

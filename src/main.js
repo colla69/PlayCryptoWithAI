@@ -692,6 +692,7 @@ let riskCheckId = null;
                 if (retried) {
                   engine.state.tsmCoreFailedCloses.delete(pos.symbol);
                   engine.state.tsmLastExitAt.set(pos.symbol, Date.now());
+                  if (Number(config.tsmCore?.rebuyConfirmBars ?? 0) > 0) engine.state.tsmRebuyGate.set(pos.symbol, true);
                   logger.info(`[RISK-LOOP] ${pos.symbol}: core close retry succeeded`);
                   dashboardState.pushTrade(retried);
                   notifyTrade(retried);

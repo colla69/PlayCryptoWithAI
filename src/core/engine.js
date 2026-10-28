@@ -25,7 +25,7 @@ import { buildCorrelationMatrix } from '../utils/correlation.js';
 import { checkCandleFreshness, formatAge, timeframeMs } from '../utils/candleFreshness.js';
 import { withFormingBar } from '../utils/formingBar.js';
 import {
-  computeTsmVote, planCoreActions, filterPausedEntries, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey,
+  computeTsmVote, planCoreActions, filterPausedEntries, applyRebuyGate, closeAboveRecentHigh, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey,
   selectSleeveRung, sleeveFeasibility,
 } from '../engine/tsmCore.js';
 import { computeEquityRiskOff } from '../data/nasdaqTrend.js';
@@ -86,6 +86,8 @@ export function createTradingEngine(deps) {
     tsmCoreFailedCloses: new Set(),
     // Section L: when each core key was last sold (in memory), for the re-entry pause.
     tsmLastExitAt: new Map(),
+    // Section M: core keys sold and not yet bought back on proof (in memory).
+    tsmRebuyGate: new Map(),
     tsmLastRungKey: null,
     tsmFeasibilityAlerted: false,
     // Binance venue events as of the last cycle (refreshExchangeEvents).
@@ -779,6 +781,8 @@ export function createTradingEngine(deps) {
       const prices = new Map();
       const fractions = new Map();
       const vols = new Map();
+      const rebuyBars = Number(coreCfg.rebuyConfirmBars ?? 0);
+      const rebuyProofs = new Map();
       for (const symbol of active.symbols ?? []) {
         const candles = dashboardState.getCandles(symbol);
         if (!candles || candles.length < 2) {
@@ -813,6 +817,7 @@ export function createTradingEngine(deps) {
           macroFactor,
         });
         signals.set(symbol, vote);
+        if (rebuyBars > 0) rebuyProofs.set(symbol, closeAboveRecentHigh(closed, rebuyBars));
         prices.set(symbol, Number(candles.at(-1).close));
         fractions.set(symbol, fraction);
         vols.set(symbol, realizedVol);
@@ -834,13 +839,16 @@ export function createTradingEngine(deps) {
         pushEvent('trade', result);
       };
 
-      const actions = filterPausedEntries(planCoreActions({
+      const planned = filterPausedEntries(planCoreActions({
         symbols: [...signals.keys()],
         signals,
         positions: status.positions,
         enterVotes: coreCfg.enterVotes ?? null,
         stayVotes: coreCfg.stayVotes ?? null,
       }), state.tsmLastExitAt, now(), Number(coreCfg.reentryPauseHours ?? 0) * 3_600_000);
+      const actions = rebuyBars > 0
+        ? applyRebuyGate(planned, state.tsmRebuyGate, { votes: signals, proofs: rebuyProofs })
+        : planned;
       let traded = 0;
       for (const action of actions) {
         const price = prices.get(action.symbol);
@@ -858,7 +866,10 @@ export function createTradingEngine(deps) {
           }
           continue;
         }
-        if (action.type === 'close') state.tsmLastExitAt.set(action.key, now());
+        if (action.type === 'close') {
+          state.tsmLastExitAt.set(action.key, now());
+          if (rebuyBars > 0) state.tsmRebuyGate.set(action.key, true);
+        }
         emit(result); traded++;
       }
 

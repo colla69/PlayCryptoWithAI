@@ -192,7 +192,7 @@ describe('tsmCore: planCoreResize', () => {
 // cannot decrease); these tests pin the selector, the feasibility advisory, and
 // the specific rungs shipped in config.
 
-import { selectSleeveRung, sleeveFeasibility, filterPausedEntries } from '../../src/engine/tsmCore.js';
+import { selectSleeveRung, sleeveFeasibility, filterPausedEntries, applyRebuyGate, closeAboveRecentHigh } from '../../src/engine/tsmCore.js';
 import config from '../../config/default.js';
 
 const LADDER = [
@@ -319,5 +319,43 @@ describe('filterPausedEntries (section L re-entry pause)', () => {
     const last = new Map([['BTC/USDC#core', 100 * H]]);
     const kept = filterPausedEntries(actions, last, 100 * H + 72 * H, 72 * H);
     assert.equal(kept.length, 3);
+  });
+});
+
+describe('buy-back confirmation (section M)', () => {
+  const bars = (closes) => closes.map((close) => ({ close }));
+  test('closeAboveRecentHigh: strictly above every close of the window before it', () => {
+    assert.equal(closeAboveRecentHigh(bars([5, 10, 8, 11]), 3), true);
+    assert.equal(closeAboveRecentHigh(bars([5, 10, 8, 10]), 3), false); // equal is not above
+    assert.equal(closeAboveRecentHigh(bars([12, 9, 10, 8, 11]), 3), true); // 12 is outside the window
+    assert.equal(closeAboveRecentHigh(bars([10, 11]), 3), false); // too little history
+  });
+  const open = { type: 'open', symbol: 'BTC/USDC', key: 'BTC/USDC#core' };
+  const close = { type: 'close', symbol: 'ETH/USDC', key: 'ETH/USDC#core' };
+  test('blocks a gated buy-back while the majority holds and there is no proof', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    const kept = applyRebuyGate([open, close], gates, {
+      votes: new Map([['BTC/USDC', { positive: 3, total: 3 }]]), proofs: new Map([['BTC/USDC', false]]),
+    });
+    assert.deepEqual(kept, [close]);
+    assert.ok(gates.has('BTC/USDC#core'));
+  });
+  test('proof clears the gate and lets the buy through', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    const kept = applyRebuyGate([open], gates, {
+      votes: new Map([['BTC/USDC', { positive: 3, total: 3 }]]), proofs: new Map([['BTC/USDC', true]]),
+    });
+    assert.deepEqual(kept, [open]);
+    assert.equal(gates.size, 0);
+  });
+  test('a broken trend (votes below a majority) clears the gate', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    applyRebuyGate([], gates, { votes: new Map([['BTC/USDC', { positive: 1, total: 3 }]]), proofs: new Map() });
+    assert.equal(gates.size, 0);
+  });
+  test('a key with no vote this cycle keeps its gate', () => {
+    const gates = new Map([['BTC/USDC#core', true]]);
+    applyRebuyGate([], gates, { votes: new Map(), proofs: new Map() });
+    assert.ok(gates.has('BTC/USDC#core'));
   });
 });

@@ -268,6 +268,13 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/engineReplay.js', symbol: 'createTradingEngine' },
     shared: 'src/engine/tsmCore.js',
   },
+  {
+    // Section M (2026-10-28): the buy-back gate runs in the engine's sleeve cycle, as above.
+    rule: 'Sleeve buy-back confirmation after a sell (tsmCore.rebuyConfirmBars)',
+    live: { file: 'src/core/engine.js', symbol: 'applyRebuyGate' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'createTradingEngine' },
+    shared: 'src/engine/tsmCore.js',
+  },
 ];
 
 /**

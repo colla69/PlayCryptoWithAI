@@ -206,6 +206,33 @@ export function filterPausedEntries(actions, lastExitAt, nowMs, pauseMs) {
   return actions.filter((a) => a.type !== 'open' || !(nowMs - (lastExitAt?.get(a.key) ?? -Infinity) < pauseMs));
 }
 
+/** Section M: the last closed bar's close is above every close of the `lookbackBars` before it. */
+export function closeAboveRecentHigh(closedCandles, lookbackBars) {
+  if (!(lookbackBars > 0) || (closedCandles?.length ?? 0) < lookbackBars + 1) return false;
+  const last = Number(closedCandles.at(-1).close);
+  let high = -Infinity;
+  for (const c of closedCandles.slice(-lookbackBars - 1, -1)) high = Math.max(high, Number(c.close));
+  return last > high;
+}
+
+/**
+ * Section M: after a sleeve sell (a key in `gates`), while a majority of its votes is still
+ * positive, buy it back only on proof (a close above its recent high). A broken trend (votes
+ * below a majority) or the proof clears the gate; `gates` is mutated. Keys without a vote this
+ * cycle (stale series) keep their gate.
+ * @param {Map<string, true>} gates core key → gated
+ * @param {{ votes: Map<string, {positive:number,total:number}>, proofs: Map<string, boolean> }} inputs by symbol
+ */
+export function applyRebuyGate(actions, gates, { votes, proofs }) {
+  for (const key of [...gates.keys()]) {
+    const symbol = baseSymbol(key);
+    const vote = votes.get(symbol);
+    if (!vote) continue;
+    if (vote.positive < Math.floor(vote.total / 2) + 1 || proofs.get(symbol)) gates.delete(key);
+  }
+  return actions.filter((a) => a.type !== 'open' || !gates.has(a.key));
+}
+
 export function selectSleeveRung(hwmEquity, ladder) {
   if (!Array.isArray(ladder) || !ladder.length) return null;
   const valid = ladder.filter((r) => Number.isFinite(Number(r?.minHwmEquity))

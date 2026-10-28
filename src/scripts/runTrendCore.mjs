@@ -50,6 +50,7 @@ let maxmin = false;        // 10-day high / low rule (Padyšák & Vojtko 2022), 
 let sleeveStops = [];      // stops on the sleeve (--sleeve-stop), plan section J
 let sleeveExits = [];      // faster exits after a peak (--sleeve-exit K1,K2,K1b,K3), plan section K
 let sleevePauses = [];     // days without re-entry after a full sell (--sleeve-pause 1,3,7,14), plan section L
+let sleeveRebuys = [];     // buy-back confirmation after a fast-out sell (--sleeve-rebuy exit,high,ma), plan section M
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--out' && argv[i + 1]) outFile = argv[++i];
   if (argv[i] === '--extra-mom' && argv[i + 1]) extraMomDays = argv[++i].split(',').map(Number);
@@ -67,6 +68,7 @@ for (let i = 0; i < argv.length; i++) {
   // J: sleeve stops as pct:reentry, e.g. 0.09:flip,0.09:next
   if (argv[i] === '--sleeve-exit' && argv[i + 1]) sleeveExits = argv[++i].split(',').map((s) => s.trim());
   if (argv[i] === '--sleeve-pause' && argv[i + 1]) sleevePauses = argv[++i].split(',').map(Number);
+  if (argv[i] === '--sleeve-rebuy' && argv[i + 1]) sleeveRebuys = argv[++i].split(',').map((s) => s.trim());
   if (argv[i] === '--sleeve-stop' && argv[i + 1]) {
     sleeveStops = argv[++i].split(',').map((s) => { const [pct, reentry = 'flip'] = s.split(':'); return { pct: Number(pct), reentry }; });
   }
@@ -86,7 +88,8 @@ const N_TRIALS = 21
   + (maxmin ? 8 : 0)
   + sleeveStops.length
   + sleeveExits.length
-  + sleevePauses.length * 2;
+  + sleevePauses.length * 2
+  + sleeveRebuys.length * 2;
 
 // Slippage tiers per docs (Large 0.10%, Mid 0.20%, Micro 0.35%)
 const LARGE = new Set(['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'LTC', 'BCH', 'LINK', 'TRX', 'TON', 'GRAM']);
@@ -206,7 +209,7 @@ if (voteDays) {
       make: (coin) => { const a = hysteresisSeries(coin, barsList, need, 1); return (gi) => a[gi]; },
     };
   }
-  if (hysteresis && (sleeveExits.includes('K2') || sleevePauses.length)) { // K2: enter on 3/3, exit as soon as one vote turns negative
+  if (hysteresis && (sleeveExits.includes('K2') || sleevePauses.length || sleeveRebuys.length)) { // K2: enter on 3/3, exit as soon as one vote turns negative
     RULES[`vote${tag}d fast-out`] = {
       warmup: Math.max(...barsList),
       make: (coin) => { const a = hysteresisSeries(coin, barsList, barsList.length, barsList.length); return (gi) => a[gi]; },
@@ -479,6 +482,20 @@ function realizedVolAnnual(coin) {
   return v;
 }
 
+// M: simple moving average of the last n closes, the current bar included.
+function smaCloses(coin, n) {
+  const { closes, firstIdx } = coins.get(coin);
+  const out = new Array(grid.length).fill(null);
+  if (firstIdx === null) return out;
+  let sum = 0;
+  for (let gi = firstIdx; gi < grid.length; gi++) {
+    sum += closes[gi];
+    if (gi - n >= firstIdx) sum -= closes[gi - n];
+    if (gi - firstIdx + 1 >= n) out[gi] = sum / n;
+  }
+  return out;
+}
+
 // K: closes[gi] against the closes of the previous n bars (the current bar excluded).
 function priorExtremes(coin, n) {
   const { closes, firstIdx } = coins.get(coin);
@@ -493,13 +510,21 @@ function priorExtremes(coin, n) {
   return { lo, hi };
 }
 
-function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = null, band = 0.15, stop = null, trail = null, pauseBars = 0 } = {}) {
+function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = null, band = 0.15, stop = null, trail = null, pauseBars = 0, rebuy = null } = {}) {
   const { bars, closes } = coins.get(coin);
   // K: `trail = { n, mode: 'exit' | 'half' }` — act when a close is below the previous n bars'
   // closes; undo on a close above them while the vote holds, or when the vote turns off.
   const ext = trail ? priorExtremes(coin, trail.n) : null;
   let trailOut = false, peak = 0;
   let lastExitGi = -Infinity; // L: the bar whose open filled the last full sell
+  // M: after a full sell, while a majority of votes is still positive, buy back only on proof.
+  let gate = false, exitPx = 0;
+  const voteBars = voteDays ? voteDays.map((d) => d * 2) : [];
+  const majority = Math.floor(voteBars.length / 2) + 1;
+  // 'high' = 20 days; 'high<N>' = N days (robustness check of the 20-day choice)
+  const highDays = rebuy?.startsWith('high') ? Number(rebuy.slice(4) || 20) : 0;
+  const hi20 = highDays ? priorExtremes(coin, highDays * 2).hi : null;
+  const ma20 = rebuy === 'ma' ? smaCloses(coin, 40) : null;
   const gives = []; // peak-to-exit give-back of every full exit
   // `target(gi)` gives a fraction directly (null = no decision on this bar); otherwise a boolean rule.
   const on = target ? null : RULES[ruleKey].make(coin);
@@ -527,7 +552,7 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = n
         const sellQty = Math.min(-deltaUsd / open, qty);
         cash += sellQty * open * (1 - slip) * (1 - FEE);
         qty -= sellQty;
-        if (pendingTf === 0) { qty = 0; roundTrips++; lastExitGi = gi; if (peak > 0) gives.push(open / peak - 1); }
+        if (pendingTf === 0) { qty = 0; roundTrips++; lastExitGi = gi; gate = Boolean(rebuy); exitPx = open; if (peak > 0) gives.push(open / peak - 1); }
       }
       pendingTf = null;
     }
@@ -561,6 +586,14 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = n
     // L: a decision at close gi fills at gi+1's open, so blocking gi - lastExitGi < pauseBars - 1
     // keeps every re-entry fill at least pauseBars after the sell.
     if (pauseBars && qty === 0 && gi - lastExitGi < pauseBars - 1) sig = false;
+    if (gate && qty === 0) {
+      const c = closes[gi];
+      const proof = rebuy === 'exit' ? c > exitPx
+        : highDays ? hi20[gi] != null && c > hi20[gi]
+          : ma20[gi] != null && c > ma20[gi];
+      if (votesPositive(coin, gi, voteBars).pos < majority || proof) gate = false;
+      else sig = false;
+    }
     let tf = target ? target(gi) : sig ? 1 : 0;
     if (sig && vol) {
       const rv = vol[gi];
@@ -803,6 +836,17 @@ if (volTargetAnnual && voteDays) {
         if (!K[k]) { console.warn(`unknown sleeve exit: ${k}`); continue; }
         addTsmCell(`combo +M1 ${k} ${uName}`, universe, K[k].rule,
           { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, trail: K[k].trail ?? null, giveback: true });
+      }
+    }
+  }
+  // M: buy-back confirmation on K2 (decides) and on K2 + the 3-day pause (reported).
+  if (sleeveRebuys.length && hysteresis) {
+    for (const [uName, universe] of [['BTC+ETH', ['BTC', 'ETH']], ['BTC+ETH+BNB+SOL', ['BTC', 'ETH', 'BNB', 'SOL']]]) {
+      for (const rebuy of sleeveRebuys) {
+        for (const [tag, pauseBars] of [['', 0], ['pause3d ', 6]]) {
+          addTsmCell(`combo +M1 K2 ${tag}rebuy-${rebuy} ${uName}`, universe, `${voteKey} fast-out`,
+            { volTarget: volTargetAnnual, tfScale: OVERLAY_DEFS.M1.factor, pauseBars, rebuy, giveback: true });
+        }
       }
     }
   }
