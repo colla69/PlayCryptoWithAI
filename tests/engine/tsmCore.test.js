@@ -192,7 +192,7 @@ describe('tsmCore: planCoreResize', () => {
 // cannot decrease); these tests pin the selector, the feasibility advisory, and
 // the specific rungs shipped in config.
 
-import { selectSleeveRung, sleeveFeasibility } from '../../src/engine/tsmCore.js';
+import { selectSleeveRung, sleeveFeasibility, filterPausedEntries } from '../../src/engine/tsmCore.js';
 import config from '../../config/default.js';
 
 const LADDER = [
@@ -296,5 +296,28 @@ describe('impliedVolAsOf — DVOL as of the cycle, closed bars only', () => {
     assert.equal(impliedVolAsOf(rows, 3 * H12 + 86_400_001), null);
     assert.equal(impliedVolAsOf([], 5 * H12), null);
     assert.equal(impliedVolAsOf(undefined, 5 * H12), null);
+  });
+});
+
+describe('filterPausedEntries (section L re-entry pause)', () => {
+  const H = 3_600_000;
+  const actions = [
+    { type: 'open', symbol: 'BTC/USDC', key: 'BTC/USDC#core' },
+    { type: 'close', symbol: 'ETH/USDC', key: 'ETH/USDC#core' },
+    { type: 'open', symbol: 'SOL/USDC', key: 'SOL/USDC#core' },
+  ];
+  test('off (0 h) returns the actions unchanged', () => {
+    const last = new Map([['BTC/USDC#core', 0]]);
+    assert.equal(filterPausedEntries(actions, last, 1, 0), actions);
+  });
+  test('drops an entry sold inside the pause, keeps closes and other coins', () => {
+    const last = new Map([['BTC/USDC#core', 100 * H], ['ETH/USDC#core', 100 * H]]);
+    const kept = filterPausedEntries(actions, last, 100 * H + 71 * H, 72 * H);
+    assert.deepEqual(kept.map((a) => a.key), ['ETH/USDC#core', 'SOL/USDC#core']);
+  });
+  test('allows the entry once the pause has run', () => {
+    const last = new Map([['BTC/USDC#core', 100 * H]]);
+    const kept = filterPausedEntries(actions, last, 100 * H + 72 * H, 72 * H);
+    assert.equal(kept.length, 3);
   });
 });

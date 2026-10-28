@@ -25,7 +25,7 @@ import { buildCorrelationMatrix } from '../utils/correlation.js';
 import { checkCandleFreshness, formatAge, timeframeMs } from '../utils/candleFreshness.js';
 import { withFormingBar } from '../utils/formingBar.js';
 import {
-  computeTsmVote, planCoreActions, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey,
+  computeTsmVote, planCoreActions, filterPausedEntries, planCoreResize, computeRealizedVolAnnual, computeTargetFraction, coreKey,
   selectSleeveRung, sleeveFeasibility,
 } from '../engine/tsmCore.js';
 import { computeEquityRiskOff } from '../data/nasdaqTrend.js';
@@ -84,6 +84,8 @@ export function createTradingEngine(deps) {
     // TSM sleeve: vote-flip closes that failed (the risk loop retries them), and the
     // rung bookkeeping (alert on transitions, once per boot on infeasibility).
     tsmCoreFailedCloses: new Set(),
+    // Section L: when each core key was last sold (in memory), for the re-entry pause.
+    tsmLastExitAt: new Map(),
     tsmLastRungKey: null,
     tsmFeasibilityAlerted: false,
     // Binance venue events as of the last cycle (refreshExchangeEvents).
@@ -832,13 +834,13 @@ export function createTradingEngine(deps) {
         pushEvent('trade', result);
       };
 
-      const actions = planCoreActions({
+      const actions = filterPausedEntries(planCoreActions({
         symbols: [...signals.keys()],
         signals,
         positions: status.positions,
         enterVotes: coreCfg.enterVotes ?? null,
         stayVotes: coreCfg.stayVotes ?? null,
-      });
+      }), state.tsmLastExitAt, now(), Number(coreCfg.reentryPauseHours ?? 0) * 3_600_000);
       let traded = 0;
       for (const action of actions) {
         const price = prices.get(action.symbol);
@@ -856,6 +858,7 @@ export function createTradingEngine(deps) {
           }
           continue;
         }
+        if (action.type === 'close') state.tsmLastExitAt.set(action.key, now());
         emit(result); traded++;
       }
 

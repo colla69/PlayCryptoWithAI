@@ -259,6 +259,15 @@ const PARITY_INVENTORY = [
     backtest: { file: 'src/backtester/engineReplay.js', symbol: 'exchangeEvents' },
     shared: 'src/risk/exchangeEvents.js',
   },
+  {
+    // Section L (2026-10-28). The pause filters the sleeve's planned entries inside the
+    // engine's sleeve cycle, which the replay runs as is; live's retried closes in the
+    // risk loop stamp the same exit map.
+    rule: 'Sleeve re-entry pause after a sell (tsmCore.reentryPauseHours)',
+    live: { file: 'src/core/engine.js', symbol: 'filterPausedEntries' },
+    backtest: { file: 'src/backtester/engineReplay.js', symbol: 'createTradingEngine' },
+    shared: 'src/engine/tsmCore.js',
+  },
 ];
 
 /**

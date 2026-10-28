@@ -834,6 +834,9 @@ export default {
     // rule: Sharpe 1.27, DD −36%, DSR 0.94 on the 4-major 9yr study.
     enterVotes: 3,                // open a new core position: positives ≥ this
     stayVotes: 2,                 // keep an open core position: positives ≥ this
+    // Section L: hours after a sleeve sell before that coin may be bought again. 0 = off.
+    // In memory only — a restart forgets a running pause; persist it before turning it on.
+    reentryPauseHours: 0,
     // Static fallback deployment (rung A) — see equityLadder above, which is
     // what actually drives sizing. A pure risk dial: DD scales ~linearly with it.
     deploymentPct: 0.50,

@@ -691,6 +691,7 @@ let riskCheckId = null;
                 const retried = await trader.closeCorePosition(pos.symbol, price);
                 if (retried) {
                   engine.state.tsmCoreFailedCloses.delete(pos.symbol);
+                  engine.state.tsmLastExitAt.set(pos.symbol, Date.now());
                   logger.info(`[RISK-LOOP] ${pos.symbol}: core close retry succeeded`);
                   dashboardState.pushTrade(retried);
                   notifyTrade(retried);

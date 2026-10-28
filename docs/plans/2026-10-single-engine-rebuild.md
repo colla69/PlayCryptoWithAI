@@ -2443,3 +2443,46 @@ back pullbacks that kept falling. A pause after every full sell blocks a re-entr
   (a plateau, not one lucky value); then the shorter of the two.
 - Expected: a pause trades churn for late re-entries; K2's failure was in the bull years, when
   late re-entry costs most. A fail is more likely than a pass.
+
+### Section L results (2026-10-28): 3 days passes alone; no plateau, so not adopted
+
+**Stage 1** (`runTrendCore.mjs --sleeve-exit K2 --sleeve-pause 1,3,7,14`; section G still
+reproduces byte for byte; a half-day pause equals no pause). Sharpe: full · 2022+ · 2020-06+
+(the three that decide) · unseen; then full-window CAGR, worst drop, round trips, give-back:
+
+| | BTC+ETH | 4 majors |
+|---|---|---|
+| shipped | 1.21 · 0.75 · 1.22 · 2.07 — 42.5% · −49.5% · 91 · −9.3% | 1.27 · 0.74 · 1.30 · 2.42 — 40.0% · −35.7% · 168 · −10.0% |
+| K2, no pause | 1.28 · 0.88 · **1.21** · 2.30 | 1.29 · 0.76 · **1.24** · 2.33 |
+| K2 + 1 day | 1.31 · 0.93 · 1.25 · 2.15 | 1.32 · 0.80 · **1.28** · 2.19 |
+| **K2 + 3 days** | 1.42 · 1.07 · 1.38 · 1.72 — 46.6% · −31.2% · 173 · −2.8% | 1.44 · 0.92 · 1.40 · 1.94 — 41.2% · −29.6% · 340 · −3.5% |
+| **K2 + 7 days** | 1.44 · 1.04 · 1.40 · 1.72 — 45.7% · −29.3% · 134 | 1.45 · 0.89 · 1.43 · 2.08 — 39.7% · −26.0% · 262 |
+| **K2 + 14 days** | 1.40 · 1.16 · 1.43 · 1.12 — 40.3% · −26.9% · 108 | 1.41 · 0.98 · 1.40 · 1.30 — 34.3% · −23.8% · 207 |
+| shipped + pause (reported) | 1 d equal; 3–14 d lower (1.20 → 1.17) | 1 d equal; 3–14 d lower (1.26 → 1.22) |
+
+3, 7 and 14 days pass stage 1 (bold rows); 1 day fails (4 majors since 2020-06: 1.28 < 1.30).
+
+**Stage 2** — the pause built into the engine (`tsmCore.reentryPauseHours`, default 0;
+`filterPausedEntries` in `tsmCore.js`; exits stamped in the engine and by live's retried closes;
+inventory row; tests). With the pause off the six-year replay equals the committed run trade for
+trade ($6,762.89). Fast-out (`stayVotes` 3) plus the pause, by a preload:
+
+| Six-year replay, bot + breakout | Final | Sharpe | Worst drop | Sleeve exits | Unseen 08-10 → 10-24 |
+|---|---|---|---|---|---|
+| today | $6,762.89 | 1.99 | 8.2% | 103 | $312.21 · Sh 2.15 |
+| + 3 days | $6,724.45 | **2.04** | 7.7% | 220 | **$313.35 · Sh 2.35** |
+| + 7 days | $6,646.31 | **2.02** | 6.6% | 167 | $305.71 · Sh 1.72 |
+| + 14 days | $6,438.45 | 1.90 | 5.8% | 129 | $303.43 · Sh 1.64 |
+
+- 3 days passes stage 2 (Sharpe above 1.99, unseen not worse). 7 days passes the six-year bar
+  but is worse in the unseen window; 14 days fails both.
+- **Not adopted:** the written rule needs a neighbouring length to pass stage 2 too; 1 day failed
+  stage 1 and 7 days failed the unseen window. One passing value is the lucky-value case the
+  rule exists to stop.
+- What it does when it works: the worst drop of the whole bot falls (8.2% → 7.7% at 3 days,
+  6.6% at 7), the sleeve's give-back falls from ~9% to ~3%, the six-year total falls a little
+  ($6,763 → $6,724 / $6,646). Risk-adjusted better, slightly less money.
+- The code stays, off by default (`reentryPauseHours: 0`). Before anyone turns it on, the pause
+  must be persisted through `runtimeDir()` (a restart forgets it today).
+- Re-check written now: on 2027-02-10 (six months of unseen data) rerun the unseen window for
+  3 and 7 days with the same commands; adopt 3 days only if both are then not worse than today.

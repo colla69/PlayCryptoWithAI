@@ -197,6 +197,15 @@ export function planCoreActions({ symbols, signals, positions, enterVotes = null
  * @param {Array<{minHwmEquity:number, symbols:string[], deploymentPct:number}>} ladder
  * @returns {{minHwmEquity:number, symbols:string[], deploymentPct:number}|null}
  */
+/**
+ * Section L: drop sleeve entries for a key sold less than `pauseMs` ago, so a sell is not
+ * bought straight back while the trend is still breaking. `lastExitAt` maps core key → ms.
+ */
+export function filterPausedEntries(actions, lastExitAt, nowMs, pauseMs) {
+  if (!(pauseMs > 0)) return actions;
+  return actions.filter((a) => a.type !== 'open' || !(nowMs - (lastExitAt?.get(a.key) ?? -Infinity) < pauseMs));
+}
+
 export function selectSleeveRung(hwmEquity, ladder) {
   if (!Array.isArray(ladder) || !ladder.length) return null;
   const valid = ladder.filter((r) => Number.isFinite(Number(r?.minHwmEquity))
