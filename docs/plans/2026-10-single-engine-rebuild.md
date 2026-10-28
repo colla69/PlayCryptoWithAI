@@ -2424,3 +2424,22 @@ Unseen 2026-08-10 → 10-24 (Sharpe, 2 / 4): shipped 2.07 / 2.42; K1 2.12 / 2.24
   then continue. Since 2020 the trade is roughly neutral in Sharpe and negative in return. Not
   applied (revert, don't patch). It is a risk preference, not an edge: the user may still choose
   a smaller sleeve drawdown for less return, as one config value.
+
+## Section L: a pause after each sleeve sell (pre-registered 2026-10-28, before any run)
+
+User: "what about a short timed pause after sell? test some possibilities." K2 (sell on the first
+negative vote) cut the give-back but failed on churn: 472 round trips instead of 168, and it bought
+back pullbacks that kept falling. A pause after every full sell blocks a re-entry for N days.
+
+- **L-K2-N:** K2 plus a pause of N = 1, 3, 7, 14 days (2, 6, 14, 28 bars) after each full exit;
+  after the pause, the normal entry rule (3 of 3 votes). These decide.
+- Reported only: the shipped sleeve (combo + M1) with the same four pauses.
+- Simulator, data, windows as section K. **Stage 1** per length: Sharpe not below combo + M1's on
+  both universes in the full window **and** the 2022+ half, **and** (new, since K2 passed the
+  simulator yet failed the replay) also in the replay's own window, 2020-06-01 → 2026-08-10.
+- **Stage 2** for every length that passes: the six-year bot replay with the pause in the engine
+  (in-memory, off by default); the bar is Sharpe not below 1.99 and the unseen window not worse.
+- **Adopt** a length only if it passes stage 2 **and** a neighbouring length passes stage 2 too
+  (a plateau, not one lucky value); then the shorter of the two.
+- Expected: a pause trades churn for late re-entries; K2's failure was in the bull years, when
+  late re-entry costs most. A fail is more likely than a pass.
