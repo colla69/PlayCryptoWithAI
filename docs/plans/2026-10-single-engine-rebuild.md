@@ -2392,3 +2392,35 @@ half). Two candidates decide; settings are textbook values, not fitted:
 - Expected: faster exits cut the give-back and the worst drop but sell more pullbacks inside
   trends; the round-trip cost (0.4%) and missed re-entries decide. A fail is likely, as for every
   exit tightening so far; a pass goes to stage 2 as in section J.
+
+### Section K results (2026-10-28): K2 passes stage 1, fails stage 2; nothing changes
+
+`runTrendCore.mjs --sleeve-exit K1,K2,K1b,K3` (`ref` = combo + M1 with the give-back measured;
+it equals combo + M1 exactly, and the section G run still reproduces byte for byte). Sharpe ·
+CAGR · worst drop; median give-back from peak to exit; round trips:
+
+| combo + M1 | BTC+ETH full | 4 majors full | BTC+ETH 2022+ | 4 majors 2022+ | give-back | trips (2 / 4) |
+|---|---|---|---|---|---|---|
+| as shipped | 1.21 · 42.5% · 49.5% | 1.27 · 40.0% · 35.7% | 0.75 | 0.74 | −9.3% / −10.0% | 91 / 168 |
+| **K1** 20-day-low exit | 1.31 · 43.7% · 41.3% | 1.35 · 39.0% · 32.1% | **0.72** | **0.64** | −8.7% / −9.8% | 102 / 190 |
+| **K2** fast-out vote | 1.28 · 41.8% · 34.9% | 1.29 · 37.1% · 30.2% | 0.88 | 0.76 | −2.0% / −2.1% | 235 / 472 |
+| K1b 10-day low (reported) | 1.04 · 29.5% · 42.8% | 1.16 · 28.7% · 27.5% | 0.56 | 0.65 | −7.7% / −9.0% | 154 / 278 |
+| K3 halve at 20-day low (reported) | 1.27 · 43.1% · 45.2% | 1.31 · 39.1% · 33.8% | 0.74 | 0.69 | −9.3% / −10.0% | 91 / 168 |
+
+Unseen 2026-08-10 → 10-24 (Sharpe, 2 / 4): shipped 2.07 / 2.42; K1 2.12 / 2.24; K2 2.30 / 2.33.
+
+- **K1 fails** the written reading: better over the full window, worse after 2022 on both.
+- **K2 passes stage 1**: Sharpe not below on both universes in both windows; worst drop −49.5% →
+  −34.9% and −35.7% → −30.2%; give-back −9% → −2%; 2.6–2.8× the round trips. Yearly Sharpe is
+  mixed (BTC+ETH better in 2017, 2018, 2024, 2025; worse in 2019–21, 2023): the full-window gain
+  is mostly 2018 (−2.02 → −0.92).
+- **K2 stage 2** (`tsmCore.stayVotes` 2 → 3 by a preload, no code; six-year replay, bot +
+  breakout, 9% cap): **$6,762.89 · Sharpe 1.99 · drop 8.2% → $6,549.13 · 1.92 · 8.8%**; sleeve
+  exits 103 → 311. Unseen: $312.21 · 2.15 → $317 · 2.47 (2.5 months). **Fails** (Sharpe below
+  1.99). The simulator agrees on the replay's window (2020-06 → 2026-08): Sharpe 1.22 → 1.21 and
+  1.30 → 1.24, CAGR 43% → 38% and 44% → 37%, worst drop 37% → 31% and 36% → 30%.
+- Reading: selling sooner after a peak does what the user wants — far less give-back, a smaller
+  worst drop — and pays for it in return, because it also sells the pullbacks inside trends that
+  then continue. Since 2020 the trade is roughly neutral in Sharpe and negative in return. Not
+  applied (revert, don't patch). It is a risk preference, not an edge: the user may still choose
+  a smaller sleeve drawdown for less return, as one config value.
