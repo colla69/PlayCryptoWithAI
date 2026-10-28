@@ -2280,3 +2280,24 @@ same 18 traded coins change (their stops are 10.5%, TRX 18%; every other stop is
 Unlike the 10% cap, this changes trades: a trade that dips 8–10% and recovers is now a stop-out.
 Expected from the stop sweep (SL × 1 = 7% for these coins scored Sharpe 0.80 vs 1.38 for × 1.5):
 worse than 10%. Reported as in section I plus the stop-out count; no pass/fail (the user's rule).
+
+### Section I2 results (2026-10-28): 9% matches 10%; 8% is worse
+
+| Run | Today (10.5% / 18%) | 10% cap | 9% cap (reported only) | 8% cap |
+|---|---|---|---|---|
+| Six-year replay | $6,721.65 · Sh 1.98 · drop 8.5% | $6,735.33 · 1.99 · 8.4% | $6,763 · 1.99 · 8.2% | $6,522 · 1.93 · **10.7%** |
+| Baseline y2_365d | +17.75% · Sh 1.81 · DD −3.91% | +17.81% · 1.82 · −3.88% | +17.92% · 1.83 · −3.83% | +8.44% · **0.79** · **−9.22%** |
+| Baseline y1_holdout | +67.83% · 3.28 | +68.50% · 3.31 | +69.84% · 3.38 | +71.19% · 3.45 |
+| Baseline y1y2_full | +97.62% · 2.64 · −6.88% | +98.50% · 2.67 | +100.28% · 2.71 | +85.63% · 2.32 · −9.22% |
+| Baseline full_history | +105.22% · 1.36 · DSR 0.31 | +106.14% · 1.37 · 0.32 | +107.98% · 1.39 · 0.34 | +92.77% · 1.21 · 0.19 |
+| Walk-forward | +64.99% · 1.58 · DSR 0.50 | +65.45% · 1.59 · 0.52 | +66.33% · 1.61 · 0.55 | +58.99% · 1.42 · 0.32 |
+| Unseen 08-10 → 10-24 | $311.97 | $312.04 | $312.21 | $312.37 |
+
+- 9%: the same 77 scalper trades and the same 17 stop-outs as at 10.5%; each stop-out only
+  loses less. No trade in six years dipped 9–10.5% and recovered.
+- 8%: three trades change. PAXG 2025-10-06 (+$8.44 at 10%) becomes a stop-out of −$160.73, and
+  INJ 2026-05-19 (+$50.71) a stop-out of −$43.59, plus a small new INJ re-entry. PAXG is the
+  large one: gold's daily range is small, so ATR inverse-vol sizing gives it the largest
+  position, and its stop costs the most in dollars. 8% gives up the y2 window and the
+  walk-forward; under "revert, don't patch" it is not a candidate.
+- Costs: a stop at 10% loses about 10.3% with fees and slippage; at 9% about 9.3%.
