@@ -2271,3 +2271,12 @@ their committed figures to the cent, so the candle sets are the right ones.
 - The TSM sleeve has no stop: 10 of its 103 exits were more than 10% below the first entry
   (worst SOL 2024-07-22 → 08-05, −37% in price; the sleeve is vol-sized, so the account lost
   less). Not part of this change; left for the user.
+
+### Section I2: an 8% cap (pre-registered 2026-10-28, before any run)
+
+User: "not sure .. what about 8% then". Same preload, same four runs and references as section I,
+with the cap at 0.08; 0.09 is run too, reported only, to show the shape between 8% and 10%. The
+same 18 traded coins change (their stops are 10.5%, TRX 18%; every other stop is 7.5% and stays).
+Unlike the 10% cap, this changes trades: a trade that dips 8–10% and recovers is now a stop-out.
+Expected from the stop sweep (SL × 1 = 7% for these coins scored Sharpe 0.80 vs 1.38 for × 1.5):
+worse than 10%. Reported as in section I plus the stop-out count; no pass/fail (the user's rule).
