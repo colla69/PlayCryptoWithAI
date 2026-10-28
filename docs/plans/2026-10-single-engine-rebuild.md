@@ -2486,3 +2486,23 @@ trade ($6,762.89). Fast-out (`stayVotes` 3) plus the pause, by a preload:
   must be persisted through `runtimeDir()` (a restart forgets it today).
 - Re-check written now: on 2027-02-10 (six months of unseen data) rerun the unseen window for
   3 and 7 days with the same commands; adopt 3 days only if both are then not worse than today.
+
+## Section M: a confirmation rule for buying back (pre-registered 2026-10-28, before any run)
+
+User: "finding extra rule for reenter?" K2 (sell on the first negative vote) sells while today's
+sleeve would still hold (2 of 3 votes positive). Inside that window, M asks for proof before
+buying back; once the trend breaks for real (fewer than 2 of 3 votes positive) the gate clears
+and the normal entry rule (3 of 3) applies again. Three textbook rules, no fitted settings:
+
+- **M1, above the sell price:** buy back only on a close above the price the sleeve sold at.
+- **M2, 20-day high:** buy back only on a close above every close of the previous 20 days.
+- **M3, above the 20-day average:** buy back only on a close above the 20-day moving average.
+- Each on K2 with no pause (decides); each on K2 + the 3-day pause (reported only).
+
+Stages as section L: stage 1 = Sharpe not below the shipped sleeve on both universes in the full
+window, the 2022+ half and 2020-06+; stage 2 = the six-year bot replay (Sharpe not below 1.99)
+and the unseen window not worse. Multiple testing: this is the fourth round of exit changes on
+the same data (J, K, L, M: 22 sleeve variants so far); the DSR in every table is deflated by the
+cumulative trial count, and a pass here is reported as one more variant, not as a fresh finding.
+Expected: M1 and M2 cut the buy-backs that keep falling; all three re-enter later than K2 when
+the trend resumes. No prior favourite.
