@@ -2364,3 +2364,31 @@ equals combo + M1 exactly. Sharpe · CAGR · worst drop; stop-outs over the whol
   the account** (SOL 2024-07-22, −37% in price: the slot is part of the equity and vol-sized);
   the scalper's worst cost 1.9% (BTC 2024-01-02).
 - Not built. Stage 2 does not start; the user decides how the 10% rule reads for the sleeve.
+
+**Decision (user, 2026-10-28): reading A.** The 10% rule is a cap on stop distance for
+stop-based trading (scalper at 9%, satellites at 10%). The sleeve keeps no stop: it exits on its
+vote and is limited by its size (worst trade 1.1% of the account).
+
+## Section K: sell sooner after a peak (pre-registered 2026-10-28, before any run)
+
+User: "I do quite dislike how the sleeve misses to sell before big drops." Measured on the
+six-year replay (103 sleeve trades): the median trade gives back 9.6% from its peak before the
+vote exits; 35 give back more than 15%, usually over 2–4 weeks; 13 trades up more than 10% end
+at a loss (worst BNB 2021-02-18 → 05-20: peak +262%, exit +80%). No gauge tested in sections D–G
+sells *before* a drop; what can be tested is selling sooner *after* the peak. Section J showed a
+stop from the entry price sells normal dips, so these exits measure from the peak or the trend.
+
+Simulator, data, windows and reading as section J (combo + M1 as base; each candidate passes only
+if its Sharpe is not below combo + M1's on both universes in the full window **and** in the 2022+
+half). Two candidates decide; settings are textbook values, not fitted:
+- **K1, 20-day-low exit (Turtle System 2's exit):** while held, sell at the next open when a 12h
+  close is below every close of the previous 20 days. Stay out until the vote has turned off,
+  or until a close above every close of the previous 20 days while the vote is still on.
+- **K2, fast-out vote:** enter on 3 of 3 votes as now, but exit as soon as one vote turns
+  negative (today: exit below 2 of 3).
+- Reported only: K1b (10-day low / 10-day high), K3 (K1's trigger halves the position instead of
+  selling it; back to full on the same re-entry conditions).
+- Also reported for each: worst drop, median give-back from peak to exit, round trips.
+- Expected: faster exits cut the give-back and the worst drop but sell more pullbacks inside
+  trends; the round-trip cost (0.4%) and missed re-entries decide. A fail is likely, as for every
+  exit tightening so far; a pass goes to stage 2 as in section J.
