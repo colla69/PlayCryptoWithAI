@@ -2,27 +2,42 @@ import fs from 'fs';
 
 const CACHE = 'data/fearGreed.json';
 
-export async function loadFearGreedHistory() {
-  // Read the on-disk cache defensively. A corrupt/truncated file must fall
-  // through to a fresh fetch, never throw: this function is invoked as an
-  // unawaited `void loadFearGreedHistory()` in main.js, so a synchronous throw
-  // here becomes an unhandled rejection that crashes the process on Node >=15.
+const FETCH_TIMEOUT_MS = 15_000;
+const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * The daily history, from the cache when it already holds today's (UTC) value and
+ * refetched otherwise — an age limit would keep serving a history without today,
+ * which `getFearGreedValue` reads as neutral. A failed refresh returns the cache;
+ * null only when there is none. Never throws: the cycle awaits it.
+ */
+export async function loadFearGreedHistory({ now = Date.now(), cachePath = CACHE, fetchImpl = fetch } = {}) {
+  let cached = null;
   try {
-    if (fs.existsSync(CACHE)) {
-      const d = JSON.parse(fs.readFileSync(CACHE, 'utf-8'));
-      if (d && Date.now() - d.fetchedAt < 86400000) return d.data;
+    if (fs.existsSync(cachePath)) {
+      const d = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+      if (Array.isArray(d?.data) && d.data.length) cached = d.data;
     }
   } catch {
     // corrupt/unreadable cache — fall through to the network fetch below
   }
+  if (cached?.some((e) => utcDay(e.ts) === utcDay(now))) return cached;
   try {
-    const res = await fetch('https://api.alternative.me/fng/?limit=1000&format=json');
+    const res = await fetchImpl('https://api.alternative.me/fng/?limit=1000&format=json', {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     const json = await res.json();
-    const data = json.data.map((d) => ({ ts: Number(d.timestamp) * 1000, value: Number(d.value) }));
-    fs.writeFileSync(CACHE, JSON.stringify({ fetchedAt: Date.now(), data }));
+    const data = json.data.map((d) => ({ ts: Number(d.timestamp) * 1000, value: Number(d.value) }))
+      .filter((d) => Number.isFinite(d.ts) && Number.isFinite(d.value));
+    if (!data.length) return cached;
+    try {
+      fs.writeFileSync(cachePath, JSON.stringify({ fetchedAt: now, data }));
+    } catch {
+      // the fetched history is still good for this cycle
+    }
     return data;
   } catch {
-    return null;
+    return cached;
   }
 }
 

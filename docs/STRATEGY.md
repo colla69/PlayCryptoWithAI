@@ -147,7 +147,7 @@ backtester can replay them deterministically):
   hard, alt entries are blocked (alts crash when dominance spikes). No-ops until 7 days of data exist.
 - **ETH/BTC ratio** — from Binance public spot; a *sizing* multiplier on alts (altseason on/off), not
   a hard gate.
-- **Fear & Greed modulator** — `data/fearGreed.json` (1000 daily samples). Extreme greed (>80)
+- **Fear & Greed modulator** — `data/fearGreed.json` (1000 daily samples, re-read each cycle). Extreme greed (>80)
   tightens `minConfidence` by +0.05; extreme fear (<20) relaxes it by −0.05 (contrarian).
 
 Every cross-asset feed is optional with a neutral fallback — the bot keeps trading on local Binance

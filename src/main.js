@@ -103,6 +103,7 @@ const engine = createTradingEngine({
   marketContext: { getBtcDominanceTrend, getEthBtcTrend },
   notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot,
   loadEquityHistory, loadNasdaqHistory, loadImpliedVol, loadExchangeEvents: loadVenueEvents,
+  loadFearGreed: loadFearGreedHistory,
   sleeveStore: { load: loadSleeveState, save: saveSleeveState },
   modeLabel: (paperMode ? 'paper' : testnetMode ? 'testnet' : 'live').toLowerCase(),
   initialState: { currentRegime: REGIME_LABELS.BULL_RANGE },
@@ -765,14 +766,10 @@ if (config.mtf4hFilter?.enabled) {
 }
 
 // ── Market context cache (Phase 3) — BTC.D + ETHBTC ────────────────────────
-// Load Fear & Greed history once (its own TTL handles staleness). Refresh
-// market context (BTC.D, ETHBTC) on the configured interval so the BTC.D
+// Refresh market context (BTC.D, ETHBTC) on the configured interval so the BTC.D
 // gate + sizing modulators have fresh values without bothering on every cycle.
+// Fear & Greed is read by the engine at each cycle.
 let marketContextRefreshId = null;
-void loadFearGreedHistory().then((data) => {
-  engine.state.fearGreedData = data;
-  if (data) logger.info(`Fear & Greed history loaded: ${data.length} daily samples`);
-}).catch((err) => logger.error(`Fear & Greed history load failed: ${err?.message ?? err}`));
 if (config.btcDominance?.enabled) {
   const ms = Number(config.btcDominance.refreshIntervalMs ?? 6 * 60 * 60 * 1000);
   void refreshMarketContext()
