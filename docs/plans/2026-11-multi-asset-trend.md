@@ -1,6 +1,7 @@
 # Other assets and the scalper/sleeve split
 
-**Status (2026-11-25): plan only. Nothing run, nothing built.** Goal, in the user's words: money,
+**Status (2026-11-25): Part A measured, the user's decision is open. Part B stopped at the fee
+check; no study built.** Goal, in the user's words: money,
 not learning. Run on the research PC, never on the live host.
 
 ## Do not repeat these
@@ -64,6 +65,55 @@ If it fails, the answer is the benchmark: a plain index ETF savings plan, no bot
 `src/scripts/runTrendCore.mjs` holds the rule, but reads 12h USDC candle files and crypto costs.
 Write a separate research script for daily multi-asset data. Check that it reproduces the sleeve's
 BTC+ETH numbers before trusting it on anything new. No live code, no broker integration.
+
+## Part A results (2026-11-25)
+
+`runSuperbot.mjs --cell bot` (no satellites), $190 + $10 a week, three runs per window: both as
+shipped, `--no-sleeve` (scalper alone), `--per-symbol '{"minConfidence":2}'` (sleeve alone: no
+scalper entry can reach the threshold; 0 scalper trades confirmed). Deep set `126 724b7eed…` for
+2020-06-01 → 2026-08-10, live set `126 193218ef…` for 2026-08-10 → 10-24; both fingerprints checked
+after the runs. 0 min-notional rejections. Returns are on the whole account, idle cash included.
+
+| Span | Scalper alone | Sleeve alone | Both (shipped) |
+|---|---|---|---|
+| 2020-06 → 2024-05, unseen by both | 0.7%/yr · Sharpe 0.30 · drop 4.0% | 18.0% · 1.85 · 6.2% | 17.9% · 1.76 · 6.2% |
+| 2024-05 → 2026-08, **scalper in-sample to 2026-05** | 22.8% · 2.68 · 3.5% | 0.6% · 0.14 · 5.7% | 20.5% · 2.07 · 6.5% |
+| of which 2026-05-29 → 08-10, unseen | −0.6% total · drop 0.7% | −0.1% total · drop 1.0% | −0.8% total · drop 1.7% |
+| 2026-08-10 → 10-24, unseen (11 weeks) | +7.2% total · drop 2.1% | +9.5% total · drop 6.2% | +12.6% total · drop 7.0% |
+| Whole 2020-06 → 2026-08 | 8.3%/yr · 1.58 · 4.2% | 11.3% · 1.39 · 6.2% | 18.9% · 1.87 · 6.5% |
+
+Final balance of $3,420 paid in: scalper $4,988, sleeve $4,059, both $5,692.
+
+What it shows:
+- **The scalper barely traded before its tuning window.** 14 trades in the four unseen years, −$35 in
+  total. 63 trades from 2024-05 on, +$1,603. All of its six-year profit sits in the period its
+  settings were chosen on. C8's "bot 20.2%/yr on 2020 → 2024" was the sleeve: that figure included it.
+- **The sleeve is the reverse.** +$595 before 2024-05, +$32 after: flat for the last 27 months of the
+  deep set.
+- **Unseen by the scalper so far:** 2026-05-29 → 10-24, about five months, −0.6% then +7.2%. Too
+  short to settle anything.
+- The two streams made money in different periods, so the combined curve is smoother than either.
+  For the scalper that is partly an artefact of the in-sample window.
+
+The choice in plain terms, per year and worst drop: scalper alone has no evidence outside its tuning
+window (0.7%/yr over four years, then five months that net positive); sleeve alone has four good
+unseen years and two flat ones (11.3%/yr, drop 6.2%); both as shipped gives 18.9%/yr, drop 6.5%, with
+the scalper's share of that not proven. Nothing in live is changed by this.
+
+## Part B: stopped at the fee check (2026-11-25)
+
+- An API needs Interactive Brokers: about €1.25 minimum per Xetra order on tiered pricing, by
+  third-party guides (not confirmed on IBKR's 2026 price list). Trade Republic (€1) and Scalable
+  (€1.99) have no confirmed official trading API; their savings plans are free.
+- Kraken xStocks (tokenised SPY, QQQ, GLD) is open to German retail, but its support page says
+  order-book trading over the API is not available to EEA clients. Spreads are not published.
+- With a few hundred dollars over four assets a slot is $50–100, so one order costs 1.25–2.5% and a
+  round trip 2.5–5%. Rule T1 flips several times a year. Fees stop mattering at about €600–1,250 an
+  order, which is €3–5k in this sleeve.
+
+By the rule above the study is not built. Free daily history exists if the account reaches that
+size (Yahoo adjusted closes: SPY, QQQ, GLD, IEF from before 2007; the EUR UCITS versions only from
+2008–2010). Until then the answer is the benchmark: a free index ETF savings plan. Taxes unchecked.
 
 ## Setup on the research PC
 - `git fetch && git switch plan/multi-asset-trend`, `npm install`, Node 22+.
