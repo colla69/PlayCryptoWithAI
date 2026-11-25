@@ -207,6 +207,22 @@ interest is not a function of the spot price, unlike most of what failed before.
 - **Expected in advance:** a fail, more likely than not. About 250 trades is a small sample, funding
   (the nearest relative) already failed, and D9's taker-buy filter failed on these same trades.
 
+### Result (2026-11-25): FAIL at the estimate, nothing built
+
+Reference replay reproduced ($6,762.89; 257 filled breakouts). The metrics archive starts 2020-09-01
+for BTC only; the other seven coins start 2021-12-01, so 168 trades could be scored (17 before
+2020-09-01, 72 with no metric row). Script `positioning.py` in the session scratchpad.
+
+| Rule | Kept: n · mean · before 2024 / 2024 on · P&L | Skipped: n · mean · before 2024 / 2024 on · P&L |
+|---|---|---|
+| P1 open interest below 24h ago (decides) | 148 · +0.53% · −0.60% / +0.89% · $466 | 20 · +0.65% · +0.51% / +0.74% · $31 |
+| P2 long/short ratio above 30-day median (reported) | 138 · +0.78% · −0.69% / +1.31% · $627 | 30 · −0.52% · +1.15% / −1.03% · −$130 |
+
+- **P1 fails:** the trades it skips made money in both halves, and more per trade than the kept ones.
+  It also has little to act on: open interest was already rising at 148 of 168 breakouts.
+- **P2 does not count** (P1 failed), and its sign flips between the halves on 7 and 23 trades.
+- Per the pre-registration the idea ends here: no other window, threshold or column is tried.
+
 ## Part B: stopped at the fee check (2026-11-25)
 
 - An API needs Interactive Brokers: about €1.25 minimum per Xetra order on tiered pricing, by
