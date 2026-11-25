@@ -54,6 +54,7 @@ import { exchangeEventState } from '../risk/exchangeEvents.js';
  * @param {Function} deps.loadNasdaqHistory — the sleeve's macro overlay feed
  * @param {Function} [deps.loadImpliedVol] — async (symbol) → annualised implied vol or null;
  *   when given, a non-null value replaces realized vol in the sleeve's vol targeting (E1)
+ * @param {Function} [deps.loadFearGreed] — async () → daily Fear & Greed history, read at each cycle
  * @param {Function} [deps.loadExchangeEvents] — async () → Binance venue events announced by
  *   now (monitoring tags, USDC-pair removals, delistings) or null; when given, they veto
  *   entries and sell a held position whose pair is going away (src/risk/exchangeEvents.js)
@@ -69,6 +70,7 @@ export function createTradingEngine(deps) {
     config, dashboardState, trader, riskManager, regimeTracker, symbolAggregators, signalConfig,
     fetchOHLCV, notifyTrade, notifyAlert, pushEvent, recordEquitySnapshot, modeLabel,
     loadEquityHistory, loadNasdaqHistory, loadImpliedVol = null, loadExchangeEvents = null,
+    loadFearGreed = null,
     sleeveStore = null,
   } = deps;
   const { getBtcDominanceTrend, getEthBtcTrend } = deps.marketContext;
@@ -177,6 +179,26 @@ export function createTradingEngine(deps) {
       if (Array.isArray(events)) state.exchangeEvents = events;
     } catch (err) {
       logger.warn(`Exchange events: load failed (${err?.message ?? err}) — keeping the last ones`);
+    }
+  }
+
+  /** Re-reads Fear & Greed at a cycle's start; a failed read keeps the last history. */
+  async function refreshFearGreed() {
+    if (!loadFearGreed) return;
+    try {
+      const data = await loadFearGreed();
+      if (!data) {
+        logger.warn('Fear & Greed: no history available');
+        return;
+      }
+      state.fearGreedData = data;
+      // Counts the cycles that run neutral where a backtest has the day's value.
+      const today = new Date(now()).toISOString().slice(0, 10);
+      if (!data.some((e) => new Date(e.ts).toISOString().slice(0, 10) === today)) {
+        logger.warn(`Fear & Greed: no value for ${today} yet — neutral this cycle`);
+      }
+    } catch (err) {
+      logger.warn(`Fear & Greed: load failed (${err?.message ?? err}) — keeping the last history`);
     }
   }
 
@@ -483,6 +505,7 @@ export function createTradingEngine(deps) {
         config.symbols.map(async (symbol) => [symbol, await refreshSymbolCandles(symbol)]),
       ));
       await refreshExchangeEvents();
+      await refreshFearGreed();
       // The 15m / 4h filter caches refresh right after the close too (item 9). On a
       // timer counted from boot, the 4h cache's newest bar was fetched up to 4 h
       // before the cycle, part-formed, and what the filter saw depended on boot time.

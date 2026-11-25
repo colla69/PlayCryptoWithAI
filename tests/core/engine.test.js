@@ -11,6 +11,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import config from '../../config/default.js';
+import logger from '../../src/utils/logger.js';
 import { createTradingEngine } from '../../src/core/engine.js';
 import PaperTrader from '../../src/executor/paperTrader.js';
 import RiskManager from '../../src/risk/index.js';
@@ -85,6 +86,32 @@ function build({ confidences, maxOpenPositions, configPatch = {}, bars15m = null
   });
   return { engine, trader, dashboardState, riskManager };
 }
+
+describe('engine: Fear & Greed is re-read at every cycle', () => {
+  test('a history without today is logged', async (t) => {
+    const warn = t.mock.method(logger, 'warn', () => {});
+    const { engine } = build({
+      confidences: { 'AAA/USDC': 0.6, 'BBB/USDC': 0.9, 'CCC/USDC': 0.7 }, maxOpenPositions: 1,
+      deps: { loadFearGreed: async () => [{ ts: T - 2 * H12, value: 10 }] },
+    });
+    await engine.runAllSymbols();
+    assert.ok(warn.mock.calls.some((c) => /no value for 2026-10-25 yet/.test(c.arguments[0])));
+  });
+
+  test('each cycle takes the newest history; a failed read keeps the last one', async () => {
+    const day1 = [{ ts: T - 2 * H12, value: 10 }];
+    const day2 = [{ ts: T, value: 90 }, ...day1];
+    const reads = [() => day1, () => day2, () => null, () => { throw new Error('down'); }];
+    const { engine } = build({
+      confidences: { 'AAA/USDC': 0.6, 'BBB/USDC': 0.9, 'CCC/USDC': 0.7 }, maxOpenPositions: 1,
+      deps: { loadFearGreed: async () => reads.shift()() },
+    });
+    for (const expected of [day1, day2, day2, day2]) {
+      await engine.runAllSymbols();
+      assert.equal(engine.state.fearGreedData, expected);
+    }
+  });
+});
 
 describe('engine: entries fill the free slots one at a time, by confidence', () => {
   test('one free slot, three BUYs: one position, the highest confidence', async () => {

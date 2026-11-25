@@ -132,7 +132,7 @@ const ALLOWED_DIRECT_PATHS = {
   'src/exchange/candleCache.js': 'candle cache — research input, shared with backtests',
   'src/data/marketContext.js': 'market-data cache — re-fetchable, not bot state',
   'src/backtester/report.js': 'backtest report output — research artefact',
-  'src/data/fearGreed.js': 'Fear & Greed cache — re-fetchable, not bot state (tracked in git)',
+  'src/data/fearGreed.js': 'Fear & Greed cache — re-fetchable, not bot state',
   'src/data/nasdaqTrend.js': 'NASDAQ trend cache — re-fetchable, not bot state',
   'src/meta/metaOverlay.js': 'research model input (default path), feature off',
   'src/backtester/baselineFramework.js': 'research candle input, shared with backtests',
