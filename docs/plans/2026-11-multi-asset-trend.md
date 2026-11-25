@@ -123,6 +123,19 @@ the scalper's share of that not proven. Nothing in live is changed by this.
   2024-05 and lost after; today's per-coin setting did the reverse, on the span it was chosen on.
   Every setting lost in 2026-05-29 → 08-10.
 
+### Decision (user, 2026-11-25): no more scalper tuning; a stop rule fixed in advance
+
+- Scalper and sleeve stay as shipped. No scalper setting is re-tuned.
+- **Scalper stop rule:** count the scalper's own closed trades from 2026-05-29 (the first day its
+  settings never saw). Review at 40 such trades or on **2027-05-29**, whichever comes first. If
+  their net P&L, fees included, is negative at the review, switch the scalper off. The rule is
+  not changed before the review.
+- Sources for the count: `runSuperbot.mjs --no-sleeve` to 2026-10-24, live's trade log after.
+  State on 2026-10-24: 7 trades to 08-10 (−$32 in the six-year replay's money) and +7.2% on the
+  account over the next 11 weeks.
+- The sleeve stays on. Next candidate with evidence: the breakout satellite, built and off; its
+  paper soak and reconciliation are still to do (one-engine plan, "The live side of the satellites").
+
 ## Part B: stopped at the fee check (2026-11-25)
 
 - An API needs Interactive Brokers: about €1.25 minimum per Xetra order on tiered pricing, by
