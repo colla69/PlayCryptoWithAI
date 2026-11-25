@@ -1,7 +1,8 @@
 # Other assets and the scalper/sleeve split
 
-**Status (2026-11-25): Part A measured, the user's decision is open. Part B stopped at the fee
-check; no study built.** Goal, in the user's words: money,
+**Status (2026-11-25): Part A measured and decided (stop rule below). Part B stopped at the fee
+check; no study built. Added the same day: the sleeve buy-back checks and a pre-registered
+futures-positioning test.** Goal, in the user's words: money,
 not learning. Run on the research PC, never on the live host.
 
 ## Do not repeat these
@@ -135,6 +136,76 @@ the scalper's share of that not proven. Nothing in live is changed by this.
   account over the next 11 weeks.
 - The sleeve stays on. Next candidate with evidence: the breakout satellite, built and off; its
   paper soak and reconciliation are still to do (one-engine plan, "The live side of the satellites").
+
+## Sleeve buy-back rule: the two open checks (2026-11-25)
+
+The rule is section M2 of the [one-engine plan](2026-10-single-engine-rebuild.md): sell on the first
+negative vote (`stayVotes` 3), buy back only on a close above the previous 20 days' closes
+(`rebuyConfirmBars` 40). Two of its three open checks are now done. Nothing is switched on.
+
+**Check 1 — paired block bootstrap, charged for the family.** `runTrendCore.mjs` rerun on freshly
+downloaded Binance USDT 12h bars (2017-08-17 → 2026-08-10); it reproduces section M's Sharpe
+(1.21 → 1.47, 1.27 → 1.50, 0.91 → 1.16; 90 round trips against 91 in one cell). 12h returns of M2
+minus the shipped sleeve, circular blocks of 30 days, 5,000 draws. Family = the 21 sleeve-exit
+variants of sections J–M (3 stops, 4 fast exits, 8 pauses, 6 buy-back rules); the family p-value is
+the share of draws where the best centred variant beats M2's observed gain (White's reality check).
+
+| Universe | Sharpe gain · 90% interval · draws above 0 | Yearly return gain · 90% interval | p, charged for 21 |
+|---|---|---|---|
+| BTC+ETH | +0.26 · 0.04 to 0.51 · 97.3% | +3.7 pts · −3.9 to 11.2 | 0.24 |
+| BTC+ETH+BNB+SOL | +0.23 · 0.02 to 0.44 · 96.5% | +1.6 pts · −4.9 to 7.9 | 0.26 |
+| XRP+ADA+LTC+DOGE (never used in selection) | +0.25 · 0.03 to 0.47 · 97.1% | +3.6 pts · −2.5 to 10.0 | 0.21 |
+
+Reading: on the coins the rule was chosen on, the gain does not survive the charge for 21 tries
+(p 0.24, 0.26). On the four coins no selection ever saw, the charge does not apply — one rule, fixed
+beforehand — and the Sharpe gain is positive in 97% of draws. A return gain is not shown anywhere;
+what the rule buys is a smaller drop.
+
+**Check 2 — simulator ↔ engine replay, trade by trade.** `runTrendCore.mjs` gained `--dump-fills`
+(full entries and exits per cell; no result changes). Simulator on the deep USDC set against the
+six-year engine replay of the sleeve alone (rule on by a preload), full round trips per coin:
+
+| | BTC | ETH | BNB | SOL |
+|---|---|---|---|---|
+| shipped: replay / simulator / same entry and exit bar | 31 / 31 / 30 | 28 / 28 / 27 | 24 / 24 / 23 | 20 / 20 / 20 |
+| M2: replay / simulator / same entry and exit bar | 45 / 45 / 44 | 41 / 41 / 40 | 49 / 49 / 49 | 29 / 29 / 29 |
+
+Every exit falls on the same 12h bar. The five entries that differ are the replay's first buy of a
+coin (its start on 2020-06-01, and BNB joining when the equity ladder reaches four coins) while the
+simulator already held. The two engines trade the rule alike.
+
+**Sleeve alone in the six-year replay** ($190 + $10 a week, whole account): shipped 11.3%/yr ·
+Sharpe 1.39 · drop 6.2% · $4,059; M2 10.6% · 1.46 · 4.4% · $4,044. Before 2024-05: 18.0% → 16.0%,
+drop 6.2% → 4.4%; 2024-05 → 2026-05: 0.7% → 2.5%, drop 5.4% → 3.6%.
+
+**Check 3 — shadow log, to 2027-02-10.** Proposed without live code: once a month, replay live's own
+candles with the rule off and on (`runSuperbot.mjs`, the preload) and list the trades that differ.
+A gate log inside the live engine would need a second sleeve state there, since M2 also sells earlier.
+
+## Perp positioning as a breakout filter (pre-registered 2026-11-25, before any futures data was read)
+
+Idea: a breakout joined by new futures money continues; one made of short covering fades. Open
+interest is not a function of the spot price, unlike most of what failed before.
+
+- **Data:** Binance USDⓈ-M daily metrics files (`data.binance.vision/data/futures/um/daily/metrics/
+  <COIN>USDT/`, 5-minute rows, from 2020-09-01), the 8 breakout coins, downloaded to the session
+  scratchpad. Reachability was checked (HTTP 200); no row was read before this text was committed.
+- **Trades:** the filled breakout trades of the six-year replay, bot + breakout as committed
+  (`runSuperbot.mjs --cell bot+bo`, deep set, 2020-06-01 → 2026-08-10). Net return = P&L ÷ entry cost.
+  Trades before 2020-09-01 or with no metric row in the 2 hours before the signal are left out and counted.
+- **Signal time T:** the 4h close before the fill (fill time floored to 4h). Every value is the last
+  row at or before T.
+- **P1 (decides):** skip the breakout when open interest in coins (`sum_open_interest`) at T is below
+  its value 24 hours earlier.
+- **P2 (reported; counts only if P1 passes):** skip when the account long/short ratio
+  (`count_long_short_ratio`) at T is above its median over the prior 30 days.
+- **Pass, as section D:** the skipped trades' mean net return is below 0 **and** below the kept
+  trades', and both hold in each half (fills before 2024-01-01, and from then on). A fail ends the
+  idea; no other threshold, window or column is tried. The opposite sign is a new hypothesis, not a pass.
+- **Stage 2, only on a pass:** the rule on both sides with a `liveParityInventory` row; the six-year
+  replay must beat bot + breakout's Sharpe and its Sharpe in at least half of the 6-month folds.
+- **Expected in advance:** a fail, more likely than not. About 250 trades is a small sample, funding
+  (the nearest relative) already failed, and D9's taker-buy filter failed on these same trades.
 
 ## Part B: stopped at the fee check (2026-11-25)
 

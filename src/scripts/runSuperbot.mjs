@@ -118,7 +118,7 @@ fs.writeFileSync(out, JSON.stringify({
   cell: arg('label', cell), from: arg('from', '2020-06-01'), to: arg('to', '2026-08-10'), start, weekly, deposits,
   deposited: start + deposits.length * weekly,
   equity: r.equity.map((p) => ({ timestamp: p.timestamp, balance: Number(p.balance.toFixed(2)) })),
-  trades: r.trades.map((t) => ({ s: t.symbol, o: t.openedAt, c: t.timestamp, why: t.reason, pnl: t.pnl })),
+  trades: r.trades.map((t) => ({ s: t.symbol, o: t.openedAt, c: t.timestamp, why: t.reason, pnl: t.pnl, e: t.entryPrice, q: t.qty })),
   sim: { satellites: r.sim.satelliteStats, minNotionalRejections: r.sim.minNotionalRejections, exits: byReason },
 }));
 console.log(`done ${cell}: final ${r.equity.at(-1)?.balance.toFixed(2)} · satellites ${JSON.stringify(r.sim.satelliteStats)}`);

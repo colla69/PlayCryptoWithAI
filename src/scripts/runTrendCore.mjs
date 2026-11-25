@@ -512,6 +512,11 @@ function priorExtremes(coin, n) {
   return { lo, hi };
 }
 
+// Full entries and exits of each cell, for the simulator ↔ engine-replay match
+// (--dump-fills <file>, with --curve-keys to pick cells). Does not touch any result.
+const fillLog = {};
+let fillSink = null;
+
 function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = null, band = 0.15, stop = null, trail = null, pauseBars = 0, rebuy = null } = {}) {
   const { bars, closes } = coins.get(coin);
   // K: `trail = { n, mode: 'exit' | 'half' }` — act when a close is below the previous n bars'
@@ -547,6 +552,7 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = n
         const spend = Math.min(deltaUsd, cash);
         if (spend > 0) {
           const add = (spend * (1 - FEE)) / (open * (1 + slip));
+          if (qty === 0) fillSink?.push({ coin, side: 'buy', t: grid[gi] });
           avgFill = (avgFill * qty + add * open * (1 + slip)) / (qty + add);
           qty += add; cash -= spend;
         }
@@ -554,7 +560,7 @@ function simSleeve(coin, ruleKey, { volTarget = null, tfScale = null, target = n
         const sellQty = Math.min(-deltaUsd / open, qty);
         cash += sellQty * open * (1 - slip) * (1 - FEE);
         qty -= sellQty;
-        if (pendingTf === 0) { qty = 0; roundTrips++; lastExitGi = gi; gate = Boolean(rebuy); exitPx = open; if (peak > 0) gives.push(open / peak - 1); }
+        if (pendingTf === 0) { fillSink?.push({ coin, side: 'sell', t: grid[gi] }); qty = 0; roundTrips++; lastExitGi = gi; gate = Boolean(rebuy); exitPx = open; if (peak > 0) gives.push(open / peak - 1); }
       }
       pendingTf = null;
     }
@@ -788,7 +794,9 @@ const universes = { 'BTC+ETH': ['BTC', 'ETH'], 'BTC+ETH+BNB+SOL': ['BTC', 'ETH',
 if (universeArg) universes[`EW${universeArg.length}-majors`] = universeArg;
 const eqCache = {};
 const addTsmCell = (key, universe, ruleKey, opts = {}) => {
+  fillSink = fillLog[key] = [];
   const { eq, roundTrips, exposure, stopOuts, gives } = simTsm(universe, ruleKey, opts);
+  fillSink = null;
   const median = (a) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[b.length >> 1] : null; };
   tsmCells[key] = { ...metrics(eq, { withDsr: true }), roundTrips, exposurePct: Number((exposure * 100).toFixed(0)),
     ...(opts.stop ? { stopOuts } : {}),
@@ -953,6 +961,11 @@ if (argv.includes('--dump-curves')) {
   for (const k of wanted) if (eqCache[k]) dump.curves[k] = eqCache[k];
   fs.writeFileSync(curveFile, JSON.stringify(dump));
   console.log(`Curves → ${curveFile} (${Object.keys(dump.curves).length} of ${Object.keys(eqCache).length})`);
+}
+
+if (argv.includes('--dump-fills')) {
+  const wanted = argv.includes('--curve-keys') ? argv[argv.indexOf('--curve-keys') + 1].split('|') : Object.keys(fillLog);
+  fs.writeFileSync(argv[argv.indexOf('--dump-fills') + 1], JSON.stringify(Object.fromEntries(wanted.filter((k) => fillLog[k]).map((k) => [k, fillLog[k]]))));
 }
 
 fs.writeFileSync(outFile, JSON.stringify(results, null, 2));
