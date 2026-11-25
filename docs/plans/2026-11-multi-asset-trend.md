@@ -100,6 +100,29 @@ window (0.7%/yr over four years, then five months that net positive); sleeve alo
 unseen years and two flat ones (11.3%/yr, drop 6.2%); both as shipped gives 18.9%/yr, drop 6.5%, with
 the scalper's share of that not proven. Nothing in live is changed by this.
 
+### Was the scalper ever tuned alone? Yes, and it failed (checked 2026-11-25)
+
+- The per-coin optimizer has always scored the scalper without the sleeve. Since 2026-10-27 it
+  scores through the live filter stack, and the walk-forward refit run that day (2,280 trials a
+  coin, refit every 6 months on the prior 24) failed: Sharpe −0.13 over 2022-06 → 2026-08, median
+  PBO 0.43 ([one-engine plan](2026-10-single-engine-rebuild.md), section E item 4 part 2). Do not rerun it.
+- New here: C8's six shared combos were replayed with the sleeve on, so their 19–33%/yr on
+  2020 → 2024 included the sleeve's 18%. Scalper alone (`--no-sleeve`, same replay, deep set):
+
+| Setting, scalper alone | 2020-06 → 2024-05 | 2024-05 → 2026-05 | 2026-05-29 → 08-10 | Six years |
+|---|---|---|---|---|
+| today's per-coin (tuned on the middle span) | 0.7%/yr · Sharpe 0.30 · 14 trades | 25.7% · 2.85 · 56 | −$32 · 7 | 8.3% · 1.58 · drop 4.2% |
+| ADX+MACD+Supertrend | 12.1% · 1.33 · 87 | −7.8% · −0.57 · 148 | −$63 · 10 | 4.3% · 0.46 · drop 19.6% |
+| ADX+EMA+MACD | 11.2% · 1.35 · 88 | −16.4% · −1.43 · 154 | −$59 · 12 | 0.4% · 0.09 · drop 36.4% |
+| EMA+HeikinAshi+PSAR | 7.1% · 1.52 · 49 | −0.6% · −0.02 · 90 | −$63 · 11 | 3.9% · 0.62 · drop 14.0% |
+| MFI+SR+Supertrend | 1.3% · 0.65 · 15 | 0.4% · 0.10 · 36 | −$56 · 3 | 0.6% · 0.21 · drop 5.1% |
+| ADX+EMA+SR | 0.7% · 0.16 · 69 | 3.9% · 0.33 · 169 | −$85 · 13 | 1.4% · 0.19 · drop 19.8% |
+| HeikinAshi+SR+WilliamsR | −0.8% · −0.59 · 8 | −3.1% · −0.80 · 24 | −$20 · 3 | −1.6% · −0.66 · drop 10.4% |
+
+  No setting made money in both long spans. Three shared trend combos earned 7–12%/yr before
+  2024-05 and lost after; today's per-coin setting did the reverse, on the span it was chosen on.
+  Every setting lost in 2026-05-29 → 08-10.
+
 ## Part B: stopped at the fee check (2026-11-25)
 
 - An API needs Interactive Brokers: about €1.25 minimum per Xetra order on tiered pricing, by
