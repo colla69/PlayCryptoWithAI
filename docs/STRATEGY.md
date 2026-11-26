@@ -235,7 +235,9 @@ same asset.
 **Faster exit with a buy-back proof (built, OFF):** `stayVotes: 3` sells on the first negative
 vote; `rebuyConfirmBars: 40` then buys a sold coin back only on a close above its 20-day high
 while a majority of votes is still positive (a broken trend clears the wait). Six-year replay:
-Sharpe 1.99 → 2.08, worst drop 8.2% → 6.7% (plan doc § M). `reentryPauseHours` adds a pause after
+Sharpe 1.99 → 2.08, worst drop 8.2% → 6.7% (plan doc § M). Its checks before a switch-on
+(bootstrap, simulator ↔ replay match, monthly shadow comparison by `runBuybackShadow.mjs`) are in
+[the 2026-11 plan](plans/2026-11-multi-asset-trend.md). `reentryPauseHours` adds a pause after
 a sell (§ L, not adopted). The wait and the last-sell times persist in
 `data/tsm_sleeve_state.json` (`src/data/sleeveStateStore.js`), so a restart does not buy back early.
 

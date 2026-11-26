@@ -28,7 +28,7 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — measurement gaps found by the parity work and the live reconciliation (all fixed 2026-10-24)  
 📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship  
 📖 **[One-engine rebuild](docs/plans/2026-10-single-engine-rebuild.md)** — handoff: reconcile the backtester against live, then share one decision core  
-📖 **[Other assets and the scalper/sleeve split](docs/plans/2026-11-multi-asset-trend.md)** — plan only: the trend rule on equities, gold and bonds
+📖 **[Other assets and the scalper/sleeve split](docs/plans/2026-11-multi-asset-trend.md)** — results: scalper and sleeve measured apart, the scalper's stop rule, the sleeve buy-back checks, other assets stopped at fees
 📖 **[External bots review](docs/EXTERNAL_BOTS_REVIEW.md)** — NostalgiaForInfinity, Freqtrade, NautilusTrader and others: what is worth taking
 
 ---

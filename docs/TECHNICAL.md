@@ -104,6 +104,8 @@ Architecture, data flow, module responsibilities, and deployment.
 | `runBaseline.mjs` | Run the multi-window baseline → `data/baseline_<phase>.json`; `--stoplight` adds the stress verdict |
 | `runWalkForward.mjs` | Walk-forward + Monte Carlo report (honest out-of-sample equity) |
 | `runOverfitting.mjs` | PBO, CPCV paths and the deflated Sharpe for a set of trials (`--runs` runSuperbot outputs or `--matrix`) |
+| `runSuperbot.mjs` | The bot through the engine replay with $190 + $10 a week: with/without satellites, `--no-sleeve`, `--tsm` sleeve overrides; `--report` cuts runs into 6-month folds |
+| `runBuybackShadow.mjs` | Replays the bot with the sleeve buy-back rule off and on and lists the sleeve trades that differ (monthly shadow log, 2026-11 plan) |
 | `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
 | `repairPhantomState.mjs` | One-shot ops repair (2026-08-03 incident): strip the phantom scalper position that absorbed the core sleeve's ETH from state/trade/equity files. Bot stopped; dry-run by default, `--apply` to write; idempotent, refuses to write if files don't match the incident state |
 | `repairFrozenCoreEquity.mjs` | One-shot ops repair (2026-08-10 incident): rewrite the 08-04→08-09 `equity_history.json` snapshots frozen by the unmarked core legs, from verified Binance 1m closes. Bot stopped; dry-run by default, `--apply` to write; idempotent, writes `.bak` |
