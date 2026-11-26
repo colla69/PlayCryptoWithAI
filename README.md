@@ -90,7 +90,7 @@ Live at `http://localhost:3001` — four tabs:
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
 | `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live). Sizing follows the HWM equity ladder — see STRATEGY.md |
 | `SATELLITES` | `false` | Enable the satellite strategies on the free cash (4h breakout, `config.satellites`). Simulates in paper; REAL orders in live |
-| `WEBHOOK_PORT` | `3000` | Port of the external-signal webhook (only used when `WEBHOOK_TOKEN` is set) |
+| `WEBHOOK_PORT` | `3000` | Port of the external-signal webhook (the webhook is off unless `signals.webhook.enabled` is set in `config/default.js`) |
 | `CONSOLE_LOG_LEVEL` | `LOG_LEVEL` | Console log level, when it should differ from `LOG_LEVEL` |
 | `FILE_LOG_LEVEL` | `debug` | Log level of the daily log files |
 | `TWITTER_BEARER_TOKEN` | — | Optional: Twitter signal source |
