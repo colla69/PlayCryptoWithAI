@@ -6,21 +6,18 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
-> **Historical figures:** the baseline below predates the 2026-10-27 replay and reporting
-> corrections. Regenerate it before comparing configurations: current reports use synchronized
-> portfolio valuations and calendar-day Sharpe (365 days), including the first day and cash flows.
+**Performance (baseline regenerated 2026-11-26 — the scalper alone, $1,000, full live filter stack,
+fills at the decision bar's open, tiered slippage, stops replayed on 15m bars):**
 
-**Performance (historical baseline — full live filter stack, next-open fills + tiered slippage):**
+`six-year set, full history (2509d, to 2026-08-10): +108.0% · Sharpe 1.39 · Max DD −7.5% · WR 66% · DSR 0.34`  
+`live set, last 365d (to 2026-10-27): +27.4% · Sharpe 1.88 · Max DD −3.7% · WR 60%`  
+`live set, last 90d: +11.9% · Sharpe 2.21 · Max DD −3.7% · 6 trades`
 
-`last 90d (most OOS): +0.25% · Sharpe 0.14 · Max DD −3.3% · WR 25%`  
-`full history (2509d): +140.7% · Sharpe 1.08 · Max DD −8.8% · WR 60%`
-
-> These come from the committed baseline runner (`runBaseline.mjs`), measured post the 2026-09
-> backtester time-alignment fix (`PortfolioBacktester` now steps over the union of all symbols'
-> timestamps instead of array index — see
-> [Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)). The robustness overhaul
-> deliberately traded the old (non-reproducible) headline figures for honest, low-drawdown numbers
-> the bot can be trusted to run on unattended. See [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
+> DSR stays below 0.5 on every window: after the charge for the optimizer's search the Sharpe is
+> not distinguishable from luck, and out of sample before 2024-05 the scalper made 0.7% a year.
+> The whole account (scalper + TSM sleeve, $190 + $10 a week) over six years: 18.9% a year, worst
+> drop 6.5% ([2026-11 plan](docs/plans/2026-11-multi-asset-trend.md)). All windows and the
+> reading: [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
 
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  

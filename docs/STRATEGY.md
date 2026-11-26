@@ -360,35 +360,49 @@ Every change is measured honestly before it ships:
 
 ## Backtested Performance (honest baseline, full filter stack)
 
-Committed baseline, 37 USDC pairs, 12h candles, BUY-at-next-open, tiered slippage
-(large 0.10% / mid 0.20% / micro 0.35%). Measured post the 2026-09 backtester time-alignment fix
-(`PortfolioBacktester` now steps over the union of all symbols' timestamps instead of array index,
-with BTC regime/macro, the correlation matrix and the weekly DD breaker all reading as-of that step
-— see [Backtester fix status](plans/2026-09-backtester-fix-status.md)). Data cut to 2026-08-10.
+Baseline regenerated 2026-11-26 (`runBaseline.mjs` at `efe7bc1`): the scalper alone, 37 USDC
+pairs, 12h candles, $1,000 research budget, live's full filter stack (`FULL_LIVE_FILTERS`), fills
+at the decision bar's open, tiered slippage (large 0.10% / mid 0.20% / micro 0.35%), stops
+replayed on 15m bars, synchronized valuations and calendar-day Sharpe (365 days). The TSM sleeve
+and the satellites are not in these numbers — the whole account (scalper + sleeve, $190 + $10 a
+week) is measured by `runSuperbot.mjs` in [the 2026-11 plan](plans/2026-11-multi-asset-trend.md).
+
+**Six-year set** (`data/candles_deep_2026-08-10`, 2019-09 → 2026-08-10):
 
 | Window | Days | Trades | Return | Sharpe | Sortino | Max DD | Win Rate | PF | DSR | PSR |
 |--------|------|--------|--------|--------|---------|--------|----------|----|----|----|
-| last_90d (most OOS) | 90 | 8 | +0.25% | 0.14 | 0.30 | −3.28% | 25% | 1.04 | 0.00 | 0.53 |
-| last_180d | 180 | 19 | +62.43% | 2.37 | 30.92 | −4.20% | 58% | 9.87 | 0.00 | 1.00 |
-| y2_365d (in-sample) | 365 | 23 | +25.09% | 1.36 | 8.86 | −4.37% | 43% | 4.82 | 0.00 | 1.00 |
-| y1_holdout | 365 | 34 | +91.95% | 2.72 | 11.35 | −5.33% | 79% | 6.49 | 0.08 | 1.00 |
-| y1y2_full (full OOS) | 730 | 60 | +137.59% | 2.04 | 8.70 | −8.84% | 63% | 4.77 | 0.17 | 1.00 |
-| full_history | 2509 | 81 | +140.68% | 1.08 | 3.89 | −8.84% | 60% | 3.94 | 0.13 | 1.00 |
+| last_90d | 90 | 8 | +0.37% | 0.28 | 0.40 | −1.40% | 63% | 1.21 | 0.00 | 0.55 |
+| last_180d | 180 | 17 | +14.53% | 2.55 | 6.92 | −2.11% | 65% | 6.20 | 0.00 | 0.99 |
+| y2_365d (in-sample) | 365 | 26 | +17.92% | 1.83 | 4.74 | −3.83% | 62% | 3.62 | 0.00 | 0.99 |
+| y1_holdout | 365 | 35 | +69.84% | 3.38 | 8.68 | −6.56% | 74% | 4.74 | 0.22 | 1.00 |
+| y1y2_full (full OOS) | 730 | 61 | +100.28% | 2.71 | 7.00 | −6.56% | 69% | 4.31 | 0.43 | 1.00 |
+| full_history | 2509 | 79 | +107.98% | 1.39 | 2.99 | −7.47% | 66% | 3.35 | 0.34 | 1.00 |
 
-**Reading it honestly:** the three most recent windows (`last_90d`, `last_180d`, `y2_365d`) stay
-under 5% max DD; `y1_holdout` is also a 365d window but sits at −5.33%, and `y1y2_full` /
-`full_history` sit at −8.84% because they now include real drawdown periods the old array-index
-stepping mis-scored (see "Engine fix" below). PSR is 1.00 on every window except `last_90d`
-(0.53 — only 8 trades, no statistical confidence there). DSR is still 0.00 on the short windows and
-0.08–0.17 on the long ones — after
-correcting for the optimizer's search burden, the observed Sharpe has not yet cleared the
-significance bar (~3.3 annualised) on any window. Lifting DSR is the goal of the remaining phases
-(walk-forward retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
-Sharpe 2.33, +1912% over 2y) were not reproducible on the on-disk data and are disregarded.
+**Live set** (`data/candles`, 2024-08-05 → 2026-10-27, the newest data):
 
-`y1_holdout`'s 79% win rate vs `y2_365d`'s 43% (both 365d windows) is a 36pp gap running in favor
-of the out-of-sample year — the opposite sign from overfitting, so it isn't a curve-fitting red
-flag, but it's regime dependence between two specific years, not a rate to extrapolate forward.
+| Window | Days | Trades | Return | Sharpe | Sortino | Max DD | Win Rate | PF | DSR | PSR |
+|--------|------|--------|--------|--------|---------|--------|----------|----|----|----|
+| last_90d | 90 | 6 | +11.86% | 2.21 | 6.40 | −3.73% | 33% | 4.04 | 0.00 | 0.93 |
+| last_180d | 180 | 16 | +24.98% | 2.57 | 7.50 | −3.73% | 56% | 4.94 | 0.00 | 0.99 |
+| y2_365d (in-sample) | 365 | 25 | +27.44% | 1.88 | 5.04 | −3.73% | 60% | 4.41 | 0.00 | 0.99 |
+| y1_holdout | 365 | 33 | +65.46% | 3.27 | 9.16 | −6.56% | 67% | 3.82 | 0.17 | 1.00 |
+| y1y2_full (full OOS) | 730 | 58 | +110.87% | 2.63 | 7.22 | −6.56% | 64% | 4.04 | 0.36 | 1.00 |
+| full_history | 814 | 64 | +115.57% | 2.53 | 6.33 | −6.56% | 64% | 3.81 | 0.37 | 1.00 |
+
+**Reading it honestly:**
+- Every window is positive and no drawdown is worse than −7.5%; PSR (chance the true Sharpe is
+  above 0, ignoring the search) is 0.93–1.00 except the six-year set's last 90 days (0.55).
+- **DSR is still below 0.5 on every window** (0.00 on the short ones, 0.17–0.43 on the long ones).
+  After the charge for the optimizer's 16,280 tries, the Sharpe is not distinguishable from luck.
+- **Most of the return is old.** The y1_holdout year (2024-08 → 2025-08) carries +65–70%; the most
+  recent year adds +18% (to 2026-08-10) or +27% (to 2026-10-27). Out of sample on the six-year
+  set, before 2024-05, the same scalper made 0.7% a year (plan 2026-11, Part A) — the edge is
+  concentrated in the period it was tuned around.
+- The windows are short in trades: 6–8 trades in 90 days say nothing on their own.
+- Compared with the previous published baseline (same six-year set, before the 2026-10 replay and
+  reporting corrections: full history +140.7%, Sharpe 1.08, DD −8.84%), the return is lower and the
+  Sharpe higher; the two are not comparable trade for trade because fills, stop timing and the
+  Sharpe convention all changed in between.
 
 **Engine fix, old vs new (forward-only walk-forward, default sizing, 52 folds, 2021–2026):** the
 old array-index stepping let late-listed symbols read BTC regime/macro state out of chronological
