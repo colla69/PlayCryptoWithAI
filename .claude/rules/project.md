@@ -196,9 +196,14 @@ These apply whenever backtest/optimizer code is touched:
   the full filter stack (`symbolTrial.js`); if aggregator, gate or sizing logic changes, re-run it
 
 ```bash
-PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 730   # Y2
-PAPER_MODE=true node src/scripts/portfolioBacktest.mjs --candles 1460  # full OOS
+# Full baseline: every window (Y2, Y1 holdout, Y1+Y2, full history) + stress stoplight,
+# live's filter stack built in (FULL_LIVE_FILTERS). Run on the live set and on the deep set.
+PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <name> --stoplight --out <file>
+# The whole account through the live engine (scalper + sleeve [+ breakout], $190 + $10/week)
+PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot+bo --out <file>
 PAPER_MODE=true node src/scripts/perSymbolOptimizer.mjs                # dry-run optimizer
+# portfolioBacktest.mjs is the older flag runner: its defaults are NOT live's (3 slots,
+# 4h score 0.55, regime sizing off) — not valid for decisions without matching flags.
 ```
 
 ### Full filter stack in every portfolio backtest

@@ -51,10 +51,17 @@ in the trading code.
 
 ```bash
 node --check <changed files>
-npm test                                         # expect ≥432 pass, parity fixtures green (bare `node --test` misses src/tests/)
+npm test                                         # expect ≥724 pass, parity fixtures green (bare `node --test` misses src/tests/)
 PLAYCRYPTO_RUNTIME_DIR=$(mktemp -d) SMOKE_TEST=false PAPER_MODE=true DASHBOARD_PORT=<free> WEBHOOK_PORT=<free> node src/main.js  # boot, kill after "Next cycle aligned"
-PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p>     # metrics vs baseline (strategy/risk changes)
+# Strategy/risk/sizing changes — the full baseline, on the live set AND the deep set
+# (data/candles_deep_2026-08-10, swapped in by renaming; check both fingerprints before and after):
+PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p> --stoplight --out <file>   # all windows + stress stoplight
+PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot+bo --out <file>  # whole account through the live engine
 ```
+
+Not `portfolioBacktest.mjs` for decisions: its defaults are not live's (3 slots, 4h score 0.55,
+regime sizing off). The published baseline is in `docs/STRATEGY.md` § Backtested Performance;
+compare against it and update it when a change ships.
 
 ## Token & cost discipline
 
