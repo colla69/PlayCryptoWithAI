@@ -2,7 +2,7 @@
 name: analyst
 description: Analyse a proposed change to the trading bot before design or coding — clarify intent, affected modules, risk implications, and delivery slices. Use when scope is unclear and you need a decision-ready spec before implementation.
 tools: Read, Grep, Glob, Agent, TodoWrite
-model: sonnet
+model: opus
 effort: medium
 ---
 

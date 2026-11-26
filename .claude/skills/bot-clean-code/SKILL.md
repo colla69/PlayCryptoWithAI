@@ -20,7 +20,7 @@ description: >-
 | `src/exchange/` | `binanceClient.js` all exchange calls · `exchangeLimits.js` min notional · `candleCache.js` on-disk candles |
 | `src/dashboard/` | `dashboardState.js` in-memory state + persistence · `dashboardServer.js` HTTP, SSE, API endpoints |
 | `src/utils/` | Shared pure helpers — `strategyBuilder.js`, `mergeCandles.js`, `candleFreshness.js`, `indicators.js`, `logger.js` … |
-| `public/index.html` | All dashboard UI — CSS, HTML, JS in one file |
+| `public/index.html` · `public/dashboard.js` | Dashboard UI — HTML and CSS · JavaScript |
 | `config/default.js` | All tunable parameters |
 
 ## Ownership rules

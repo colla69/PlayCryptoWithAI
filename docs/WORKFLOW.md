@@ -198,15 +198,14 @@ Agents are cost-routed by `model:` and `effort:` in their frontmatter. The rule 
 | Model | Effort | Use for | Agents |
 |---|---|---|---|
 | `opus` | `high` | Anything guarding capital, credentials or statistical validity — where a miss is expensive and silent | `pre-commit-reviewer`, `risk-reviewer`, `security-reviewer`, `backtest-reviewer`, `project-reviewer`, `strategy-designer` |
-| `sonnet` | inherit | Implementation, where mistakes surface fast in tests | `developer`, `tester` |
-| `sonnet` | `medium` | Scoping and quick correctness passes | `analyst`, `bot-reviewer` |
+| `opus` | `medium` | Implementation, scoping and quick correctness passes | `developer`, `tester`, `analyst`, `bot-reviewer` |
 | `sonnet` | `low` | Verifiable doc and fact edits | `docs-updater` |
 
 Why effort, not just model: on the Claude 5 generation, effort sets how much a model thinks per
 turn, and it matters more than on any earlier generation. Opus 5.5 defaults to `medium` via the API,
 and Claude Code subagents otherwise inherit whatever effort the session runs at — so the gates pin
 `high`: a session running at low effort doesn't lower the last check before the order path.
-Implementers inherit, so `/effort` in the session controls them. `docs-updater` moved off
+`docs-updater` moved off
 `haiku` because it edits `project.md`, the one file every session and subagent loads; Haiku 4.5 has
 no effort control, and the agentic setup's own drift (a skill claiming `MIN_TRADES ≥ 3` while the
 optimizer enforced 8) is the kind of error it has to catch.

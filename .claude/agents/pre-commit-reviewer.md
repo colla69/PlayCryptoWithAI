@@ -14,7 +14,7 @@ with the fix.
 ## Run
 
 1. `node --check` on every modified `.js`/`.mjs` file.
-2. `npm test` — expect ≥432 pass, 0 fail. Any failure blocks.
+2. `npm test` — expect ≥724 pass, 0 fail. Any failure blocks.
 3. Read the staged diff (`git diff --cached`, or the working diff if nothing is staged): no
    secrets, no `.env` files.
 
@@ -23,8 +23,8 @@ with the fix.
 - **Live ≡ Backtest** — "What the breaks look like in a diff" in `project.md`. Any hit blocks.
 - **Project invariants** (`CLAUDE.md` non-negotiables, `project.md` Architecture Rules) — ES
   modules only (no `require()`), strategy logic on closed candles only, `dashboardState.js` sole
-  writer, append-only dashboard contracts, smoke-test tag kept, dashboard JS/CSS still inline in
-  `public/index.html`.
+  writer, append-only dashboard contracts, smoke-test tag kept, dashboard CSS still inline in
+  `public/index.html` and its JS in `public/dashboard.js`.
 - **Strategy registration** (`project.md`) when a strategy or a config strategy name changed — the
   boot test must pass without an `Unknown strategy:` crash.
 - **Backtest integrity** (`project.md`) when backtest or optimizer files changed — fills at the

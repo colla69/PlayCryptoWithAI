@@ -59,6 +59,9 @@ PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <p> --stoplight --out <
 PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot+bo --out <file>  # whole account through the live engine
 ```
 
+Run a long check through the `marketplace-base:test-runner` agent: it runs on Haiku and reports only
+what failed, so the output stays out of the session.
+
 Not `portfolioBacktest.mjs` for decisions: its defaults are not live's (3 slots, 4h score 0.55,
 regime sizing off). The published baseline is in `docs/MEASUREMENTS.md`, the only place
 results are kept in full: compare against it, and when a change ships replace its current baseline

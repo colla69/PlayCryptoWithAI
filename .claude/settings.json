@@ -1,5 +1,14 @@
 {
   "model": "opusplan",
+  "enabledPlugins": {
+    "marketplace-base@personal-claude-plugin-marketplace": true,
+    "language-simple-natural-language@personal-claude-plugin-marketplace": true,
+    "universal-work-discipline@personal-claude-plugin-marketplace": true,
+    "universal-clean-code@personal-claude-plugin-marketplace": true,
+    "craft-development@personal-claude-plugin-marketplace": true,
+    "craft-shipping@personal-claude-plugin-marketplace": true,
+    "language-conventional-commits@personal-claude-plugin-marketplace": true
+  },
   "extraKnownMarketplaces": {
     "personal-claude-plugin-marketplace": {
       "source": {
@@ -7,5 +16,11 @@
         "repo": "colla69/personal-claude-plugin-marketplace"
       }
     }
+  },
+  "effortLevel": "medium",
+  "autoCompactWindow": 180000,
+  "env": {
+    "STEWARD_CHECK": "npm test",
+    "STEWARD_CHECK_PATHS": "src/**,tests/**,config/**,public/**,package.json,package-lock.json"
   }
 }

@@ -12,7 +12,7 @@ description: >-
 The suite runs on Node's built-in `node:test` (no external runner):
 
 ```bash
-npm test                                         # expect ≥432 pass, 0 fail (covers tests/ AND src/tests/)
+npm test                                         # expect ≥724 pass, 0 fail (covers tests/ AND src/tests/)
 ```
 
 Tests live in `tests/<area>/<subject>.test.js`, mirroring `src/` (`tests/engine/`,
@@ -87,7 +87,7 @@ Run one file with `node --test tests/strategies/<file>.test.js`; report pass cou
 
 - **Strategy functions**: pure input → output, including edge cases (insufficient data, flat market, extreme values)
 - **Risk calculations**: position size, daily loss accumulation, correlation filter threshold
-- **Formatter functions** in `public/index.html`: extract them to a `src/utils/format.js` first if testing is needed
+- **Formatter functions** in `public/dashboard.js`: extract them to a `src/utils/format.js` first if testing is needed
 
 - **Merge / dedup logic**: whenever two sources of the same record combine, assert *which one wins*
 - **Scheduling**: inject the clock and timer (`now`, `setTimeoutFn`) rather than waiting on real time
