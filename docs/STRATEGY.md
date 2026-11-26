@@ -35,22 +35,22 @@ The first 15 are classical TA; the last 5 (Phase 2) add deliberately orthogonal 
 | 1 | RSI | RSI(14) | Oversold + turning up | Overbought + turning down |
 | 2 | Bollinger Bands | BB(20,2) | Price at lower band | Price at upper band |
 | 3 | CCI | CCI(20) | Below -100, reversing | Above +100, reversing |
-| 4 | EMA | EMA crossover | Fast > Slow | Fast < Slow |
+| 4 | EMA | EMA crossover | Fast crosses above Slow | Fast crosses below Slow |
 | 5 | MACD | MACD(12,26,9) | Histogram crossover up | Histogram crossover down |
-| 6 | ADX | ADX(14) + DI | +DI > -DI with ADX > 20 | -DI > +DI with ADX > 20 |
+| 6 | ADX | ADX(14) + DI | +DI > -DI with ADX ≥ 25 | -DI > +DI with ADX ≥ 25 |
 | 7 | Stochastic | Stoch(14,3,3) | %K crosses above %D in oversold | %K crosses below %D in overbought |
 | 8 | StochRSI | StochRSI(14) | Oversold crossover | Overbought crossover |
 | 9 | MFI | MFI(14) | Below 20 (money flow oversold) | Above 80 (money flow overbought) |
-| 10 | OBV | OBV + EMA | OBV trending above its EMA | OBV trending below its EMA |
+| 10 | OBV | OBV + EMA | OBV crosses above its EMA | OBV crosses below its EMA |
 | 11 | PSAR | Parabolic SAR | SAR flips below price | SAR flips above price |
 | 12 | Williams %R | WR(14) | Below -80, reversing | Above -20, reversing |
 | 13 | Supertrend | ATR-based trend | Price breaks above supertrend | Price breaks below supertrend |
 | 14 | Heikin-Ashi | HA candles | Bullish reversal pattern | Bearish reversal pattern |
 | 15 | Support & Resistance | S/R levels | Price bounces off support | Price rejected at resistance |
 | 16 | Donchian | 20-bar channel | Close > 20-bar high + volume confirm | Close < 20-bar low |
-| 17 | VWAP-σ | Anchored VWAP ± 2σ | Price ≤ VWAP − 2σ | Price ≥ VWAP + 2σ |
+| 17 | VWAP-σ | Rolling 20-bar VWAP ± 2σ | Price ≤ VWAP − 2σ | Price ≥ VWAP + 2σ |
 | 18 | Volume Surge | Vol vs 20-bar avg | Vol > 2× avg AND green candle | Vol > 2× avg AND red candle |
-| 19 | Ichimoku | Cloud / Tenkan / Kijun | Cloud break up + TK cross + chikou | Cloud break down + TK cross + chikou |
+| 19 | Ichimoku | Cloud / Tenkan / Kijun | Price above cloud + Tenkan > Kijun (fresh TK cross adds confidence) | Price below cloud + Tenkan < Kijun (fresh TK cross adds confidence) |
 | 20 | Pin Bar | Wick rejection | Bullish rejection wick at support | Bearish rejection wick at resistance |
 
 Every strategy excludes the forming candle (closed bars only — no lookahead) and returns
@@ -107,6 +107,8 @@ is still rescued.
 
 For positions already open, SELL signals get a **30% lower confidence bar** (`entry × 0.7`). It's
 easier to get out than to get in — the bot exits losing positions even on moderate SELL conviction.
+It applies only when the aggregator returned HOLD, more than half of the strategies vote SELL, and the
+confidence is ≥ 0.7 × the symbol's scaled `minConfidence` (`resolveDecision`, `src/core/decisionCore.js`).
 
 ---
 
@@ -134,7 +136,7 @@ the core premise (the trend-alignment filters block mean-reversion, so "differen
 isn't viable as built) and found the infra has latent bugs — leave OFF unless re-engineered. The viable
 regime lever is **exposure** (regime-conditional sizing), not strategy swapping — untested.
 
-Both live (`main.js`) and the backtester consume the same `RegimeTracker` — no behavioural divergence.
+Both live (`src/core/engine.js`) and the backtester consume the same `RegimeTracker` — no behavioural divergence.
 
 ---
 
@@ -147,8 +149,8 @@ backtester can replay them deterministically):
   hard, alt entries are blocked (alts crash when dominance spikes). No-ops until 7 days of data exist.
 - **ETH/BTC ratio** — from Binance public spot; a *sizing* multiplier on alts (altseason on/off), not
   a hard gate.
-- **Fear & Greed modulator** — `data/fearGreed.json` (1000 daily samples, re-read each cycle). Extreme greed (>80)
-  tightens `minConfidence` by +0.05; extreme fear (<20) relaxes it by −0.05 (contrarian).
+- **Fear & Greed modulator** — `data/fearGreed.json` (1000 daily samples, re-read each cycle). Extreme greed (≥80)
+  tightens `minConfidence` by +0.05; extreme fear (≤20) relaxes it by −0.05 (contrarian).
 
 Every cross-asset feed is optional with a neutral fallback — the bot keeps trading on local Binance
 data alone if an external source is unavailable.
@@ -157,7 +159,10 @@ data alone if an external source is unavailable.
 
 ## Entry Filters
 
-Every BUY signal must pass a cascade before execution:
+Every BUY signal must pass a cascade before execution. Numbering below is by topic; the order in
+code is: venue veto, bear-regime block, weekly DD breaker, BTC.D gate, correlation cap, 15m MTF, 4h
+momentum, momentum-leader (`src/core/decisionCore.js`), then in `riskManager.canTrade()` the
+F&G-adjusted minimum confidence, max positions and daily loss limit.
 
 0. **Fresh-data guard** — the symbol is skipped entirely (no signal, no trade) when its newest 12h
    bar is older than `maxCandleStalenessPeriods` (default 2 periods = 24h). Thin or delisted markets
@@ -174,7 +179,8 @@ Every BUY signal must pass a cascade before execution:
      after its tag; TON was renamed GRAM (the bot now trades GRAM/USDC). Feed: Binance's
      announcement pages (`src/data/exchangeEventsFeed.js`, cache `data/exchangeEvents.json`,
      re-read every 4h; an outage keeps the cache). The replay reads the same file. Covers the
-     scalper and the satellites.
+     scalper and the satellites (short limit-order trades on large coins, OFF by default —
+     `SATELLITES=true` enables them, `config.satellites`; not part of the default live bot).
 1. **Bear-regime block** (Phase 6a) — no new entries while regime is `BEAR_TREND`.
 2. **Max positions** — 4 concurrent slots (`risk.maxOpenPositions`; core sleeve legs don't count);
    a BUY that arrives with every slot full is skipped, not queued. The backtester fills free slots
@@ -215,8 +221,8 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 
 ## TSM Core Sleeve (experimental, default OFF — live-capable)
 
-**Shipped infrastructure for majors trend-following:** a parallel core portfolio (default
-BTC+ETH+BNB+SOL) sized as a fixed sleeve (default 50% of equity, split equally) 
+**Shipped infrastructure for majors trend-following:** a parallel core portfolio (BTC+ETH;
+BTC+ETH+BNB+SOL only on the top equity-ladder rung) sized as a fixed sleeve (default 50% of equity, split equally) 
 that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
 env var; runs in **paper and live** — on the live bot it places real orders (IOC limits capped 0.5% past the price) sized to 
@@ -268,8 +274,8 @@ tested (including the exact 2021 top), but absolute return still requires the as
 
 | Universe | Return | Sharpe | Max DD | DSR | '21–22 bear DD | Exposure |
 |---|---|---|---|---|---|---|
-| BTC+ETH (previous default) | +454% | 1.05 | −36.0% | 0.64 | −35.8% | 46% |
-| **BTC+ETH+BNB+SOL (current)** | **+543%** | **1.20** | **−33.0%** | **0.75** | **−31.1%** | 41% |
+| BTC+ETH (rungs A and B) | +454% | 1.05 | −36.0% | 0.64 | −35.8% | 46% |
+| **BTC+ETH+BNB+SOL (rung C)** | **+543%** | **1.20** | **−33.0%** | **0.75** | **−31.1%** | 41% |
 
 Strictly dominant — better return, Sharpe, drawdown and DSR at lower exposure; the cost is 2×
 round trips (104 vs 56), already charged in the honest fills. Independently reproduces the 9yr
@@ -308,7 +314,7 @@ their slot (`resizeCorePosition`, partial fills carry post-state for restart res
 on the 9yr study: Sharpe 1.27, DD −36%, DSR 0.94 — see `docs/TREND_CORE_STUDY.md`.
 
 Implementation: `src/engine/tsmCore.js` (pure functions), `src/data/nasdaqTrend.js` (macro feed), 
-`src/main.js` orchestration (`runTsmCoreCycle`), PaperTrader additions (`openCorePosition`, 
+`src/core/engine.js` orchestration (`runTsmCoreCycle`), PaperTrader additions (`openCorePosition`, 
 `closeCorePosition`, `resizeCorePosition`).
 
 ---
@@ -321,7 +327,7 @@ Implementation: `src/engine/tsmCore.js` (pure functions), `src/data/nasdaqTrend.
 - **Break-Even Stop** — at +10% unrealised (`risk.breakEvenTriggerPct`), SL moves to entry (+0.2% for fees). Once per position. Persisted to
   `data/position_state.json` (survives restarts).
 - **Strategy SELL** — aggregator SELL above the asymmetric exit threshold closes the position.
-- **Position aging exit** (Phase 7) — positions open > 14 bars (7 days) without hitting TP/SL are
+- **Position aging exit** (Phase 7) — positions open ≥ 14 bars (7 days) without hitting TP/SL are
   closed to free capital.
 - **Two-stage exit** — partial-close + break-even-on-runner infrastructure exists but is **disabled**
   (tested −8pp return / −0.1 Sharpe under current tuning).

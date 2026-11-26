@@ -106,6 +106,18 @@ Architecture, data flow, module responsibilities, and deployment.
 | `runOverfitting.mjs` | PBO, CPCV paths and the deflated Sharpe for a set of trials (`--runs` runSuperbot outputs or `--matrix`) |
 | `runSuperbot.mjs` | The bot through the engine replay with $190 + $10 a week: with/without satellites, `--no-sleeve`, `--tsm` sleeve overrides; `--report` cuts runs into 6-month folds |
 | `runBuybackShadow.mjs` | Replays the bot with the sleeve buy-back rule off and on and lists the sleeve trades that differ (monthly shadow log, 2026-11 plan) |
+| `runEngineReplay.mjs` | The live engine (`core/engine.js`) over history vs `PortfolioBacktester`, trade by trade — the engine-parity check on real data |
+| `runSleeveReplay.mjs` | The TSM sleeve replayed through the live engine vs live's real sleeve orders (`--snapshot <dir>`) |
+| `runReconciliation.mjs` | Live reconciliation: the backtester's decision rows vs live's `signal_history.json`, cycle by cycle |
+| `runSignalIntegrity.mjs` | Recursive and lookahead checks: do decisions depend on loaded history length or on future bars? |
+| `runRecalibration.mjs` | Pre-registered sizing cells through the engine replay at live's account size ($190 + $10/week) |
+| `runStopSweep.mjs` | Stop / target / break-even sweep on the live-timing engine |
+| `runTrendCore.mjs` | Sim-only TSM sleeve study (12h USDT/USDC, 2017→); `--dump-curves` / `--dump-fills` for the bootstrap and the replay match |
+| `rebuildDeepHistory.mjs` | Rebuild deep 12h history by resampling the 4h caches (lossless on the UTC grid) |
+| `stitchRenamedPair.mjs` | Carry a coin's candle history across a ticker rebrand (e.g. TON → GRAM), merged payload-wins |
+| `downloadContextData.mjs` | Fetch research context data: perp funding, FRED macro series, Coin Metrics on-chain |
+| `recordContextGauges.mjs` | Record Coin Metrics exchange flows as published (`npm run record-gauges`), for machines not running the bot |
+| `buildExchangeEvents.mjs` | Backfill `data/exchangeEvents.json` from Binance's delisting/news announcement history |
 | `trainMetaOverlay.mjs` | Train the Phase-5 logistic P(win) overlay → `data/meta_overlay.json` (gate-only, default OFF) |
 | `repairPhantomState.mjs` | One-shot ops repair (2026-08-03 incident): strip the phantom scalper position that absorbed the core sleeve's ETH from state/trade/equity files. Bot stopped; dry-run by default, `--apply` to write; idempotent, refuses to write if files don't match the incident state |
 | `repairFrozenCoreEquity.mjs` | One-shot ops repair (2026-08-10 incident): rewrite the 08-04→08-09 `equity_history.json` snapshots frozen by the unmarked core legs, from verified Binance 1m closes. Bot stopped; dry-run by default, `--apply` to write; idempotent, writes `.bak` |
@@ -140,36 +152,60 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
    wall clock (core/cycleScheduler.js). No fixed setInterval — a slow or stalled
    cycle costs that cycle, never the alignment.
 
-1. MTF candles served from in-memory cache (refreshed at each cycle, right after the close)
-   12h candles fetched fresh from Binance and merged into history cache
-   → series older than maxCandleStalenessPeriods (24h) ⇒ symbol skipped
+1. Fetch FIRST (core/engine.js runAllSymbols): 12h candles (config.candleLimit = 200)
+   for every symbol, merged payload-wins into dashboardState; then venue events and
+   Fear & Greed re-read; then the 15m (24 bars) and 4h (30 bars) MTF caches refreshed
+   (refreshMtfCache), right after the close.
+   Then, from bars closed by the cycle time: correlation matrix, median ATR%, BTC macro
+   (EMA200) and BTC regime classifier, bear policy (cash-exit of all scalper positions
+   on a transition into a bear regime), circuit-breaker + drift-monitor bookkeeping.
+   → a symbol whose fetch failed is skipped; series older than
+     maxCandleStalenessPeriods (24h) ⇒ symbol skipped (checkCandleFreshness)
 
-2. For each symbol:
-   each strategy instance: strategy.analyze(candles)   (closed candles only)
+2. Phase A, all symbols in parallel (runCycle):
+   each strategy instance: strategy.analyze(candles)   (closed candles only;
+     withFormingBar() adds a placeholder if the new bar has not printed)
      → { name, signal: BUY/SELL/HOLD, value, confidence: 0-1, reason: string }
 
 3. symbolAggregators[symbol].aggregate(candles, symbol, signalConfig)
      → { decision, confidence, signals[], externalSignals[] }
+   Exits are decided here, before any entry: venue exit (pair removal/delisting),
+   position-aging exit (14 bars), asymmetric SELL (0.7× threshold when held and
+   a SELL majority exists; core/decisionCore.js resolveDecision). Exits and holds
+   complete at once; BUY candidates for symbols not held wait for Phase B.
 
-4. Filter cascade (uses cached 15m/4h data — no extra API calls):
-   bearRegimeBlock? → maxOpenPositions? → dailyLoss (maxDailyLossPct)? → weeklyDDBreaker?
-     → correlationCap? → mtf15m? → mtf4h? → BTC.D gate / F&G modulator → minConfidence?
+4. Phase B, entry candidates one at a time, highest confidence first (byEntryPriority),
+   each from a fresh trader.getStatus() so a taken slot is visible to the next (completeCycle).
+   Entry gates, in order:
+   venue blockEntry? → bearPolicy block?
+     → runEntryFilters (core/filters.js → decisionCore.evaluateEntryGates; cached
+       15m/4h bars, closed by now): weeklyDDBreaker? → BTC.D gate (alts) → ranging-market block (config.regime, off by default)
+       → correlationCap? → mtf15m? → mtf4h? → momentum leader?
+     → F&G modulates the threshold → riskManager.canTrade():
+       minConfidence (scaled) → maxOpenPositions → dailyLoss (maxDailyLossPct)
 
-5. Position sizing:
-   base × ATR × confidence × regime × macro → effectiveRisk
+5. Position sizing (core/positionSizing.js computePositionSize):
+   base × ATR × macro × regime × confidence × mtfSizeFactor, then the minSizeMultiplier
+   floor (0 = off) → effectiveRisk
 
 6. trader.execute(symbol, decision, price, effectiveRisk)
-      → createOrder(symbol, 'market', 'buy', qty)
+      → live: capped IOC limit order (risk.limitCapPct past the price); paper: simulated fill
       → position tracked in memory + persisted to data/position_state.json
       → notifyTrade() → Telegram alert (if configured)
 
-7. Risk check (existing positions):
+7. Stops (existing positions) are NOT evaluated in the cycle; the 2-minute risk loop
+   does it through engine.onPriceTick → trader.checkRisk (see below):
     price ≤ stopLoss?     → IOC limit sell, rest at market (stop_loss)
     price ≥ takeProfit?   → IOC limit sell, rest at market (take_profit)
-    price ≥ entry × 1.05? → stopLoss = entryPrice (break_even), save state
+    price ≥ entry × 1.10? → stopLoss = entry × 1.002 (break_even, risk.breakEvenTriggerPct), save state
     All closes → notifyTrade() → Telegram alert (if configured)
 
-8. TSM Core Cycle (if `TSM_CORE=true`; paper simulates, LIVE places real orders (capped IOC limits)):
+8. After the scalper cycle: the 12h satellite (runSatelliteCycle('strongest'), trades only
+   the cash left over; config.satellites — off unless SATELLITES=true; the 4h breakout
+   satellite runs on its own 4h clock via runSatelliteCycle('breakout')), then the daily equity snapshot, then the
+   watchdog heartbeat (lastCycleAt).
+
+   TSM Core Cycle (runTsmCoreCycle, runs before the satellite; if `TSM_CORE=true`; paper simulates, LIVE places real orders (capped IOC limits)):
    runTsmCoreCycle() reads closed 12h candles from dashboardState (no lookahead)
    For each core symbol: computeTsmVote(trailing momentum) → majority vote
    If vote flips: openCorePosition / closeCorePosition → position tracked with isCore flag
@@ -198,6 +234,10 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
    as well as live
 6. After marking, a vote-flip close that failed on the exchange is retried —
    every cycle until it fills
+7. Satellite positions and resting satellite limit orders get their own tick
+   (engine.onSatelliteTick); they are skipped by the scalper loop
+8. Runs in every mode (paper too); scalper stops go through engine.onPriceTick,
+   which also records the exit with the risk manager (daily-loss brake)
 ```
 
 ### MTF Candle Cache
@@ -208,11 +248,15 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 │ 4h cache:  refreshed each cycle (30 bars)   │
 │ On cache miss: live fetch + warm cache       │
 └─────────────────────────────────────────────┘
-- Eliminates 74 API calls per BUY evaluation (37 symbols × 2 TF)
+- One refresh per cycle costs 74 calls (37 symbols × 2 TF); BUY evaluations then read
+  the cache (bars closed by now) instead of fetching per candidate
+- A failed symbol fetch drops its cached bars (the gate fetches fresh at use)
 - Stored in-memory (not disk) — rebuilt on restart
 ```
 
-### Position Sync (startup + every 5 min)
+### Position Sync (startup + every 5 min, live only)
+
+Balance poll (`BALANCE_POLL_MS`, main.js) skips paper mode and any moment a cycle or an order is in flight.
 
 ```
 0. Core sleeve claims FIRST (calcCoreClaims, executor/traderUtils.js): every core
@@ -227,7 +271,7 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 4. Load persisted state from data/position_state.json (SL, HWM, entry)
 5. Reconstruct position object (entry, SL, TP, qty)
 6. If persisted state exists → restore exact SL/HWM (no data loss on restart)
-7. If no persisted state → lock break-even only when the live ticker is already above entry × 1.05
+7. If no persisted state → lock break-even (entry × 1.002) only when the live ticker is already at or above entry × (1 + breakEvenTriggerPct), i.e. × 1.10
 8. If no history match → create synthetic entry at current price
 ```
 

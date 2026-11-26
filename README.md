@@ -119,22 +119,34 @@ Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/
 | `npm run test:vitest` | Unit tests (Vitest) |
 | `npm run test:connection` | Verify Binance API connectivity |
 
-### Backtest Flags
+### Backtests
+
+The runners that decide anything apply live's full filter stack on their own
+(`FULL_LIVE_FILTERS` in `src/backtester/baselineFramework.js`), so they need no filter flags:
+
 ```bash
-# All filters are MANDATORY for valid results:
-PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
-  --mtf4h --regimeSizing --confSizing \
-  --slots 3 --candles 730 --budget 1000
+PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <name>    # multi-window baseline + deflated Sharpe
+PAPER_MODE=true node src/scripts/runWalkForward.mjs                # forward-only walk-forward + Monte Carlo
+PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot --out <file>   # the live engine replayed, whole account
 ```
 
-See `--help` or [TECHNICAL.md](docs/TECHNICAL.md) for all flags.
+`portfolioBacktest.mjs` is the older flag-driven runner. Its defaults differ from live (3 slots,
+4h score 0.55, regime sizing off), so set them to live's values:
+
+```bash
+PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
+  --mtf4h --mtf4hScore 0.45 --regimeSizing --confSizing \
+  --slots 4 --candles 730 --budget 1000
+```
+
+See [TECHNICAL.md](docs/TECHNICAL.md) for the scripts.
 
 ---
 
 ## Portfolio
 
 37 Binance spot USDC pairs:  
-BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
+BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY, PAXG, THETA, VANRY
 
 Max 4 concurrent positions (base size 15% of capital each, `risk.maxPositionPct`), sized by ATR and confidence.
 
