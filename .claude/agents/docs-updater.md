@@ -17,6 +17,7 @@ Sync documentation with a code change. Update only what the change made stale.
 | `README.md` | Project overview, quick start, env vars, npm scripts, Docker usage |
 | `docs/STRATEGY.md` | Full strategy description: signals, aggregator, filters, sizing, exits |
 | `docs/TECHNICAL.md` | Architecture, module map, data flow, persistence, deployment |
+| `docs/MEASUREMENTS.md` | The only full copy of backtest results: current baseline, sleeve studies, decisions, earlier baselines |
 | `docs/TESTNET.md` | Testnet setup |
 | `docs/WORKFLOW.md`, `docs/SHORTING_FEASIBILITY.md` | Supporting docs — update if touched by the change |
 | `config/default.js` | **Comments only** — keep the comment beside a parameter true to what it does; never change a value |
@@ -37,6 +38,8 @@ grep `.claude/` for every renamed symbol, changed constant and moved file.
 ## Update Rules
 
 - Numbers come from backtest output or config — never estimate a metric.
+- Results go in full only in `docs/MEASUREMENTS.md`. Elsewhere, at most a one-line headline and a
+  link; never copy a results table into README, STRATEGY or TECHNICAL. `docs/plans/` stay as written.
 - README stays usage-focused; STRATEGY.md and TECHNICAL.md are thorough (every signal, filter,
   sizing layer and exit rule with its rationale; module responsibilities, data flow, persistence,
   deployment).

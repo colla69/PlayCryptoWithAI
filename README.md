@@ -6,20 +6,13 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
-**Performance (baseline regenerated 2026-11-26 — the scalper alone, $1,000, full live filter stack,
-fills at the decision bar's open, tiered slippage, stops replayed on 15m bars):**
-
-`six-year set, full history (2509d, to 2026-08-10): +108.0% · Sharpe 1.39 · Max DD −7.5% · WR 66% · DSR 0.34`  
-`live set, last 365d (to 2026-10-27): +27.4% · Sharpe 1.88 · Max DD −3.7% · WR 60%`  
-`live set, last 90d: +11.9% · Sharpe 2.21 · Max DD −3.7% · 6 trades`
-
-> DSR stays below 0.5 on every window: after the charge for the optimizer's search the Sharpe is
-> not distinguishable from luck, and out of sample before 2024-05 the scalper made 0.7% a year.
-> The whole account (scalper + TSM sleeve, $190 + $10 a week) over six years: 18.9% a year, worst
-> drop 6.5% ([2026-11 plan](docs/plans/2026-11-multi-asset-trend.md)). All windows and the
-> reading: [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
+**Performance (backtest baseline 2026-11-26):** the whole account (scalper + TSM sleeve, $190 +
+$10 a week) made **18.9% a year over six years, worst drop 6.5%**. The scalper alone is positive
+on every window with drawdowns under 8%, but its deflated Sharpe stays below 0.5: the edge is not
+proven. All numbers: **[MEASUREMENTS.md](docs/MEASUREMENTS.md)**.
 
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
+📖 **[Measurements](docs/MEASUREMENTS.md)** — every backtest result, current and earlier, and what was decided  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
 📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
 📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — measurement gaps found by the parity work and the live reconciliation (all fixed 2026-10-24)  

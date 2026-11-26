@@ -79,6 +79,8 @@ fix belongs in the engine.
   Never reintroduce an unauthenticated path to the signal bus — it ran open on host-networked
   port 3000 from the first commit until 2026-07-29.
 - **Docs live in `docs/`.** All project documentation (`STRATEGY.md`, `TECHNICAL.md`, `TESTNET.md`, `WORKFLOW.md`, etc.) lives under `docs/`; `README.md` is the only `.md` at the repo root. New docs go in `docs/` and are linked from `README.md`. Do **not** move toolchain config that happens to be Markdown — `CLAUDE.md` and everything under `.claude/` must stay where the tooling loads them.
+- **Results live in `docs/MEASUREMENTS.md` only.** Other docs quote a one-line headline and link
+  there; a results table copied into a second doc goes stale.
 
 ## Signal Engine (current state — post robustness overhaul)
 

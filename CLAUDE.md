@@ -60,8 +60,9 @@ PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot+bo --o
 ```
 
 Not `portfolioBacktest.mjs` for decisions: its defaults are not live's (3 slots, 4h score 0.55,
-regime sizing off). The published baseline is in `docs/STRATEGY.md` § Backtested Performance;
-compare against it and update it when a change ships.
+regime sizing off). The published baseline is in `docs/MEASUREMENTS.md`, the only place
+results are kept in full: compare against it, and when a change ships replace its current baseline
+and move the old headline to its history. Other docs quote one line and link there.
 
 ## Token & cost discipline
 
