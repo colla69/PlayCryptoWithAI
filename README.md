@@ -89,8 +89,16 @@ Live at `http://localhost:3001` — four tabs:
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
 | `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live). Sizing follows the HWM equity ladder — see STRATEGY.md |
+| `SATELLITES` | `false` | Enable the satellite strategies on the free cash (4h breakout, `config.satellites`). Simulates in paper; REAL orders in live |
+| `WEBHOOK_PORT` | `3000` | Port of the external-signal webhook (only used when `WEBHOOK_TOKEN` is set) |
+| `CONSOLE_LOG_LEVEL` | `LOG_LEVEL` | Console log level, when it should differ from `LOG_LEVEL` |
+| `FILE_LOG_LEVEL` | `debug` | Log level of the daily log files |
+| `TWITTER_BEARER_TOKEN` | — | Optional: Twitter signal source |
+| `LEADER_API_KEY` / `LEADER_API_SECRET` | — | Optional: copy-trade leader account (read-only keys) |
 | `PLAYCRYPTO_RUNTIME_DIR` | cwd | Root for bot state (`data/` state files, `logs/`). Candle caches stay in the checkout. In any test process it defaults to a throwaway temp dir and refuses to resolve inside the checkout, so tests never touch live state; set it for ad-hoc paper boots from a checkout the live container mounts |
 | `WEBHOOK_TOKEN` | — | Required to run the external-signal webhook (off by default). Requests must send it as `x-webhook-token`; without the env var the server refuses to start |
+
+Every variable is listed with a comment in `.env.example` (local) and `.env.live.example` (server).
 
 Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/filter context.
 
