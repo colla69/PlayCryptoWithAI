@@ -15,7 +15,8 @@
  *     [--label <name>]                           — the cell's name in the report (default: the cell)
  *     [--per-symbol '{"minConfidence":0.55}']    — one shared override for every coin ('{}' = the global defaults)
  *     [--dvol <file>]                            — DVOL bars { BTC: [...], ETH: [...] } in place of data/dvol.json
- *     [--no-sleeve]                              — the scalper alone (TSM sleeve off). The sleeve alone:
+ *     [--tsm '{"stayVotes":3,"rebuyConfirmBars":40}'] — sleeve settings over config.tsmCore (runBuybackShadow.mjs)
+ *     [--no-sleeve]                             — the scalper alone (TSM sleeve off). The sleeve alone:
  *                                                  --per-symbol '{"minConfidence":2}' (no entry can reach it)
  *   node src/scripts/runSuperbot.mjs --report /tmp/sb_bot.json,/tmp/sb_all.json [--fold-months 6]
  */
@@ -93,7 +94,7 @@ if (arg('per-symbol') != null) {
 }
 const cfg = {
   ...config,
-  tsmCore: { ...config.tsmCore, enabled: !argv.includes('--no-sleeve') },
+  tsmCore: { ...config.tsmCore, ...JSON.parse(arg('tsm', '{}')), enabled: !argv.includes('--no-sleeve') },
   satellites: {
     ...config.satellites,
     enabled: cell !== 'bot',

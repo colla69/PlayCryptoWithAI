@@ -178,9 +178,28 @@ simulator already held. The two engines trade the rule alike.
 Sharpe 1.39 · drop 6.2% · $4,059; M2 10.6% · 1.46 · 4.4% · $4,044. Before 2024-05: 18.0% → 16.0%,
 drop 6.2% → 4.4%; 2024-05 → 2026-05: 0.7% → 2.5%, drop 5.4% → 3.6%.
 
-**Check 3 — shadow log, to 2027-02-10.** Proposed without live code: once a month, replay live's own
-candles with the rule off and on (`runSuperbot.mjs`, the preload) and list the trades that differ.
-A gate log inside the live engine would need a second sleeve state there, since M2 also sells earlier.
+**Check 3 — shadow log, to 2027-02-10.** No live code: `runBuybackShadow.mjs` replays the committed
+bot (scalper + sleeve) over live's period on `data/candles` with the rule off and on, and lists the
+sleeve round trips that differ. A gate log inside the live engine would need a second sleeve state
+there, since M2 also sells earlier. Run it once a month after refreshing the candles
+(`npm run download-history`), and add a row here:
+
+```bash
+node src/scripts/runBuybackShadow.mjs --dir <folder for the two replay files>
+```
+
+Figures count from 2026-08-10, the end of the data the rule was chosen on. The replay starts flat
+on 2026-05-29 with $190 + $10 a week, so it is the rule's effect on the bot as configured, not a
+copy of the live account.
+
+| Run | Candles to | Rule off: return · Sharpe · drop · sleeve P&L | Rule on | Sleeve round trips that differ |
+|---|---|---|---|---|
+| 2026-11-26 | 2026-10-27 | 11.3% · 2.44 · 4.7% · $10.62 | 13.5% · 2.94 · 3.4% · $17.64 | 6 of 6 |
+
+First entry, eleven weeks: the rule sold BTC and ETH one or two bars after the August entries
+(−$0.24 to −$1.15 each), bought both back on 2026-08-19/20 and held the same autumn move; it left
+BTC on 2026-10-21 at +$9.39 where the shipped sleeve left on 10-27 at +$6.01, and skipped ETH's
+losing 2026-10-09 re-entry (−$3.86). Six trades on one stretch of market: a direction, not a proof.
 
 ## Perp positioning as a breakout filter (pre-registered 2026-11-25, before any futures data was read)
 
