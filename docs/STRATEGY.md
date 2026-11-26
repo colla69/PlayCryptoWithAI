@@ -35,22 +35,22 @@ The first 15 are classical TA; the last 5 (Phase 2) add deliberately orthogonal 
 | 1 | RSI | RSI(14) | Oversold + turning up | Overbought + turning down |
 | 2 | Bollinger Bands | BB(20,2) | Price at lower band | Price at upper band |
 | 3 | CCI | CCI(20) | Below -100, reversing | Above +100, reversing |
-| 4 | EMA | EMA crossover | Fast > Slow | Fast < Slow |
+| 4 | EMA | EMA crossover | Fast crosses above Slow | Fast crosses below Slow |
 | 5 | MACD | MACD(12,26,9) | Histogram crossover up | Histogram crossover down |
-| 6 | ADX | ADX(14) + DI | +DI > -DI with ADX > 20 | -DI > +DI with ADX > 20 |
+| 6 | ADX | ADX(14) + DI | +DI > -DI with ADX ≥ 25 | -DI > +DI with ADX ≥ 25 |
 | 7 | Stochastic | Stoch(14,3,3) | %K crosses above %D in oversold | %K crosses below %D in overbought |
 | 8 | StochRSI | StochRSI(14) | Oversold crossover | Overbought crossover |
 | 9 | MFI | MFI(14) | Below 20 (money flow oversold) | Above 80 (money flow overbought) |
-| 10 | OBV | OBV + EMA | OBV trending above its EMA | OBV trending below its EMA |
+| 10 | OBV | OBV + EMA | OBV crosses above its EMA | OBV crosses below its EMA |
 | 11 | PSAR | Parabolic SAR | SAR flips below price | SAR flips above price |
 | 12 | Williams %R | WR(14) | Below -80, reversing | Above -20, reversing |
 | 13 | Supertrend | ATR-based trend | Price breaks above supertrend | Price breaks below supertrend |
 | 14 | Heikin-Ashi | HA candles | Bullish reversal pattern | Bearish reversal pattern |
 | 15 | Support & Resistance | S/R levels | Price bounces off support | Price rejected at resistance |
 | 16 | Donchian | 20-bar channel | Close > 20-bar high + volume confirm | Close < 20-bar low |
-| 17 | VWAP-σ | Anchored VWAP ± 2σ | Price ≤ VWAP − 2σ | Price ≥ VWAP + 2σ |
+| 17 | VWAP-σ | Rolling 20-bar VWAP ± 2σ | Price ≤ VWAP − 2σ | Price ≥ VWAP + 2σ |
 | 18 | Volume Surge | Vol vs 20-bar avg | Vol > 2× avg AND green candle | Vol > 2× avg AND red candle |
-| 19 | Ichimoku | Cloud / Tenkan / Kijun | Cloud break up + TK cross + chikou | Cloud break down + TK cross + chikou |
+| 19 | Ichimoku | Cloud / Tenkan / Kijun | Price above cloud + Tenkan > Kijun (fresh TK cross adds confidence) | Price below cloud + Tenkan < Kijun (fresh TK cross adds confidence) |
 | 20 | Pin Bar | Wick rejection | Bullish rejection wick at support | Bearish rejection wick at resistance |
 
 Every strategy excludes the forming candle (closed bars only — no lookahead) and returns
@@ -99,7 +99,7 @@ harness). It is the validated calibration, not a temporary hack.
 Borderline-confidence directional signals (within ~0.10 of `minConfidence`) are suppressed to HOLD
 unless the **previous bar agreed** on the same direction — this kills one-bar fakeouts. It is opt-in
 via `signals.multiBarConfirmation` (ON live + backtester) and was the single biggest robustness win
-on the most-out-of-sample window (last-90d Sharpe 1.15 → 2.89, DD −22% → −10% at the time it shipped).
+on the most-out-of-sample window at the time it shipped ([measurements](MEASUREMENTS.md#what-was-tested-and-decided)).
 Exits are unaffected: the asymmetric exit reads raw votes, so a borderline SELL on an open position
 is still rescued.
 
@@ -107,6 +107,8 @@ is still rescued.
 
 For positions already open, SELL signals get a **30% lower confidence bar** (`entry × 0.7`). It's
 easier to get out than to get in — the bot exits losing positions even on moderate SELL conviction.
+It applies only when the aggregator returned HOLD, more than half of the strategies vote SELL, and the
+confidence is ≥ 0.7 × the symbol's scaled `minConfidence` (`resolveDecision`, `src/core/decisionCore.js`).
 
 ---
 
@@ -126,7 +128,7 @@ into a 2×2 grid, with **3-bar hysteresis** to avoid flip-flop:
 all open positions are closed on that bar and new entries are blocked until the regime leaves
 `BEAR_TREND`. `BEAR_CHOP` (sideways) is *not* blocked — mean-reversion still works there; blocking it
 was measured as too costly. This replaces the old "halve size in bear" approach with an actual
-cash-out on confirmed downtrends. Config: `bearPolicy` (`mode: 'trend_only'`).
+cash-out on confirmed downtrends. Config: `bearPolicy` (`restrictTo: 'trend_only'`).
 
 **Regime routing** (regime-conditional strategy bundles, `src/engine/regimeRouter.js`) is shipped as
 infrastructure but **default OFF** (`regimeRouting.enabled = false`). A 2026-06 deep-data study refuted
@@ -134,7 +136,7 @@ the core premise (the trend-alignment filters block mean-reversion, so "differen
 isn't viable as built) and found the infra has latent bugs — leave OFF unless re-engineered. The viable
 regime lever is **exposure** (regime-conditional sizing), not strategy swapping — untested.
 
-Both live (`main.js`) and the backtester consume the same `RegimeTracker` — no behavioural divergence.
+Both live (`src/core/engine.js`) and the backtester consume the same `RegimeTracker` — no behavioural divergence.
 
 ---
 
@@ -147,8 +149,8 @@ backtester can replay them deterministically):
   hard, alt entries are blocked (alts crash when dominance spikes). No-ops until 7 days of data exist.
 - **ETH/BTC ratio** — from Binance public spot; a *sizing* multiplier on alts (altseason on/off), not
   a hard gate.
-- **Fear & Greed modulator** — `data/fearGreed.json` (1000 daily samples, re-read each cycle). Extreme greed (>80)
-  tightens `minConfidence` by +0.05; extreme fear (<20) relaxes it by −0.05 (contrarian).
+- **Fear & Greed modulator** — `data/fearGreed.json` (1000 daily samples, re-read each cycle). Extreme greed (≥80)
+  tightens `minConfidence` by +0.05; extreme fear (≤20) relaxes it by −0.05 (contrarian).
 
 Every cross-asset feed is optional with a neutral fallback — the bot keeps trading on local Binance
 data alone if an external source is unavailable.
@@ -157,7 +159,10 @@ data alone if an external source is unavailable.
 
 ## Entry Filters
 
-Every BUY signal must pass a cascade before execution:
+Every BUY signal must pass a cascade before execution. Numbering below is by topic; the order in
+code is: venue veto, bear-regime block, weekly DD breaker, BTC.D gate, correlation cap, 15m MTF, 4h
+momentum, momentum-leader (`src/core/decisionCore.js`), then in `riskManager.canTrade()` the
+F&G-adjusted minimum confidence, max positions and daily loss limit.
 
 0. **Fresh-data guard** — the symbol is skipped entirely (no signal, no trade) when its newest 12h
    bar is older than `maxCandleStalenessPeriods` (default 2 periods = 24h). Thin or delisted markets
@@ -174,7 +179,8 @@ Every BUY signal must pass a cascade before execution:
      after its tag; TON was renamed GRAM (the bot now trades GRAM/USDC). Feed: Binance's
      announcement pages (`src/data/exchangeEventsFeed.js`, cache `data/exchangeEvents.json`,
      re-read every 4h; an outage keeps the cache). The replay reads the same file. Covers the
-     scalper and the satellites.
+     scalper and the satellites (short limit-order trades on large coins, OFF by default —
+     `SATELLITES=true` enables them, `config.satellites`; not part of the default live bot).
 1. **Bear-regime block** (Phase 6a) — no new entries while regime is `BEAR_TREND`.
 2. **Max positions** — 4 concurrent slots (`risk.maxOpenPositions`; core sleeve legs don't count);
    a BUY that arrives with every slot full is skipped, not queued. The backtester fills free slots
@@ -190,11 +196,11 @@ The backtester uses the same rule against simulated equity (parity by constructi
    60-day correlation > 0.85 to an existing one (a hard cap on the new entry, not a reroute).
 6. **15m MTF alignment** — recency-weighted score over the last 16×15m candles; < 0.30 blocks entry
    (relaxed from 0.50 in 2026-06: once all 37 symbols had 15m data the filter became portfolio-wide and
-   0.50 was too tight; forward-only walk-forward confirmed the relaxation lifts Sharpe 1.01→1.50).
+   0.50 was too tight; forward-only walk-forward confirmed it, [measurements](MEASUREMENTS.md#what-was-tested-and-decided)).
 7. **4h momentum** — EMA(8) vs EMA(21) spread (60%) + RSI(14)/100 (40%); < 0.45 blocks entry.
 8. **Momentum-leader** (2026-06-25) — require trailing 20-bar (10-day) return ≥ 0; blocks "falling-knife"
-   buys (oversold dips in downtrends). Shared `utils/momentum.js` keeps live ≡ backtest. Forward-only WF:
-   Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%.
+   buys (oversold dips in downtrends). Shared `utils/momentum.js` keeps live ≡ backtest. Confirmed
+   forward-only ([measurements](MEASUREMENTS.md#what-was-tested-and-decided)).
 9. **BTC.D gate / Fear & Greed modulator** — see Cross-Asset Context.
 10. **Minimum confidence** — per-symbol threshold (× `confidenceThresholdScale` for now).
 
@@ -215,8 +221,8 @@ Multiplicative chain: `Final = Base × ATR × Confidence × Regime × Macro` (×
 
 ## TSM Core Sleeve (experimental, default OFF — live-capable)
 
-**Shipped infrastructure for majors trend-following:** a parallel core portfolio (default
-BTC+ETH+BNB+SOL) sized as a fixed sleeve (default 50% of equity, split equally) 
+**Shipped infrastructure for majors trend-following:** a parallel core portfolio (BTC+ETH;
+BTC+ETH+BNB+SOL only on the top equity-ladder rung) sized as a fixed sleeve (default 50% of equity, split equally) 
 that holds LONG only while trailing momentum is positive. Exits ONLY on vote flip (reason 
 `tsm_core_flip`) — no stop-loss, take-profit, break-even, or aging exit. Enabled via `TSM_CORE=true` 
 env var; runs in **paper and live** — on the live bot it places real orders (IOC limits capped 0.5% past the price) sized to 
@@ -227,15 +233,17 @@ loop (~2 min) until it fills.
 **The rule:** `computeTsmVote()` counts positive trailing-momentum votes on three lookback windows 
 (default 60/90/120 bars = 30/45/60 days on 12h), with **slow-in hysteresis**: OPEN only when all 3 
 votes are positive (`enterVotes: 3`), HOLD while ≥2 stay positive (`stayVotes: 2`), CLOSE below 
-that. Validated on 9yr USDT data incl. the 2018 + 2022 bears: vs the symmetric 2-of-3 vote it 
-raises Sharpe (0.93→1.04 BTC+ETH) and cuts round trips ~3×. Position key is `'<symbol>#core'` 
+that. It beats the symmetric 2-of-3 vote on 9 years of data with ~3× fewer round trips
+([measurements](MEASUREMENTS.md#tsm-sleeve-studies)). Position key is `'<symbol>#core'` 
 (e.g. `BTC/USDC#core`) with `isCore: true` flag, coexisting with the scalper's positions on the 
 same asset.
 
 **Faster exit with a buy-back proof (built, OFF):** `stayVotes: 3` sells on the first negative
 vote; `rebuyConfirmBars: 40` then buys a sold coin back only on a close above its 20-day high
-while a majority of votes is still positive (a broken trend clears the wait). Six-year replay:
-Sharpe 1.99 → 2.08, worst drop 8.2% → 6.7% (plan doc § M). `reentryPauseHours` adds a pause after
+while a majority of votes is still positive (a broken trend clears the wait). It improved the
+six-year replay ([measurements](MEASUREMENTS.md#tsm-sleeve-studies)). Its checks before a switch-on
+(bootstrap, simulator ↔ replay match, monthly shadow comparison by `runBuybackShadow.mjs`) are in
+[the 2026-11 plan](plans/2026-11-multi-asset-trend.md). `reentryPauseHours` adds a pause after
 a sell (§ L, not adopted). The wait and the last-sell times persist in
 `data/tsm_sleeve_state.json` (`src/data/sleeveStateStore.js`), so a restart does not buy back early.
 
@@ -252,27 +260,12 @@ a sell (§ L, not adopted). The wait and the last-sell times persist in
 
 Trades tagged `note: '🧲 tsm-core'`.
 
-**Rationale & performance:** 
-time-series momentum is the defensible edge found in this codebase's data. On the full 6-year 
-window (2020-06-27 → 2026-07-02, 4,066 candles), the vote BTC+ETH sleeve returns +596% / Sharpe 
-0.99 / DD −52% vs +582% / 0.85 / −77% for equal-weight B&H of the same coins — captures upside, 
-cuts the bear tail. DSR 0.72 (robust across 15–90d lookbacks on both universes tested — a plateau, 
-not luck). Matches the crypto literature on TSM. See `docs/TREND_CORE_STUDY.md` for the full study 
-and start-date sensitivity: it beats same-universe B&H on return/Sharpe/DD from every walk-in date 
-tested (including the exact 2021 top), but absolute return still requires the asset class to go up.
-
-**Universe re-validated 2026-07-29** on the restored 6.1yr USDC series (4,128 bars,
-2020-06-22 → 2026-07-29), shipping rule (vote 30/45/60 + slow-in + volTarget 0.6):
-
-| Universe | Return | Sharpe | Max DD | DSR | '21–22 bear DD | Exposure |
-|---|---|---|---|---|---|---|
-| BTC+ETH (previous default) | +454% | 1.05 | −36.0% | 0.64 | −35.8% | 46% |
-| **BTC+ETH+BNB+SOL (current)** | **+543%** | **1.20** | **−33.0%** | **0.75** | **−31.1%** | 41% |
-
-Strictly dominant — better return, Sharpe, drawdown and DSR at lower exposure; the cost is 2×
-round trips (104 vs 56), already charged in the honest fills. Independently reproduces the 9yr
-USDT study's ordering. **Vol targeting is load-bearing here:** without it the wider universe
-draws down *deeper* (−49.0% vs −38.8%), so don't disable `volTarget` and keep this universe.
+**Rationale:** time-series momentum is the defensible edge found in this codebase's data. It
+beats same-universe buy-and-hold on return, Sharpe and drawdown from every start date tested, and
+the four-coin universe (rung C) beats BTC+ETH on every measure. **Vol targeting is load-bearing:**
+without it the wider universe draws down deeper, so keep `volTarget` on. Absolute return still
+needs the asset class to go up. Numbers: [MEASUREMENTS.md](MEASUREMENTS.md#tsm-sleeve-studies);
+full study: `docs/TREND_CORE_STUDY.md`.
 
 **Sizing follows an equity ladder with a high-water-mark ratchet** (`tsmCore.equityLadder`,
 2026-07-29). The selector input is the account's all-time-high equity (daily snapshots in
@@ -281,20 +274,18 @@ losses (martingale). Risk only ever steps down; after a drawdown the unchanged s
 smaller account can fall under Binance's $11 notional floor, parking the sleeve in cash until
 recovery. Rungs are individually validated static profiles (never interpolated):
 
-| Rung | HWM ≥ | Profile | Combined account maxDD (measured, ρ=0.025 vs scalper) |
-|---|---|---|---|
-| A | $0 | 2 majors @ 0.50 | −17.4% |
-| B | $320 | 2 majors @ 0.30 | −10.1% (the ~10% budget rung) |
-| C | $970 | 4 majors @ 0.20 | ~−7% (best universe, DSR 0.75) |
+| Rung | HWM ≥ | Profile |
+|---|---|---|
+| A | $0 | 2 majors @ 0.50 |
+| B | $320 | 2 majors @ 0.30 (the ~10% drawdown-budget rung) |
+| C | $970 | 4 majors @ 0.20 |
 
 Thresholds sit ~10% above each rung's floor-viability equity so a rung is never selected before it
 can place an order; `sleeveFeasibility()` alerts (once per boot) when the active rung can't clear
 the floor at current equity, including the equity it becomes viable from — the DCA signpost.
 
-**Caveat:** In-sample only — 2026 YTD the sleeve is ~−9% (Q1 chop whipsaws). Real drawdowns are 
-−40/−60% at full deployment; sizing is a Sharpe-neutral risk dial. This is "smart beta" (captures 
-asset-class upside, not alpha); infrastructure is shipped, operator chooses whether/when to 
-activate and how much capital to allocate.
+**Caveat:** in-sample only, and at full deployment the real drawdowns are large. This is "smart
+beta" (asset-class upside, not alpha); the operator chooses whether and how much to deploy.
 
 **Sizing (combo rule):** each slot is `deploymentPct/n × volFraction × macroFactor` —
 vol targeting (`min(1, volTarget/vol)`, floor 0.2, no leverage; vol = Deribit DVOL implied vol for
@@ -302,27 +293,26 @@ BTC and ETH — `impliedVol`, section E1 of the 2026-10 rebuild plan, cache `dat
 vol when no DVOL close is under 24h old — and realized 30d vol for BNB and SOL) times the equity
 risk-off overlay (×0.5 while the NASDAQ Composite is below its 100d EMA; FRED keyless feed with
 12h cache, neutral on fetch failure). Held positions drift-rebalance when they deviate >15% of
-their slot (`resizeCorePosition`, partial fills carry post-state for restart restore). Full combo
-on the 9yr study: Sharpe 1.27, DD −36%, DSR 0.94 — see `docs/TREND_CORE_STUDY.md`.
+their slot (`resizeCorePosition`, partial fills carry post-state for restart restore).
 
 Implementation: `src/engine/tsmCore.js` (pure functions), `src/data/nasdaqTrend.js` (macro feed), 
-`src/main.js` orchestration (`runTsmCoreCycle`), PaperTrader additions (`openCorePosition`, 
+`src/core/engine.js` orchestration (`runTsmCoreCycle`), PaperTrader additions (`openCorePosition`, 
 `closeCorePosition`, `resizeCorePosition`).
 
 ---
 
 ## Exit Rules
 
-- **Stop-Loss** — per-symbol fixed % (3–8%, default 5%). *(ATR-derived stops exist as infrastructure
+- **Stop-Loss** — per-symbol fixed % (7.5–9%, default 7.5%). *(ATR-derived stops exist as infrastructure
   but are **disabled** — A/B testing showed them net-negative vs the well-tuned per-symbol stops.)*
-- **Take-Profit** — per-symbol fixed % (8–30%, default 12%).
-- **Break-Even Stop** — at +5% unrealised, SL moves to entry. Once per position. Persisted to
+- **Take-Profit** — per-symbol fixed % (18–45%, default 18%).
+- **Break-Even Stop** — at +10% unrealised (`risk.breakEvenTriggerPct`), SL moves to entry (+0.2% for fees). Once per position. Persisted to
   `data/position_state.json` (survives restarts).
 - **Strategy SELL** — aggregator SELL above the asymmetric exit threshold closes the position.
-- **Position aging exit** (Phase 7) — positions open > 14 bars (7 days) without hitting TP/SL are
+- **Position aging exit** (Phase 7) — positions open ≥ 14 bars (7 days) without hitting TP/SL are
   closed to free capital.
 - **Two-stage exit** — partial-close + break-even-on-runner infrastructure exists but is **disabled**
-  (tested −8pp return / −0.1 Sharpe under current tuning).
+  (net-negative when tested, [measurements](MEASUREMENTS.md#what-was-tested-and-decided)).
 
 ---
 
@@ -340,7 +330,7 @@ Every change is measured honestly before it ships:
 - **Monte Carlo trade shuffle** — SE bands on Sharpe / MaxDD / return; rejects fragile changes.
 - **Stress stoplight** (`runBaseline.mjs --stoplight`) — runs the standard + natural BTC-drawdown
   windows and assigns each a 🟢/🟡/🔴 verdict (🔴 if DD ≤ −15% or Sharpe < 0.8). Exits non-zero on
-  red so it can gate CI. Current overall: 🟢 GREEN.
+  red so it can gate CI. Current verdicts: [MEASUREMENTS.md](MEASUREMENTS.md#stress-windows).
 - **Live drift monitor** (`src/monitor/driftMonitor.js`) — each cycle compares the rolling 30-day
   live per-trade Sharpe against the backtest reference and warns when they diverge beyond 2 standard
   errors (Lo 2002). Log-only until `monitor.driftRefSharpe` is configured.
@@ -350,76 +340,11 @@ Every change is measured honestly before it ships:
 
 ---
 
-## Backtested Performance (honest baseline, full filter stack)
+## Backtested Performance
 
-Committed baseline, 37 USDC pairs, 12h candles, BUY-at-next-open, tiered slippage
-(large 0.10% / mid 0.20% / micro 0.35%). Measured post the 2026-09 backtester time-alignment fix
-(`PortfolioBacktester` now steps over the union of all symbols' timestamps instead of array index,
-with BTC regime/macro, the correlation matrix and the weekly DD breaker all reading as-of that step
-— see [Backtester fix status](plans/2026-09-backtester-fix-status.md)). Data cut to 2026-08-10.
-
-| Window | Days | Trades | Return | Sharpe | Sortino | Max DD | Win Rate | PF | DSR | PSR |
-|--------|------|--------|--------|--------|---------|--------|----------|----|----|----|
-| last_90d (most OOS) | 90 | 8 | +0.25% | 0.14 | 0.30 | −3.28% | 25% | 1.04 | 0.00 | 0.53 |
-| last_180d | 180 | 19 | +62.43% | 2.37 | 30.92 | −4.20% | 58% | 9.87 | 0.00 | 1.00 |
-| y2_365d (in-sample) | 365 | 23 | +25.09% | 1.36 | 8.86 | −4.37% | 43% | 4.82 | 0.00 | 1.00 |
-| y1_holdout | 365 | 34 | +91.95% | 2.72 | 11.35 | −5.33% | 79% | 6.49 | 0.08 | 1.00 |
-| y1y2_full (full OOS) | 730 | 60 | +137.59% | 2.04 | 8.70 | −8.84% | 63% | 4.77 | 0.17 | 1.00 |
-| full_history | 2509 | 81 | +140.68% | 1.08 | 3.89 | −8.84% | 60% | 3.94 | 0.13 | 1.00 |
-
-**Reading it honestly:** the three most recent windows (`last_90d`, `last_180d`, `y2_365d`) stay
-under 5% max DD; `y1_holdout` is also a 365d window but sits at −5.33%, and `y1y2_full` /
-`full_history` sit at −8.84% because they now include real drawdown periods the old array-index
-stepping mis-scored (see "Engine fix" below). PSR is 1.00 on every window except `last_90d`
-(0.53 — only 8 trades, no statistical confidence there). DSR is still 0.00 on the short windows and
-0.08–0.17 on the long ones — after
-correcting for the optimizer's search burden, the observed Sharpe has not yet cleared the
-significance bar (~3.3 annualised) on any window. Lifting DSR is the goal of the remaining phases
-(walk-forward retune, regime routing, meta-overlay). The pre-overhaul README claims (+152%/yr,
-Sharpe 2.33, +1912% over 2y) were not reproducible on the on-disk data and are disregarded.
-
-`y1_holdout`'s 79% win rate vs `y2_365d`'s 43% (both 365d windows) is a 36pp gap running in favor
-of the out-of-sample year — the opposite sign from overfitting, so it isn't a curve-fitting red
-flag, but it's regime dependence between two specific years, not a rate to extrapolate forward.
-
-**Engine fix, old vs new (forward-only walk-forward, default sizing, 52 folds, 2021–2026):** the
-old array-index stepping let late-listed symbols read BTC regime/macro state out of chronological
-order. Return and Sharpe barely move (+153.8%→+147.3%, Sharpe 1.23→1.19), but max drawdown drops
-from **−26.11% to −6.56%** — the old figure was a measurement artifact of the misalignment, not a
-real risk difference; the reviewer's ruling on this branch is that a worse-looking recent-window
-number is not a revert trigger when the old number was the wrong one. The *delta* is solid (both
-runs use the same equity-marking code), but the absolute −6.56% is still approximate — the equity
-curve marks only one open position at market and fills one bar after live (see the
-[follow-ups plan](plans/2026-09-backtester-parity-followups.md)). Trade count also drops 81→75,
-and DSR falls 0.26→0.20 — both the smaller sample and the lower Sharpe widen the gap to the
-significance bar.
-
----
-
-## What Was Tested & Decided
-
-| Enhancement | Result | Decision |
-|-------------|--------|----------|
-| Confidence-weighted aggregator + multi-bar gate | DD nearly halved, WR up on most-OOS window | **Shipped** |
-| Portfolio correlation cap (hard entry cap @ 0.85) | Better Sharpe *and* tighter DD with the new aggregator. **Re-checked 2026-09-29 at live sizing, post time-alignment fix:** the cap binds — turning it off adds ~7 trades and lifts DSR 0.22→0.27 on the forward-only walk-forward, at the cost of DD −4.00%→−4.47%. Windowed agrees on trade count but is mixed on return/DSR direction (`y2_365d` prefers the cap ON); decision made on the forward-only run per the windowed-vs-forward-only rule. Both DSR readings (0.22/0.27) are well under the 0.5 significance bar — a status-quo hold, not strong evidence either way. | **Shipped (ON)** — reverses the old "rejected" verdict; re-check did not change the call |
-| Weekly DD breaker + position aging exit | DD cut further, well inside safety margin. **Re-checked 2026-09-29 at live sizing:** 0 blocks in every window (y2_365d, y1y2_full, full_history) and in the forward-only walk-forward — the breaker never actually fires at this account size/risk config, so it is currently inert rather than tested | **Shipped (ON)** — inert-but-harmless; not a revert case since it never binds |
-| Cash-exit on `BEAR_TREND` (not `BEAR_CHOP`) | last_180d DD −5.9% → −2.9%, small return cost | **Shipped (trend_only)** |
-| ATR-based stops | Net-negative vs tuned per-symbol fixed stops on every window | **Infra kept, disabled** |
-| Two-stage exit / chandelier runner | −8pp return, −0.1 Sharpe under current tuning | **Infra kept, disabled** |
-| Regime archetype routing (trend pack in bull, mean-reversion in chop) | **Refuted (2026-06, deep 6yr data):** the trend-alignment filters (4h+15m MTF) structurally block mean-reversion entries (0 trades), and MR isn't range-specialized anyway. Routing infra also has latent bugs (dead code, unregistered strategy keys). | **Not viable as-is; infra stays OFF** |
-| Logistic-regression meta-overlay (P(win) gate) | Held-out gate-admitted WR 12.5% vs 39.5% base (−27pp) — does not beat baseline on 376 samples | **Trainer + gate shipped, default OFF** |
-| **15m MTF relaxation 0.50 → 0.30** (deep 6yr data) | Full 15m coverage made the filter portfolio-wide; 0.50 too tight. Forward-only WF Sharpe 1.01→1.50, DSR 0.01→0.11. **Re-checked 2026-09-29 post time-alignment fix** (`runMtfSweep.mjs`, windowed; the script's `mtf_0.50 (baseline)` label is stale — its `overrides:{}` case resolves to the current shipped 0.30, not 0.50): current 0.30 gets DSR 0.17/Sharpe 2.04/DD −8.84% on `y1y2_full` and DSR 0.13/Sharpe 1.08/DD −8.84% on `full_history`. Loosening to 0.20 gets DSR 0.34/Sharpe 2.23/DD −7.29% (better) on `y1y2_full` and DSR 0.21/Sharpe 1.14/DD −10.10% (worse) on `full_history` — but `mtf_OFF` (filter fully disabled) ties `mtf_0.20` on DSR in both windows (0.34 and 0.21), so at ≤0.20 the filter is statistically indistinguishable from being off. Both DSR readings (0.34/0.21) are still under the project's 0.5 significance bar even if confirmed. | **Shipped (ON) at 0.30** — re-check flags 0.20/OFF as a possible further relaxation; not acted on in this PR, needs a forward-only + Monte Carlo check first |
-| **Momentum filter** (buy only positive 10-day trailing return — no falling knives) | Forward-only WF Sharpe 1.50→1.60, DSR 0.11→0.18, WR 60→70%, PF 4.7→6.6 | **Shipped (ON)** — live + backtest via shared `utils/momentum.js` (2026-06-25) |
-| "Ride winners" (kill fixed TP + lift aging, trail the stop) | Looked great windowed (+167%/6yr) but **failed forward-only** (DSR 0.02 < relaxed-MTF baseline) | **Infra kept, disabled** |
-| Deployment / position-size sweep | Pure **Sharpe-neutral risk dial** — scales return *and* DD ~linearly; not an edge | **No change (informational)** |
-| **Relaxing the macro bear brake** (`sizeReduceFactor` 0.5 → 0.7 → 1.0) | Tested 2026-07-29 with the min-notional floor enforced. Return rises (+17.98%→+21.73%→+27.39% full history) but **Sharpe falls monotonically** (1.38→1.32→1.24; Y2 1.17→1.13→1.08) and DD widens −3.89%→−4.99%. Trade count unchanged (30). The hypothesis that this brake was redundant with the bear cash-exit — and so removing it would *re-allocate* rather than lever up — is **refuted**: it behaves exactly like scaling `basePct`. | **Rejected — knob unchanged at 0.5** |
-| **Flooring the compounded sizing brakes** (`risk.minSizeMultiplier`) | The brakes multiply and are positively correlated, so the product (median 0.47× of base over the 2026-07 soak) undershoots what any single brake intended. A 0.40× floor is a **no-op** (−0.06pp return, Sharpe unchanged) because the median already sits above it; 0.60× is a weak risk dial (+0.28pp, Sharpe −0.01). | **Infra shipped, default OFF (0)** |
-
-> **Under-deployment in bear is the mechanism, not a defect.** Four slots deploy ~25% of capital in a
-> bear tape because the macro ×0.5 does nearly all of the cutting (it fires 100% of the time BTC is
-> under EMA200; ADX/ATR net out to ~1.0×, and the confidence taper is a mild 0.85×). That brake is
-> also what buys the sub-4% drawdown on every window. Both attempts to reclaim the idle capital cost
-> risk-adjusted return, so per the cardinal rule neither shipped. The remaining option is allocating
-> that capital to a *different* sleeve (TSM core), not loosening the scalper.
-| Trailing stop (replace TP) | Gives back profit on retracements | Rejected (pre-overhaul) |
-| More slots (5–8) | Dilutes capital, no DD benefit | Rejected (pre-overhaul) |
+All results live in [MEASUREMENTS.md](MEASUREMENTS.md): the current baseline (scalper alone and
+the whole account, both candle sets, stress windows), the TSM sleeve studies, the record of what
+was tested and decided, and the earlier baselines. In short (2026-11-26): the scalper is
+positive on every window with drawdowns under 8%, but its deflated Sharpe stays below 0.5, so
+the edge is not proven; the whole account made 18.9% a year over six years with a 6.5% worst
+drop.

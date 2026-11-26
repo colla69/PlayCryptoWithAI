@@ -6,28 +6,19 @@ multi-timeframe filters, BTC-regime gating, cross-asset context, and portfolio-l
 
 > **EU compliance:** All pairs trade against USDC (not USDT).
 
-> **Historical figures:** the baseline below predates the 2026-10-27 replay and reporting
-> corrections. Regenerate it before comparing configurations: current reports use synchronized
-> portfolio valuations and calendar-day Sharpe (365 days), including the first day and cash flows.
-
-**Performance (historical baseline — full live filter stack, next-open fills + tiered slippage):**
-
-`last 90d (most OOS): +0.25% · Sharpe 0.14 · Max DD −3.3% · WR 25%`  
-`full history (2509d): +140.7% · Sharpe 1.08 · Max DD −8.8% · WR 60%`
-
-> These come from the committed baseline runner (`runBaseline.mjs`), measured post the 2026-09
-> backtester time-alignment fix (`PortfolioBacktester` now steps over the union of all symbols'
-> timestamps instead of array index — see
-> [Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)). The robustness overhaul
-> deliberately traded the old (non-reproducible) headline figures for honest, low-drawdown numbers
-> the bot can be trusted to run on unattended. See [STRATEGY.md](docs/STRATEGY.md#backtested-performance-honest-baseline-full-filter-stack).
+**Performance (backtest baseline 2026-11-26):** the whole account (scalper + TSM sleeve, $190 +
+$10 a week) made **18.9% a year over six years, worst drop 6.5%**. The scalper alone is positive
+on every window with drawdowns under 8%, but its deflated Sharpe stays below 0.5: the edge is not
+proven. All numbers: **[MEASUREMENTS.md](docs/MEASUREMENTS.md)**.
 
 📖 **[Strategy Documentation](docs/STRATEGY.md)** — signals, filters, sizing, exits  
+📖 **[Measurements](docs/MEASUREMENTS.md)** — every backtest result, current and earlier, and what was decided  
 📖 **[Technical Documentation](docs/TECHNICAL.md)** — architecture, modules, deployment  
 📖 **[TSM Core Study](docs/TREND_CORE_STUDY.md)** — majors trending sleeve research (experimental, live-capable)  
 📖 **[Backtester follow-ups](docs/plans/2026-09-backtester-parity-followups.md)** — measurement gaps found by the parity work and the live reconciliation (all fixed 2026-10-24)  
 📖 **[Backtester fix status](docs/plans/2026-09-backtester-fix-status.md)** — time-alignment fix: measured results and what is left to ship  
 📖 **[One-engine rebuild](docs/plans/2026-10-single-engine-rebuild.md)** — handoff: reconcile the backtester against live, then share one decision core  
+📖 **[Other assets and the scalper/sleeve split](docs/plans/2026-11-multi-asset-trend.md)** — results: scalper and sleeve measured apart, the scalper's stop rule, the sleeve buy-back checks, other assets stopped at fees
 📖 **[External bots review](docs/EXTERNAL_BOTS_REVIEW.md)** — NostalgiaForInfinity, Freqtrade, NautilusTrader and others: what is worth taking
 
 ---
@@ -88,8 +79,16 @@ Live at `http://localhost:3001` — four tabs:
 | `TELEGRAM_TOKEN` | — | Optional: Telegram bot token for trade notifications |
 | `TELEGRAM_CHANNEL_IDS` | — | Optional: comma-separated chat IDs for notifications |
 | `TSM_CORE` | `false` | Enable TSM majors trending sleeve (simulates in paper; REAL orders in live). Sizing follows the HWM equity ladder — see STRATEGY.md |
+| `SATELLITES` | `false` | Enable the satellite strategies on the free cash (4h breakout, `config.satellites`). Simulates in paper; REAL orders in live |
+| `WEBHOOK_PORT` | `3000` | Port of the external-signal webhook (the webhook is off unless `signals.webhook.enabled` is set in `config/default.js`) |
+| `CONSOLE_LOG_LEVEL` | `LOG_LEVEL` | Console log level, when it should differ from `LOG_LEVEL` |
+| `FILE_LOG_LEVEL` | `debug` | Log level of the daily log files |
+| `TWITTER_BEARER_TOKEN` | — | Optional: Twitter signal source |
+| `LEADER_API_KEY` / `LEADER_API_SECRET` | — | Optional: copy-trade leader account (read-only keys) |
 | `PLAYCRYPTO_RUNTIME_DIR` | cwd | Root for bot state (`data/` state files, `logs/`). Candle caches stay in the checkout. In any test process it defaults to a throwaway temp dir and refuses to resolve inside the checkout, so tests never touch live state; set it for ad-hoc paper boots from a checkout the live container mounts |
 | `WEBHOOK_TOKEN` | — | Required to run the external-signal webhook (off by default). Requests must send it as `x-webhook-token`; without the env var the server refuses to start |
+
+Every variable is listed with a comment in `.env.example` (local) and `.env.live.example` (server).
 
 Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/filter context.
 
@@ -110,24 +109,36 @@ Telegram alerts now include entry/exit, SL/TP, P&L, held time, and startup mode/
 | `npm run test:vitest` | Unit tests (Vitest) |
 | `npm run test:connection` | Verify Binance API connectivity |
 
-### Backtest Flags
+### Backtests
+
+The runners that decide anything apply live's full filter stack on their own
+(`FULL_LIVE_FILTERS` in `src/backtester/baselineFramework.js`), so they need no filter flags:
+
 ```bash
-# All filters are MANDATORY for valid results:
-PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
-  --mtf4h --regimeSizing --confSizing \
-  --slots 3 --candles 730 --budget 1000
+PAPER_MODE=true node src/scripts/runBaseline.mjs --phase <name>    # multi-window baseline + deflated Sharpe
+PAPER_MODE=true node src/scripts/runWalkForward.mjs                # forward-only walk-forward + Monte Carlo
+PAPER_MODE=true TSM_CORE=true node src/scripts/runSuperbot.mjs --cell bot --out <file>   # the live engine replayed, whole account
 ```
 
-See `--help` or [TECHNICAL.md](docs/TECHNICAL.md) for all flags.
+`portfolioBacktest.mjs` is the older flag-driven runner. Its defaults differ from live (3 slots,
+4h score 0.55, regime sizing off), so set them to live's values:
+
+```bash
+PAPER_MODE=true node src/scripts/portfolioBacktest.mjs \
+  --mtf4h --mtf4hScore 0.45 --regimeSizing --confSizing \
+  --slots 4 --candles 730 --budget 1000
+```
+
+See [TECHNICAL.md](docs/TECHNICAL.md) for the scripts.
 
 ---
 
 ## Portfolio
 
 37 Binance spot USDC pairs:  
-BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
+BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY, PAXG, THETA, VANRY
 
-Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
+Max 4 concurrent positions (base size 15% of capital each, `risk.maxPositionPct`), sized by ATR and confidence.
 
 ---
 
@@ -142,9 +153,9 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | Entry | Daily loss > −5% | All trades blocked |
 | Entry | BTC < EMA(200) | Size halved |
 | Entry | ADX < 15 (chop) | Size halved |
-| In-trade | Stop-loss (5%) | IOC limit sell, rest at market |
-| In-trade | Take-profit (12%) | IOC limit sell, rest at market |
-| In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
+| In-trade | Stop-loss (7.5% default, 9% on some symbols) | IOC limit sell, rest at market |
+| In-trade | Take-profit (18% default, per-symbol overrides) | IOC limit sell, rest at market |
+| In-trade | Break-even (+10%) | SL locked at entry (persisted to disk) |
 | In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
 | Ops | Cycle watchdog (30 min) | Telegram alert when the loop stops deciding |
 | Ops | Drift monitor (armed, per-trade Sharpe ref 0.4658) | Telegram alert when live diverges from backtest beyond 2 SE |
@@ -157,8 +168,8 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | Signal cycle | 12h (candle close) | Strategy evaluation + BUY/SELL signals — rescheduled off the wall clock after every run, so a slow or stalled cycle can't drift the loop off candle close |
 | Risk-check | 2 min | SL/TP/trailing/BE for open positions |
 | Price poll | 5 sec | Dashboard live prices |
-| MTF 15m cache | 15 min | Refresh 15m candle cache for filters |
-| MTF 4h cache | 4h | Refresh 4h candle cache for filters |
+| MTF 15m cache | each cycle | Refresh 15m candle cache for filters right after the close |
+| MTF 4h cache | each cycle | Refresh 4h candle cache for filters right after the close |
 | Balance sync | 5 min | Sync exchange balance + position restore |
 | Cycle watchdog | 30 min | Telegram deadman alert if no cycle completes within 1.15× the candle period |
 

@@ -2594,7 +2594,8 @@ switch on.** Points accepted:
 - Still open before a switch-on: a paired block bootstrap of the daily return difference (M2 −
   shipped) charged for the J–M family; a trade-by-trade match of the simulator's M2 sleeve against
   the replay's; live shadow logging of the gate (what it would have blocked) until the 2027-02-10
-  re-check.
+  re-check. **Update 2026-11-26:** the bootstrap and the match are done and the shadow log runs as
+  a monthly replay comparison — see [the 2026-11 plan](2026-11-multi-asset-trend.md).
 
 ### Review fixes (`4c1095b`) and what was left, with the reason
 
@@ -2648,4 +2649,5 @@ one year's gain, unlike K2 (mostly 2018).
 The unseen window is worse on all three universes (2.5 months, a few trades, noise about ±2) —
 the one signal against. Still open before a switch-on, as written above: the paired bootstrap of
 the daily difference charged for the J–M family; the trade-by-trade simulator ↔ replay match;
-live shadow logging of the gate. Switching on stays the user's decision.
+live shadow logging of the gate. Switching on stays the user's decision. (2026-11-26: the first
+two are closed, the third is running — [the 2026-11 plan](2026-11-multi-asset-trend.md).)
