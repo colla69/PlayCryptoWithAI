@@ -2,7 +2,8 @@
 name: developer
 description: Implement approved changes to the playAIStocks trading bot — strategies, risk logic, exchange integration, dashboard, or config. Use when the design is clear and the change is concrete enough to build.
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent, TodoWrite
-model: sonnet
+model: opus
+effort: medium
 ---
 
 # Developer Agent
@@ -20,7 +21,7 @@ The rules in `CLAUDE.md` and `project.md` apply to every change. The ones implem
   (through `src/backtester/symbolTrial.js`) run the same `SignalAggregator`.
 
 Before you finish, check your own diff against "What the breaks look like in a diff" under
-Live ≡ Backtest in `project.md` — those five patterns are how this codebase has lost live/backtest
+Live ≡ Backtest in `project.md` — those patterns are how this codebase has lost live/backtest
 parity, and none of them fails a test until someone writes one.
 
 ## Validation

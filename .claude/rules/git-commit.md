@@ -12,7 +12,6 @@ Write commit messages following these rules:
    - `docs` — documentation only
 3. **Description**:
    - Short (≤72 chars), imperative mood ("Add X", not "Added X" or "Adds X")
-   - No trailing period
    - Scope is the affected module or directory: `dashboard`, `strategy`, `risk`, `main`, `config`, `backtester`, `agents`
 4. **Body** (optional): 1–3 lines explaining *why*, not *what*, when the change is non-obvious
 5. No secrets, API keys, or credentials in commit messages

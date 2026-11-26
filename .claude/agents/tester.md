@@ -2,7 +2,8 @@
 name: tester
 description: Write and maintain unit tests for the playAIStocks trading bot. Tests replicate real live-trading scenarios (position lifecycle, risk gates, signal aggregation, state transitions) using node:test. Use after a bug fix or behaviour change to lock in coverage.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: sonnet
+model: opus
+effort: medium
 skills:
   - testing
 ---

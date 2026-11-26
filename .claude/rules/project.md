@@ -30,7 +30,7 @@ fix belongs in the engine.
 
 - Node.js 22+, ES modules only (`import`/`export`, never `require()`); Binance via `ccxt` (`src/exchange/binanceClient.js`)
 - Config: `config/default.js` — 37 symbols, per-symbol strategy combos, risk params
-- Dashboard: Express + SSE at `:3001`, single-file `public/index.html`
+- Dashboard: Express + SSE at `:3001`, `public/index.html` + `public/dashboard.js`
 - Logging: Winston, daily files `logs/app-YYYY-MM-DD.log` (errors also in `logs/error-YYYY-MM-DD.log`)
 
 ## Critical Files (read these first when debugging)

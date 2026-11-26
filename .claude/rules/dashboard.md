@@ -6,14 +6,15 @@ paths:
 
 # Dashboard Instructions
 
-Rules for all dashboard-related files: `public/index.html` and `src/dashboard/`. New UI is
+Rules for all dashboard-related files: `public/` and `src/dashboard/`. New UI is
 additive — don't break existing panels, SSE event names, or layout contracts.
 
-## public/index.html
+## public/index.html and public/dashboard.js
 
-- This is an intentional single-file dashboard (CSS + HTML + JS inline). Do **not** split it.
+- The dashboard is two files: HTML and CSS in `index.html`, JavaScript in `dashboard.js`. Do **not**
+  split it further.
 - Keep all styling in the `<style>` block at the top.
-- Keep all JavaScript in the `<script>` block at the bottom.
+- Keep all of its JavaScript in `dashboard.js`.
 - No external JS imports or CDN links — this must work without internet access.
 - Use `data-*` attributes on table rows for surgical DOM updates without full re-render.
 - Use SSE (`/api/events`) as the primary update channel; use a polling fallback (`/api/status`) for reliability.
@@ -24,7 +25,7 @@ additive — don't break existing panels, SSE event names, or layout contracts.
   - `event: cycle` — full state snapshot (positions, balance, history, summary)
   - `event: prices` — live price map `{ symbol: price }`, pushed every 5s by `main.js`
   - `event: heartbeat` — full `cycle` payload pushed every 15s as keep-alive
-- Frontend subscribes in `initSSE()` and handles each event type separately.
+- Frontend subscribes in `connectEvents()` and handles each event type separately.
 - Never rely solely on SSE for live prices; always keep the `pollPositionPrices()` poller active.
 
 ## dashboardState.js
@@ -65,5 +66,5 @@ additive — don't break existing panels, SSE event names, or layout contracts.
 ## Formatting Helpers
 
 - `formatQty(qty)` — locale-aware with thresholds to avoid scientific notation.
-- `formatSignedDual(pct, usd)` — returns `+X.XX%` with `title="$±X.XX"`.
-- `formatEur(usd, rate)` — converts USD to EUR string.
+- `formatSignedDual(usdValue)` — returns the signed USD amount, plus ` / ±€Y.YY` once the rate is known.
+- `formatEur(usdValue)` — converts USD to a EUR string; `null` until the rate is known.
