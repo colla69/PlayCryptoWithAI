@@ -25,7 +25,7 @@ Architecture, data flow, module responsibilities, and deployment.
 │  │              │    │                  │    │                  │  │
 │  │  PaperTrader │    │  Express + SSE   │    │  JSON files      │  │
 │  │  LiveTrader  │    │  4-tab UI        │    │  position_state  │  │
-│  │  OCO orders  │    │  Deposit tracker │    │  Trade CSV       │  │
+│  │  IOC limits  │    │  Deposit tracker │    │  Trade CSV       │  │
 │  │  State save  │    │  512KB log tail  │    │  Candle cache    │  │
 │  └──────────────┘    └──────────────────┘    └──────────────────┘  │
 │                                                                     │
@@ -46,7 +46,8 @@ Architecture, data flow, module responsibilities, and deployment.
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| Entry point | `main.js` | Trading loop, filter orchestration, startup sequence |
+| Entry point | `main.js` | Wiring, scheduler, risk loop, startup sequence, position restore |
+| Engine cycle | `core/engine.js` | The bar-close cycle (`runAllSymbols`): fetch, gates, decisions, entries, TSM sleeve — I/O and clock injected; replayed over history by `backtester/engineReplay.js` |
 | Signal Aggregator | `engine/signalAggregator.js` | Confidence-weighted voting + multi-bar gate (consumes `aggregatorVoting.js`) |
 | Aggregator Voting | `engine/aggregatorVoting.js` | Pure voting math — shared by live, backtester, optimizer (parity-locked) |
 | Regime Classifier | `engine/regimeClassifier.js` | BTC 2×2 regime (EMA200 × ADX) with 3-bar hysteresis |
@@ -62,7 +63,6 @@ Architecture, data flow, module responsibilities, and deployment.
 | Paper Trader | `executor/paperTrader.js` | Simulated order execution |
 | Live Trader | `executor/liveTrader.js` | Real Binance orders (IOC limits capped `risk.limitCapPct` past the price; market only for what a sell leaves), position tracking, position state persistence |
 | Binance Client | `exchange/binanceClient.js` | ccxt wrapper, retry logic, market limits |
-| OCO Orders | `exchange/ocoOrders.js` | Server-side SL/TP for Lambda deployment |
 | Candle Cache | `exchange/candleCache.js` | Disk-backed OHLCV cache; merge-preserving saves keep deep research history intact |
 | Candle Freshness | `utils/candleFreshness.js` | Timeframe parsing + frozen-series detection (live guard, backtest stale-data warning) |
 | Cycle Scheduler | `core/cycleScheduler.js` | Candle-close alignment; re-derives each fire time from the clock so the loop can't drift |
@@ -110,21 +110,6 @@ Architecture, data flow, module responsibilities, and deployment.
 | `repairPhantomState.mjs` | One-shot ops repair (2026-08-03 incident): strip the phantom scalper position that absorbed the core sleeve's ETH from state/trade/equity files. Bot stopped; dry-run by default, `--apply` to write; idempotent, refuses to write if files don't match the incident state |
 | `repairFrozenCoreEquity.mjs` | One-shot ops repair (2026-08-10 incident): rewrite the 08-04→08-09 `equity_history.json` snapshots frozen by the unmarked core legs, from verified Binance 1m closes. Bot stopped; dry-run by default, `--apply` to write; idempotent, writes `.bak` |
 
-### Lambda (`src/lambda/`)
-
-| Handler | Purpose |
-|---------|---------|
-| `tradingHandler.js` | Trading bot logic (EventBridge → every 15 min) |
-| `dashboardHandler.js` | Dashboard API (API Gateway) |
-
-### State Persistence (`src/state/`)
-
-| Module | Purpose |
-|--------|---------|
-| `index.js` | Abstraction layer (auto-selects local vs S3) |
-| `localStore.js` | JSON file persistence (Docker/local mode) |
-| `s3Store.js` | S3-backed persistence (Lambda mode) |
-
 ---
 
 ## Measuring performance once you deposit regularly
@@ -155,7 +140,7 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
    wall clock (core/cycleScheduler.js). No fixed setInterval — a slow or stalled
    cycle costs that cycle, never the alignment.
 
-1. MTF candles served from in-memory cache (refreshed every 15m / 4h)
+1. MTF candles served from in-memory cache (refreshed at each cycle, right after the close)
    12h candles fetched fresh from Binance and merged into history cache
    → series older than maxCandleStalenessPeriods (24h) ⇒ symbol skipped
 
@@ -219,8 +204,8 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 
 ```
 ┌─────────────────────────────────────────────┐
-│ 15m cache: refreshed every 15 min (24 bars) │
-│ 4h cache:  refreshed every 4h (30 bars)     │
+│ 15m cache: refreshed each cycle (24 bars)   │
+│ 4h cache:  refreshed each cycle (30 bars)   │
 │ On cache miss: live fetch + warm cache       │
 └─────────────────────────────────────────────┘
 - Eliminates 74 API calls per BUY evaluation (37 symbols × 2 TF)
@@ -290,7 +275,7 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 | POST | `/api/refresh-balance` | Trigger immediate position sync + balance update |
 | POST | `/api/smoke-test` | Run connectivity smoke test |
 | GET | `/api/logs` | Log tail (filtered, paginated) |
-| GET | `/stream` | SSE event stream (cycle updates, heartbeat) |
+| GET | `/api/events` | SSE event stream (cycle updates, heartbeat) |
 
 ### Local Mode (Docker / bare metal)
 
@@ -305,16 +290,6 @@ now appends one snapshot per UTC day from the main cycle, so it accrues in paper
 | `data/candles/*.json` | JSON | Cached OHLCV data (12h, 15m, 4h) |
 | `logs/trades.csv` | CSV | Full trade journal |
 | `logs/app-YYYY-MM-DD.log` | JSON lines | Runtime log (DailyRotateFile, 50 MB/file, 30 d retention) |
-
-### Lambda Mode (S3)
-
-| Key | Contents |
-|-----|----------|
-| `state/positions.json` | Open positions array |
-| `state/trades.json` | Trade history array |
-| `state/deposits.json` | Deposit tracker entries |
-| `state/lastCycle.json` | Last execution timestamp |
-| `logs/` | Retained 30 days (lifecycle rule) |
 
 ---
 
@@ -358,20 +333,7 @@ persisted); on restore, core legs reserve their wallet coins first
 operation replaced it as the source of operational truth. `data-soak/`/`logs-soak/`
 dirs on hosts that ran it can be deleted.)
 
-### 2. AWS Lambda (serverless, ~$0.65/month)
-
-```
-EventBridge (15 min) → TradingBotFunction
-API Gateway          → DashboardApiFunction
-S3 static website    → Dashboard HTML
-S3 bucket            → State persistence
-```
-
-Deploy: `./aws/deploy.sh` (requires SAM CLI + AWS credentials)
-
-Key difference: Binance OCO orders handle SL/TP server-side (bot doesn't need to run 24/7).
-
-### 3. Bare Metal / VPS
+### 2. Bare Metal / VPS
 
 ```bash
 npm install && npm start   # or: npm run paper
@@ -439,7 +401,6 @@ config
 | No database | JSON files sufficient for <100 trades/month; simple backup (git) |
 | Position state persistence | SL/HWM/entry saved to disk on every change; survives restarts without losing break-even protection |
 | DailyRotateFile logging | 50 MB max per file, 30-day retention; dashboard reads today's dated file with 512 KB tail for speed |
-| OCO for Lambda | Exchange handles exits 24/7 without running process |
 | TSM core positions (#core keys) | Coexist with scalper on same asset; `isCore: true` flag excludes them from risk-loop stops, correlation cap, daily-loss accounting (ring-fenced sleeve). The risk loop still marks their price each pass, and on restore core legs reserve their wallet coins before scalper attribution (`calcCoreClaims`) |
 | Candle cache merge-preserving | `saveCachedCandles` keeps disk bars strictly older than payload's first timestamp; empty payload no-ops (preserves deep research history) |
 | In-memory candle merge payload-wins | The fresh exchange payload overwrites any overlapping timestamp; the single copy of the rule is `src/utils/mergeCandles.js`, used by `dashboardState.updateCandles` and the startup seed. The old first-wins merges froze the forming candle captured mid-cycle and discarded its closed version, silently corrupting every indicator downstream and breaking live ≡ backtest (2026-07 soak: TIA scored CCI 49.1 live vs 76.7 in the backtester on identical on-disk data; the seed's `!seen.has(ts)` filter re-froze partial bars on every restart — 36/37 symbols). Never hand-roll a merge — call `mergeCandles()` |

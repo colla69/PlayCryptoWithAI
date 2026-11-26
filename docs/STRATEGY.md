@@ -126,7 +126,7 @@ into a 2×2 grid, with **3-bar hysteresis** to avoid flip-flop:
 all open positions are closed on that bar and new entries are blocked until the regime leaves
 `BEAR_TREND`. `BEAR_CHOP` (sideways) is *not* blocked — mean-reversion still works there; blocking it
 was measured as too costly. This replaces the old "halve size in bear" approach with an actual
-cash-out on confirmed downtrends. Config: `bearPolicy` (`mode: 'trend_only'`).
+cash-out on confirmed downtrends. Config: `bearPolicy` (`restrictTo: 'trend_only'`).
 
 **Regime routing** (regime-conditional strategy bundles, `src/engine/regimeRouter.js`) is shipped as
 infrastructure but **default OFF** (`regimeRouting.enabled = false`). A 2026-06 deep-data study refuted
@@ -315,10 +315,10 @@ Implementation: `src/engine/tsmCore.js` (pure functions), `src/data/nasdaqTrend.
 
 ## Exit Rules
 
-- **Stop-Loss** — per-symbol fixed % (3–8%, default 5%). *(ATR-derived stops exist as infrastructure
+- **Stop-Loss** — per-symbol fixed % (7.5–9%, default 7.5%). *(ATR-derived stops exist as infrastructure
   but are **disabled** — A/B testing showed them net-negative vs the well-tuned per-symbol stops.)*
-- **Take-Profit** — per-symbol fixed % (8–30%, default 12%).
-- **Break-Even Stop** — at +5% unrealised, SL moves to entry. Once per position. Persisted to
+- **Take-Profit** — per-symbol fixed % (18–45%, default 18%).
+- **Break-Even Stop** — at +10% unrealised (`risk.breakEvenTriggerPct`), SL moves to entry (+0.2% for fees). Once per position. Persisted to
   `data/position_state.json` (survives restarts).
 - **Strategy SELL** — aggregator SELL above the asymmetric exit threshold closes the position.
 - **Position aging exit** (Phase 7) — positions open > 14 bars (7 days) without hitting TP/SL are

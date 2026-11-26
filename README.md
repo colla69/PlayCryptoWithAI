@@ -136,7 +136,7 @@ See `--help` or [TECHNICAL.md](docs/TECHNICAL.md) for all flags.
 37 Binance spot USDC pairs:  
 BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, LINK, BCH, LTC, TRX, NEAR, INJ, CRV, LDO, ENS, TIA, SUI, MANTA, JTO, PIXEL, WLD, PEPE, GRAM (formerly TON), RENDER, ENA, ICP, APT, ARB, JUP, ACH, GMX, LSK, PAXG, THETA, VANRY
 
-Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
+Max 4 concurrent positions (base size 15% of capital each, `risk.maxPositionPct`), sized by ATR and confidence.
 
 ---
 
@@ -151,9 +151,9 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | Entry | Daily loss > −5% | All trades blocked |
 | Entry | BTC < EMA(200) | Size halved |
 | Entry | ADX < 15 (chop) | Size halved |
-| In-trade | Stop-loss (5%) | IOC limit sell, rest at market |
-| In-trade | Take-profit (12%) | IOC limit sell, rest at market |
-| In-trade | Break-even (+5%) | SL locked at entry (persisted to disk) |
+| In-trade | Stop-loss (7.5% default, 9% on some symbols) | IOC limit sell, rest at market |
+| In-trade | Take-profit (18% default, per-symbol overrides) | IOC limit sell, rest at market |
+| In-trade | Break-even (+10%) | SL locked at entry (persisted to disk) |
 | In-trade | Risk-check loop (every 2 min) | Catches stops between 12h signal cycles |
 | Ops | Cycle watchdog (30 min) | Telegram alert when the loop stops deciding |
 | Ops | Drift monitor (armed, per-trade Sharpe ref 0.4658) | Telegram alert when live diverges from backtest beyond 2 SE |
@@ -166,8 +166,8 @@ Max 4 concurrent positions (~25% capital each), sized by ATR and confidence.
 | Signal cycle | 12h (candle close) | Strategy evaluation + BUY/SELL signals — rescheduled off the wall clock after every run, so a slow or stalled cycle can't drift the loop off candle close |
 | Risk-check | 2 min | SL/TP/trailing/BE for open positions |
 | Price poll | 5 sec | Dashboard live prices |
-| MTF 15m cache | 15 min | Refresh 15m candle cache for filters |
-| MTF 4h cache | 4h | Refresh 4h candle cache for filters |
+| MTF 15m cache | each cycle | Refresh 15m candle cache for filters right after the close |
+| MTF 4h cache | each cycle | Refresh 4h candle cache for filters right after the close |
 | Balance sync | 5 min | Sync exchange balance + position restore |
 | Cycle watchdog | 30 min | Telegram deadman alert if no cycle completes within 1.15× the candle period |
 
